@@ -481,10 +481,11 @@ function buildQuery(values: Values, extra: Record<string, string> = {}): string 
 
 /** Config discovery: explicit flag, then the working directory, then the home dir. */
 async function resolveConfig(values: Values): Promise<RuntimeConfig> {
-  const candidates =
-    typeof values.config === 'string'
-      ? [resolve(values.config)]
-      : [resolve('bridge.config.json'), resolve(DEFAULT_DATA_DIR, 'config.json')];
+  // An explicit --config that cannot be read is a mistake worth naming exactly,
+  // not something to paper over by falling back to a different file.
+  if (typeof values.config === 'string') return loadRuntimeConfig(resolve(values.config));
+
+  const candidates = [resolve('bridge.config.json'), resolve(DEFAULT_DATA_DIR, 'config.json')];
   for (const candidate of candidates) {
     try {
       await readFile(candidate);

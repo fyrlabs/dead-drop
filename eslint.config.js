@@ -29,7 +29,7 @@ export default tseslint.config(
   },
   {
     // Tests may reach for the loose escape hatches the runtime code may not.
-    files: ['**/*.test.ts', '**/testing/**/*.ts', 'examples/**/*.ts'],
+    files: ['**/*.test.ts', '**/testing/**/*.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',
@@ -40,5 +40,17 @@ export default tseslint.config(
   {
     files: ['packages/cli/**/*.ts'],
     rules: { 'no-console': 'off' },
+  },
+  {
+    // Examples are plain Node scripts meant to be read and run, not linted for
+    // library discipline: printing to the console is their entire purpose.
+    files: ['examples/**/*.js'],
+    languageOptions: { sourceType: 'module', ecmaVersion: 2023 },
+    rules: {
+      'no-undef': 'off',
+      'no-console': 'off',
+      'no-restricted-globals': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
+    },
   },
 );

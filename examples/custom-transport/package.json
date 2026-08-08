@@ -1,0 +1,14 @@
+{
+  "name": "@dead-drop/example-custom-transport",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@dead-drop/protocol": "0.1.0",
+    "@dead-drop/runtime": "0.1.0",
+    "@dead-drop/transport-sdk": "0.1.0"
+  }
+}

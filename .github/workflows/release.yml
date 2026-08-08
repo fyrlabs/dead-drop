@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npm run lint && npm run build && npm test
+      # Dependency order matters: a package cannot publish before the packages
+      # it depends on exist at the published version.
+      - name: Publish packages in dependency order
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          for pkg in \
+            packages/protocol \
+            packages/transport-sdk \
+            packages/core \
+            packages/transports/memory \
+            packages/transports/filesystem \
+            packages/transports/git \
+            packages/transports/github \
+            packages/runtime \
+            packages/sdk \
+            packages/cli
+          do
+            npm publish --workspace "$pkg" --access public --provenance
+          done

@@ -12,8 +12,13 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist", "README.md"],
-  "engines": { "node": ">=20.11" },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
   "scripts": {
     "build": "tsc --build"
   }

@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same branch makes the first run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest supported and current. A break on either is a break.
+        node: ['20.11', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run format:check
+      # The git transport tests drive a real git binary against a local bare
+      # repository, so git must be configured enough to commit.
+      - name: Configure git for the transport tests
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+          git config --global init.defaultBranch main
+      - run: npm run test:coverage
+      - name: Run the examples
+        run: |
+          node examples/custom-transport/index.js
+          node examples/express-proxy/index.js
+          node examples/sdk-rpc/index.js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-node-${{ matrix.node }}
+          path: coverage/
+          retention-days: 7
+
+  windows:
+    name: verify (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Configure git for the transport tests
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+          git config --global init.defaultBranch main
+      # Windows uses named pipes rather than Unix sockets, and path handling
+      # differs throughout; this job exists to catch that, not to duplicate CI.
+      - run: npm test
