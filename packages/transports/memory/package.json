@@ -1,0 +1,17 @@
+{
+  "name": "@dead-drop/transport-memory",
+  "version": "0.1.0",
+  "description": "Bridge memory transport adapter",
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md"],
+  "engines": { "node": ">=20.11" },
+  "dependencies": {
+    "@dead-drop/protocol": "0.1.0",
+    "@dead-drop/transport-sdk": "0.1.0"
+  },
+  "scripts": { "build": "tsc --build" }
+}
