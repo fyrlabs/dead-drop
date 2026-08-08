@@ -1,0 +1,14 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/protocol" },
+    { "path": "./packages/transport-sdk" },
+    { "path": "./packages/core" },
+    { "path": "./packages/transports/memory" },
+    { "path": "./packages/transports/filesystem" },
+    { "path": "./packages/transports/github" },
+    { "path": "./packages/runtime" },
+    { "path": "./packages/sdk" },
+    { "path": "./packages/cli" }
+  ]
+}
