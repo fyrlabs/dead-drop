@@ -16,7 +16,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { BridgeError, generateWorkspaceSecret } from '@fyrlabs/dead-drop-protocol';
-import { createLogger, prettySink, type LogRecord } from '@fyrlabs/dead-drop-core';
+import { createLogger, prettySink, type LogRecord, type Span } from '@fyrlabs/dead-drop-core';
 import {
   BridgeRuntime,
   ControlPlaneClient,
@@ -61,6 +61,7 @@ Usage
   bridge call <peer> <channel> [--input json] make an rpc call
   bridge publish <channel> [--input json]     broadcast an event
   bridge logs [--limit n] [--level warn]      recent runtime logs
+  bridge trace [<traceId>]                    recent traces, or one trace as a span tree
   bridge metrics                              Prometheus metrics
   bridge keygen                               print a new workspace secret
   bridge init [--name <workspace>]            write a starter bridge.config.json
@@ -163,6 +164,8 @@ async function dispatch(
       return publish(args, values, io);
     case 'logs':
       return logs(values, io);
+    case 'trace':
+      return trace(args, values, io);
     case 'metrics':
       return metrics(values, io);
     default:
@@ -473,6 +476,99 @@ async function logs(values: Values, io: CliIo): Promise<number> {
   const write = prettySink((line) => io.out(line));
   for (const record of body.records) write(record);
   return 0;
+}
+
+/**
+ * With an id, one trace as a span tree. Without, the recent traces so there is
+ * something to copy an id out of — a trace id is not guessable, and the runtime
+ * only prints one on the request that produced it.
+ */
+async function trace(args: string[], values: Values, io: CliIo): Promise<number> {
+  const traceId = args[0];
+  const query = traceId === undefined ? '' : `?id=${encodeURIComponent(traceId)}`;
+  const body = await (await client(values)).request<{ spans: Span[] }>('GET', `/traces${query}`);
+  if (values.json) {
+    io.out(JSON.stringify(body, null, 2));
+    return 0;
+  }
+  if (body.spans.length === 0) {
+    io.out(
+      traceId === undefined
+        ? 'No traces recorded yet.'
+        : `No spans recorded for trace ${traceId}. The buffer keeps the most recent 500.`,
+    );
+    return 0;
+  }
+  if (traceId === undefined) printTraceList(body.spans, io);
+  else printSpanTree(body.spans, io);
+  return 0;
+}
+
+function printTraceList(spans: Span[], io: CliIo): void {
+  const traces = new Map<string, Span[]>();
+  for (const span of spans) {
+    const group = traces.get(span.traceId);
+    if (group) group.push(span);
+    else traces.set(span.traceId, [span]);
+  }
+  io.out(`${pad('trace', 32)}${pad('spans', 7)}${pad('duration', 10)}${pad('status', 8)}root`);
+  for (const [traceId, group] of traces) {
+    // Prefer a span with no parent. Falling back to the earliest start is not
+    // enough on its own: spans are recorded when they finish, and at millisecond
+    // resolution a child that finished first can tie with its parent and win.
+    const root =
+      group.find((span) => span.parentSpanId === undefined) ??
+      group.reduce((first, span) => (span.startedAt < first.startedAt ? span : first));
+    const started = Math.min(...group.map((span) => span.startedAt));
+    const ended = Math.max(...group.map((span) => span.endedAt ?? span.startedAt));
+    const status = group.some((span) => span.status === 'error') ? 'error' : root.status;
+    io.out(
+      pad(traceId, 32) +
+        pad(String(group.length), 7) +
+        pad(`${ended - started}ms`, 10) +
+        pad(status, 8) +
+        root.name,
+    );
+  }
+  io.out('');
+  io.out('bridge trace <traceId> expands one of them.');
+}
+
+function printSpanTree(spans: Span[], io: CliIo): void {
+  const ids = new Set(spans.map((span) => span.spanId));
+  const children = new Map<string, Span[]>();
+  const roots: Span[] = [];
+  for (const span of spans) {
+    // A span whose parent was evicted from the buffer is shown as a root rather
+    // than dropped: a partial tree is still worth reading.
+    const parent = span.parentSpanId;
+    if (parent !== undefined && ids.has(parent)) {
+      const siblings = children.get(parent);
+      if (siblings) siblings.push(span);
+      else children.set(parent, [span]);
+    } else {
+      roots.push(span);
+    }
+  }
+
+  const walk = (span: Span, depth: number): void => {
+    const attributes = Object.entries(span.attributes)
+      .map(([key, value]) => `${key}=${String(value)}`)
+      .join(' ');
+    const duration = span.durationMs === undefined ? 'open' : `${span.durationMs}ms`;
+    io.out(
+      '  '.repeat(depth) +
+        pad(span.name, 34 - depth * 2) +
+        pad(duration, 10) +
+        pad(span.status, 10) +
+        attributes,
+    );
+    for (const event of span.events) {
+      io.out(`${'  '.repeat(depth + 1)}· ${event.name}`);
+    }
+    for (const child of children.get(span.spanId) ?? []) walk(child, depth + 1);
+  };
+  for (const root of roots) walk(root, 0);
 }
 
 async function metrics(values: Values, io: CliIo): Promise<number> {

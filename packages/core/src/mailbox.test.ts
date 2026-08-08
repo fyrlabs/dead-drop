@@ -13,6 +13,7 @@ import type { TestClock } from './clock.js';
 import { deadLetterPrefix, inboxKey, inboxPrefix, messageIdFromKey, topicPrefix } from './keys.js';
 import { MailboxEngine, type MailboxOptions } from './mailbox.js';
 import { MetricsRegistry } from './observability/metrics.js';
+import { Tracer } from './observability/tracer.js';
 import { DedupeStore } from './reliability/dedupe.js';
 import { faultyTransport, harness, type FaultyStore } from './testing.js';
 import { TransportManager } from './transport-manager.js';
@@ -42,6 +43,7 @@ async function fixture(
     objects?: Map<string, Uint8Array>;
     handler?: (envelope: Envelope) => Promise<void>;
     encrypted?: boolean;
+    tracer?: Tracer;
   } = {},
 ): Promise<Fixture> {
   const { clock, logger } = harness(BASE_TIME);
@@ -60,6 +62,7 @@ async function fixture(
     logger,
     metrics,
     retry: { maxAttempts: 1 },
+    ...(options.tracer ? { tracer: options.tracer } : {}),
   });
   await manager.start();
 
@@ -72,6 +75,7 @@ async function fixture(
     logger,
     metrics,
     dedupe: new DedupeStore({ clock }),
+    ...(options.tracer ? { tracer: options.tracer } : {}),
     ...(options.encrypted === false ? {} : { keys: KeyRing.fromSecrets(WORKSPACE, [SECRET]) }),
     ...options.mailbox,
   });
@@ -163,6 +167,43 @@ describe('MailboxEngine send', () => {
     for (const frame of context.store.objects.values()) {
       expect(frame.length).toBeLessThanOrEqual(8192);
     }
+  });
+});
+
+describe('MailboxEngine tracing', () => {
+  // Without propagation every span is its own single-span trace, which makes
+  // `bridge trace` useless. The parent link is the thing worth guarding.
+  it('keys the send trace to the message id and parents the transport write to it', async () => {
+    const tracer = new Tracer();
+    const context = await fixture({ tracer });
+    const message = envelope();
+    await context.mailbox.send(message);
+    await context.stop();
+
+    const spans = tracer.trace(message.id);
+    const send = spans.find((span) => span.name === 'mailbox.send');
+    const put = spans.find((span) => span.name === 'transport.put');
+    expect(send).toBeDefined();
+    expect(put?.parentSpanId).toBe(send?.spanId);
+    // Nothing about this message landed in some other trace.
+    expect(spans).toHaveLength(tracer.spans().filter((span) => span.traceId === message.id).length);
+  });
+
+  it('joins a response to the trace of the request it answers', async () => {
+    const tracer = new Tracer();
+    const objects = new Map<string, Uint8Array>();
+    const sender = await fixture({ peerId: 'peer-sender', objects });
+    const requestId = 'msg_01REQUEST';
+    await sender.mailbox.send(
+      envelope({ to: 'peer-b', kind: 'response', correlationId: requestId }),
+    );
+    await sender.stop();
+
+    const receiver = await fixture({ peerId: 'peer-b', objects, tracer });
+    expect(await receiver.mailbox.pollOnce()).toBe(1);
+    await receiver.stop();
+
+    expect(tracer.trace(requestId).map((span) => span.name)).toContain('mailbox.deliver');
   });
 });
 

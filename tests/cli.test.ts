@@ -149,6 +149,36 @@ describe('bridge start and the commands that talk to it', () => {
     const logs = capture();
     expect(await run(['logs', '--socket', socket, '--limit', '5'], logs)).toBe(0);
 
+    // The publish above produced spans, so the trace list has something in it
+    // and the ids it prints expand into a tree.
+    const traceJson = capture();
+    expect(await run(['trace', '--socket', socket, '--json'], traceJson)).toBe(0);
+    const { spans } = JSON.parse(traceJson.stdout.join('\n')) as {
+      spans: Array<{ traceId: string; name: string }>;
+    };
+    expect(spans.length).toBeGreaterThan(0);
+
+    const traceList = capture();
+    expect(await run(['trace', '--socket', socket], traceList)).toBe(0);
+    expect(traceList.stdout.join('\n')).toContain(spans[0]?.traceId as string);
+
+    // The publish is traced as one trace keyed by the message id, and the
+    // transport write sits under the send rather than floating in its own
+    // trace. That nesting is the whole point of the command, so assert the
+    // child is actually indented under the parent.
+    const messageTraceId = spans.find((span) => span.traceId.startsWith('msg_'))?.traceId;
+    expect(messageTraceId).toBeDefined();
+
+    const oneTrace = capture();
+    expect(await run(['trace', messageTraceId as string, '--socket', socket], oneTrace)).toBe(0);
+    expect(oneTrace.stdout[0]).toMatch(/^(mailbox\.send|workspace\.request)/);
+    expect(oneTrace.stdout.slice(1).some((line) => /^ {2}\S/.test(line))).toBe(true);
+
+    // An unknown id is a normal outcome, not an error: the buffer is bounded.
+    const unknownTrace = capture();
+    expect(await run(['trace', 'trace_nope', '--socket', socket], unknownTrace)).toBe(0);
+    expect(unknownTrace.stdout.join('\n')).toMatch(/No spans recorded/);
+
     for (const stop of shutdowns.splice(0)) stop();
     expect(await started).toBe(0);
   }, 60_000);

@@ -23,7 +23,7 @@ import { systemClock } from './clock.js';
 import type { Logger } from './observability/logger.js';
 import { silentLogger } from './observability/logger.js';
 import { MetricsRegistry, healthToNumber } from './observability/metrics.js';
-import type { Tracer } from './observability/tracer.js';
+import type { TraceContext, Tracer } from './observability/tracer.js';
 import { CircuitBreaker } from './reliability/circuit-breaker.js';
 import {
   DEFAULT_RETRY_POLICY,
@@ -329,6 +329,8 @@ export class TransportManager {
       signal?: AbortSignal;
       /** Overrides the retry policy for this call. */
       retry?: Partial<RetryPolicy>;
+      /** Attaches the transport spans to the caller trace. */
+      trace?: TraceContext;
     } = {},
   ): Promise<T> {
     const candidates = this.select(options.requirements ?? {});
@@ -382,6 +384,7 @@ export class TransportManager {
       requirements?: TransportRequirements;
       timeoutMs?: number;
       signal?: AbortSignal;
+      trace?: TraceContext;
     } = {},
   ): Promise<T[]> {
     const candidates = this.select(options.requirements ?? {});
@@ -447,10 +450,12 @@ export class TransportManager {
     operation: string,
     body: (transport: Transport, entry: ManagedTransport) => Promise<T>,
     timeoutMs: number,
-    options: { signal?: AbortSignal; retry?: Partial<RetryPolicy> },
+    options: { signal?: AbortSignal; retry?: Partial<RetryPolicy>; trace?: TraceContext },
   ): Promise<T> {
     const span = this.tracer?.startSpan(`transport.${operation}`, {
       attributes: { transport: entry.name, operation },
+      ...(options.trace?.traceId ? { traceId: options.trace.traceId } : {}),
+      ...(options.trace?.parentSpanId ? { parentSpanId: options.trace.parentSpanId } : {}),
     });
     const startedAt = this.clock.now();
     try {

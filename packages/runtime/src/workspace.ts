@@ -36,7 +36,7 @@ import {
   type Tracer,
   type TransportInfo,
 } from '@fyrlabs/dead-drop-core';
-import { MetricsRegistry as Metrics } from '@fyrlabs/dead-drop-core';
+import { MetricsRegistry as Metrics, traceContext } from '@fyrlabs/dead-drop-core';
 import type { StoreTransport, TransportRegistration } from '@fyrlabs/dead-drop-transport-sdk';
 
 import type { WorkspaceConfig } from './config.js';
@@ -313,8 +313,11 @@ export class Workspace {
       ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
     });
 
+    // Keyed by the envelope id so `bridge trace <requestId>` works with the id
+    // a timeout error already hands the caller in `details.requestId`.
     const span = this.tracer?.startSpan('workspace.request', {
-      attributes: { channel, target },
+      traceId: envelope.id,
+      attributes: { channel, target, requestId: envelope.id },
     });
     const startedAt = this.clock.now();
     this.metrics.inflightRequests.add(1, { workspace: this.name });
@@ -348,7 +351,11 @@ export class Workspace {
     });
 
     try {
-      await this.mailbox.send(envelope, options.signal ? { signal: options.signal } : {});
+      const trace = traceContext(span);
+      await this.mailbox.send(envelope, {
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(trace ? { trace } : {}),
+      });
       const result = await response;
       this.metrics.requestsTotal.inc({ channel, outcome: 'success' });
       this.metrics.requestLatency.observe(this.clock.now() - startedAt, { channel });

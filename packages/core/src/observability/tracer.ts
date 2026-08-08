@@ -38,6 +38,26 @@ export interface ActiveSpan {
   end(status?: SpanStatus): void;
 }
 
+/**
+ * Enough to attach a span to work already in progress. Passed across layer
+ * boundaries (workspace -> mailbox -> transport) so one request produces one
+ * trace instead of a scatter of unrelated single-span ones.
+ */
+export interface TraceContext {
+  traceId: string;
+  parentSpanId?: string;
+}
+
+/**
+ * Context for an active span, or undefined when tracing is off — the no-op span
+ * carries empty ids, which would otherwise group every untraced operation under
+ * one meaningless trace.
+ */
+export function traceContext(span: ActiveSpan | undefined): TraceContext | undefined {
+  if (span === undefined || span.traceId === '') return undefined;
+  return { traceId: span.traceId, parentSpanId: span.spanId };
+}
+
 export interface TracerOptions {
   clock?: Clock;
   /** Retained finished spans. Older ones are evicted. Default 500. */

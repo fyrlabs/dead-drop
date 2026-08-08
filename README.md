@@ -161,6 +161,7 @@ bridge connect <peer>/<exposure>
 bridge call <peer> <channel> --input '{"a":1}'
 bridge publish <channel> --input '{...}'
 bridge logs | metrics
+bridge trace [<traceId>]             recent traces, or one as a span tree
 bridge keygen | init
 ```
 

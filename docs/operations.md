@@ -71,6 +71,14 @@ Shutdown on SIGINT/SIGTERM is graceful: pending requests are rejected with `CANC
 | `bridge_poll_interval_ms` | Pinned at maximum means nothing is arriving. |
 | `bridge_inflight_requests` | Growing without bound means responses are not coming back. |
 
+## Traces
+
+`bridge trace` lists the recent traces; `bridge trace <traceId>` expands one into a span tree with durations, statuses and attributes.
+
+The trace id of a message is its message id, so the `requestId` in a timeout error's `details` is directly usable: `bridge trace msg_01J…` shows the request, the send, each transport attempt and, if it arrived, the delivery of the response. Only this peer's side of a round trip is visible; the remote peer traces its own half under its own runtime.
+
+The buffer holds the most recent 500 finished spans and is memory-only, so it is for debugging a problem happening now, not for after the fact. `bridge trace --json` gives the raw spans.
+
 ## Troubleshooting
 
 **`cannot reach the Bridge runtime … Is "bridge start" running?`** — the CLI could not open the control socket. The path it tried is in the message. Client commands derive it from the config they discover, so a command run from a directory without `bridge.config.json` falls back to `~/.bridge/bridge.sock` and misses a project-local runtime; pass `--config` or `--socket` in that case.

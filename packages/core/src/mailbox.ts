@@ -48,7 +48,7 @@ import type { Logger } from './observability/logger.js';
 import { silentLogger } from './observability/logger.js';
 import type { MetricsRegistry } from './observability/metrics.js';
 import { MetricsRegistry as Metrics } from './observability/metrics.js';
-import type { Tracer } from './observability/tracer.js';
+import { traceContext, type TraceContext, type Tracer } from './observability/tracer.js';
 import { DedupeStore } from './reliability/dedupe.js';
 import { backoffDelay, DEFAULT_RETRY_POLICY, type RetryPolicy } from './reliability/retry.js';
 import type { ManagedTransport, TransportManager } from './transport-manager.js';
@@ -89,6 +89,8 @@ export interface MailboxOptions {
 
 export interface SendOptions {
   signal?: AbortSignal;
+  /** Parents the send span to a caller span already covering this envelope. */
+  trace?: TraceContext;
   /** Write through every healthy transport instead of just the best one. */
   broadcastTransports?: boolean;
   /** Restrict to these transport instance names. */
@@ -190,13 +192,20 @@ export class MailboxEngine {
         ? { ...envelope, ttlMs: this.defaultTtlMs }
         : envelope;
 
+    // The envelope id is the trace id. It is already unique, it is what a
+    // caller holds after a timeout (`details.requestId`), and using it means
+    // every layer can join the same trace without threading a context object
+    // through signatures that do not otherwise need one.
     const span = this.tracer?.startSpan('mailbox.send', {
+      traceId: outbound.id,
+      ...(options.trace?.parentSpanId ? { parentSpanId: options.trace.parentSpanId } : {}),
       attributes: {
         channel: outbound.channel,
         kind: outbound.kind,
         to: outbound.to ?? '(broadcast)',
       },
     });
+    const trace = traceContext(span);
 
     try {
       if (outbound.payload.length > this.maxMessageBytes) {
@@ -237,11 +246,13 @@ export class MailboxEngine {
           await this.manager.runAll('put', (transport) => write(transport as StoreTransport), {
             requirements,
             ...(options.signal ? { signal: options.signal } : {}),
+            ...(trace ? { trace } : {}),
           });
         } else {
           await this.manager.run('put', (transport) => write(transport as StoreTransport), {
             requirements,
             ...(options.signal ? { signal: options.signal } : {}),
+            ...(trace ? { trace } : {}),
           });
         }
         this.metrics.payloadBytes.observe(frame.length, { direction: 'out' });
@@ -528,7 +539,10 @@ export class MailboxEngine {
         return false;
       }
 
+      // A response joins the trace of the request it answers, so one trace id
+      // covers the whole round trip as this peer saw it.
       const span = this.tracer?.startSpan('mailbox.deliver', {
+        traceId: assembled.correlationId ?? assembled.id,
         attributes: {
           channel: assembled.channel,
           kind: assembled.kind,
