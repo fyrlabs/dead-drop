@@ -75,6 +75,8 @@ Each layer is a subpath export of `@fyrlabs/dead-drop` (`./core`, `./runtime`, a
 - **Hoisting.** Every workspace package resolves from the repo root here, which hides missing dependencies. Check manifests, not just imports.
 - **Prettier and identifier length.** Renaming a symbol can reflow lines and fail `format:check` in files you did not touch. Run `npm run format` after any large rename.
 - **`npm publish` and `bin` paths.** A `./` prefix on a bin path makes npm warn that the entry "was invalid and removed". Write `dist/bin.js`, not `./dist/bin.js`.
+- **Unix socket paths cap at 104 bytes.** `defaultSocketPath` falls back to a hashed path under the temp directory past that. Do not reintroduce a raw `join(dataDir, ...)`; a deep `dataDir` is reachable from the documented quick start and `bind` fails with a bare `EINVAL`.
+- **Never hard-code the version.** `VERSION` in `cli/cli.ts` reads the manifest. A literal there went stale and shipped a CLI that reported the wrong version in `--version`, `status` and `/health`. A test asserting the CLI output equals `VERSION` does not catch this; assert against `package.json`.
 
 ## Releasing
 

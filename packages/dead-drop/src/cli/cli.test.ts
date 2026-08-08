@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -63,6 +64,15 @@ describe('ddrop cli argument handling', () => {
     const io = capture();
     expect(await run(['--version'], io)).toBe(0);
     expect(io.stdout[0]).toBe(VERSION);
+  });
+
+  it('reports the version in the manifest', async () => {
+    // Comparing the output against VERSION alone is tautological, and a
+    // hard-coded literal here went stale across 0.2.0: the published CLI
+    // reported 0.1.0, and the same value reaches the runtime's status and
+    // health output. Pin it to the manifest, which is what npm publishes.
+    const manifest = createRequire(import.meta.url)('../../package.json') as { version: string };
+    expect(VERSION).toBe(manifest.version);
   });
 
   it('rejects an unknown command and an unknown flag', async () => {

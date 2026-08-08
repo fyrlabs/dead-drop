@@ -13,7 +13,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { once } from 'node:events';
 import { chmod, mkdir, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { platform } from 'node:os';
+import { platform, tmpdir } from 'node:os';
 
 import { DeadDropError, decodeJson, encodeJson } from '../protocol/index.js';
 import type { Logger } from '../core/index.js';
@@ -36,11 +36,36 @@ export interface ControlPlaneHandle {
   close(): Promise<void>;
 }
 
+/**
+ * Longest usable Unix socket path. macOS caps `sockaddr_un.sun_path` at 104
+ * bytes, Linux at 108; past it `bind` fails with a bare `EINVAL` that names
+ * neither the limit nor a fix. The lower cap applies on every POSIX platform so
+ * that a given data directory behaves the same everywhere, rather than working
+ * on Linux and failing on a Mac.
+ */
+const MAX_UNIX_SOCKET_PATH_BYTES = 104;
+
 /** Default socket location for a data directory. */
 export function defaultSocketPath(dataDir: string): string {
-  return platform() === 'win32'
-    ? `\\\\.\\pipe\\deaddrop-${hash(dataDir)}`
-    : join(dataDir, 'deaddrop.sock');
+  if (platform() === 'win32') return `\\\\.\\pipe\\deaddrop-${hash(dataDir)}`;
+
+  const natural = join(dataDir, 'deaddrop.sock');
+  if (Buffer.byteLength(natural) <= MAX_UNIX_SOCKET_PATH_BYTES) return natural;
+
+  // The data directory is nested too deep to hold its own socket, which is
+  // reachable straight from the quick start: `ddrop init` writes a relative
+  // `.deaddrop` that resolves against the working directory. Fall back to a
+  // short path keyed by a hash of the data directory, the same shape as the
+  // Windows pipe name above. Deterministic, so the runtime and every client
+  // command derive it identically and discovery keeps working unchanged.
+  const short = join(tmpdir(), `deaddrop-${hash(dataDir)}.sock`);
+  if (Buffer.byteLength(short) > MAX_UNIX_SOCKET_PATH_BYTES) {
+    throw new DeadDropError(
+      'CONFIG_INVALID',
+      `no usable control socket path: "${natural}" exceeds the ${MAX_UNIX_SOCKET_PATH_BYTES}-byte limit and the fallback under ${tmpdir()} does too. Pass --socket with a shorter path, or set TMPDIR to a shorter directory.`,
+    );
+  }
+  return short;
 }
 
 function hash(value: string): string {

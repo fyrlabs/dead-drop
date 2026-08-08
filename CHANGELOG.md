@@ -6,6 +6,13 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+## [0.2.1]
+
+### Fixed
+
+- `ddrop start` no longer dies with `listen EINVAL: invalid argument` when the data directory is nested deeply. A Unix socket path cannot exceed 104 bytes, and `ddrop init` writes a relative `.deaddrop` that resolves against the working directory, so any project more than about 84 characters deep hit it. The socket now falls back to a short deterministic path under the temp directory, keyed by a hash of the data directory, matching what Windows named pipes already did. Both the runtime and the client commands derive it the same way, so discovery is unaffected.
+- `ddrop --version` reported `0.1.0` from a 0.2.0 install. The version was a hard-coded literal that the 0.2.0 release did not update, and it also fed the runtime, so `ddrop status` and `/health` reported it too. It is now read from the package manifest.
+
 ## [0.2.0]
 
 ### Changed

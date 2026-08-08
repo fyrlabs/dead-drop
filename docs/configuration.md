@@ -25,6 +25,8 @@ In order: `--config <path>`, then `./deaddrop.config.json`, then `~/.deaddrop/co
 | `logLevel` | string | no | `info` | One of `debug`, `info`, `warn`, `error`, `silent`. |
 | `controlSocket` | string | no | `<dataDir>/deaddrop.sock` | Unix socket path. On Windows the control plane uses a named pipe derived from `dataDir` and this field does not apply. |
 
+A Unix socket path cannot exceed 104 bytes. When `<dataDir>/deaddrop.sock` would be longer, the runtime instead uses a short path under the system temp directory, derived from a hash of `dataDir`. This is automatic, and the CLI and SDK resolve the same path, so nothing needs configuring. Setting `controlSocket` explicitly opts out of the fallback: if the path you give is too long, startup fails.
+
 ## Workspace
 
 | Field | Type | Required | Default | Notes |
