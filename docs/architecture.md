@@ -39,12 +39,12 @@ The rule that keeps this honest: nothing above the transport manager ever names 
 
 The original design sketch had every adapter implement `send`, `receive` and acknowledgement. That is the wrong shape for the transports it listed, and [ADR 0001](adr/0001-store-and-native-transports.md) records why it was changed.
 
-Nearly everything people want to use — GitHub, GitLab, OneDrive, SharePoint, S3, Dropbox, a synced folder — is an object store with no delivery semantics of its own. Under the original design, every adapter author would have had to reimplement polling, acknowledgement, deduplication and at-least-once delivery. Most would get it subtly wrong, and each bug would be in someone else's package.
+Nearly everything people want to use (GitHub, GitLab, OneDrive, SharePoint, S3, Dropbox, a synced folder) is an object store with no delivery semantics of its own. Under the original design, every adapter author would have had to reimplement polling, acknowledgement, deduplication and at-least-once delivery. Most would get it subtly wrong, and each bug would be in someone else's package.
 
 So there are two kinds:
 
-- **`store`** — put, get, list, delete, optionally watch. Around 50 lines for a typical backend. The mailbox engine supplies the messaging semantics.
-- **`native`** — the backend already is a message system. It sends and subscribes directly.
+- **`store`**: put, get, list, delete, optionally watch. Around 50 lines for a typical backend. The mailbox engine supplies the messaging semantics.
+- **`native`**: the backend already is a message system. It sends and subscribes directly.
 
 ## The mailbox
 
@@ -57,7 +57,7 @@ ws/<workspace>/peers/<peer>.ddf                 presence beacon
 ws/<workspace>/dead/<peer>/<messageId>.ddf      dead letters
 ```
 
-Sending is a write. Receiving is: list the inbox, fetch, decode, hand to a handler, delete. **Delete is the acknowledgement** — that single choice is what gives at-least-once delivery over a store that has no concept of a message.
+Sending is a write. Receiving is: list the inbox, fetch, decode, hand to a handler, delete. **Delete is the acknowledgement**, and that single choice is what gives at-least-once delivery over a store that has no concept of a message.
 
 Broadcast is different because a message belongs to every subscriber, so nobody may delete it. Subscribers keep a local cursor and ask for keys after it, and a retention reaper removes messages once they are older than the window. The reaper takes a message's age from its id rather than the store's modification time, because plenty of backends do not report one and treating "age unknown" as "old enough to delete" would destroy messages other subscribers had not read yet.
 
@@ -67,7 +67,7 @@ Polling adapts: it speeds up to the minimum interval while traffic flows and bac
 
 Every transport is scored 0..1 on health (45%), recent reliability (25%), latency (20%) and rate-limit headroom (10%). An open circuit breaker scores zero, so it is chosen only when nothing else exists.
 
-An operation is retried on its chosen transport with exponential backoff and full jitter, then moved to the next. Failover is skipped for caller-side errors — those fail identically everywhere.
+An operation is retried on its chosen transport with exponential backoff and full jitter, then moved to the next. Failover is skipped for caller-side errors, which fail identically everywhere.
 
 Policy modes: `score` (default, healthiest wins), `failover` (the operator's declared order is respected even when it is objectively slower), `parallel` (write through everything; receiver deduplication makes it safe).
 

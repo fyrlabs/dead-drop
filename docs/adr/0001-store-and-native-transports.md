@@ -4,7 +4,7 @@
 
 ## Context
 
-The design sketch (`design-sketch.md`, §10) gives every transport this interface:
+The original design sketch gave every transport this interface:
 
 ```ts
 interface Transport {
@@ -16,7 +16,7 @@ interface Transport {
 }
 ```
 
-The same document lists the intended transports: GitHub, GitLab, Bitbucket, Azure DevOps, OneDrive, SharePoint, local filesystem, S3-compatible storage, Dropbox.
+It listed the intended transports as: GitHub, GitLab, Bitbucket, Azure DevOps, OneDrive, SharePoint, local filesystem, S3-compatible storage, Dropbox.
 
 Every one of those is an object store. None has delivery semantics.
 
@@ -47,6 +47,6 @@ The mailbox engine in `@fyrlabs/dead-drop-core` implements messaging once, over 
 
 **Good.** A store adapter is four methods. The filesystem transport is about 300 lines including atomic writes and a polling watcher. Delivery correctness is implemented once, tested once, and fixed once. The conformance suite can be strict because the surface is small.
 
-**Cost.** The runtime is doing more work, so its bugs affect every transport — mitigated by the fact that it is the most heavily tested code in the repository. A backend with unusual native semantics has to be modelled as `native` or lose them.
+**Cost.** The runtime is doing more work, so its bugs affect every transport, mitigated by the fact that it is the most heavily tested code in the repository. A backend with unusual native semantics has to be modelled as `native` or lose them.
 
 **Rejected alternative:** keep the single interface and ship a `StoreBackedTransport` base class adapters extend. Rejected because inheritance across a package boundary is a versioning trap, and because it leaves the door open to adapters that half-implement delivery.

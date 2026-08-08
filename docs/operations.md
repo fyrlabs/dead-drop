@@ -83,15 +83,15 @@ The buffer holds the most recent 500 finished spans and is memory-only, so it is
 
 ## Troubleshooting
 
-**`cannot reach the dead-drop runtime … Is "ddrop start" running?`** — the CLI could not open the control socket. The path it tried is in the message. Client commands derive it from the config they discover, so a command run from a directory without `deaddrop.config.json` falls back to `~/.deaddrop/deaddrop.sock` and misses a project-local runtime; pass `--config` or `--socket` in that case.
+**`cannot reach the dead-drop runtime … Is "ddrop start" running?`**: the CLI could not open the control socket. The path it tried is in the message. Client commands derive it from the config they discover, so a command run from a directory without `deaddrop.config.json` falls back to `~/.deaddrop/deaddrop.sock` and misses a project-local runtime; pass `--config` or `--socket` in that case.
 
-**`ddrop discover` shows nothing.** Peers announce every 30 seconds and a beacon is stale after 90. Confirm both peers use the same workspace *name* and the same secret — the name is an HKDF salt, so `demo` and `Demo` produce unrelated keys and neither can read the other. `ddrop discover --stale` shows expired beacons.
+**`ddrop discover` shows nothing.** Peers announce every 30 seconds and a beacon is stale after 90. Confirm both peers use the same workspace *name* and the same secret. The name is an HKDF salt, so `demo` and `Demo` produce unrelated keys and neither can read the other. `ddrop discover --stale` shows expired beacons.
 
 **Requests time out.** `ddrop transport health` first. On a git transport a round trip is a push plus a poll interval, so a 30-second default timeout can be genuinely too short; raise `requestTimeoutMs`. Check the target peer is running and its `peerId` is what you are addressing.
 
-**`refusing unencrypted frame on an encrypted workspace`** — something wrote a plaintext frame into a workspace that has secrets. Usually a misconfigured peer.
+**`refusing unencrypted frame on an encrypted workspace`**: something wrote a plaintext frame into a workspace that has secrets. Usually a misconfigured peer.
 
-**`no workspace key matches key id …`** — a peer is using a secret this one does not have. Mid-rotation, add the other secret to this peer's list. See the rotation procedure in the security model.
+**`no workspace key matches key id …`**: a peer is using a secret this one does not have. Mid-rotation, add the other secret to this peer's list. See the rotation procedure in the security model.
 
 **Dead letters are accumulating.** `ws/<workspace>/dead/<peer>/` on the transport. Each is an encrypted frame that failed its handler the configured number of times. Nothing removes them automatically; that is the point.
 

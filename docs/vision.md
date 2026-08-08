@@ -1,188 +1,49 @@
-# dead-drop Vision
+# Vision
 
-## Vision
+Where dead-drop is going, and what it refuses to become. For how it works today, read [architecture.md](architecture.md).
 
-dead-drop is a transport-agnostic runtime for distributed applications.
+## The problem
 
-Instead of requiring developers to deploy infrastructure, dead-drop allows
-applications running on different machines to communicate through
-pluggable transports such as GitHub, GitLab, Bitbucket, Azure DevOps,
-OneDrive, local filesystems, or future adapters.
+Two machines need to talk. The network between them is the obstacle: a laptop behind NAT, a locked-down corporate environment, a CI runner, an air-gapped review box that can still reach a git remote. The usual answer is to deploy something, a broker, a tunnel, a relay, a public endpoint, and the deployment is more expensive than the problem.
 
-The application should never know or care how bytes move between
-machines.
+But those machines almost always already share something: a git repository, a synced folder, an object store, a wiki. Infrastructure that exists, is already authenticated, and is already allowed through the firewall.
 
-------------------------------------------------------------------------
+dead-drop turns that shared thing into a transport.
 
 ## Philosophy
 
--   Transport is an implementation detail.
--   Applications talk only to the local dead-drop Runtime.
--   Any transport can be swapped without changing application code.
--   Multiple transports can be active simultaneously.
--   Automatic failover between transports is supported.
--   Existing applications should work with little or no modification.
+**Transport is an implementation detail.** Applications talk to their local runtime and nothing else. Swapping GitHub for a shared folder is a config change, never a code change. Nothing above the transport manager is allowed to name a transport, because if it could, transport independence would be a slogan rather than a property.
 
-------------------------------------------------------------------------
+**Delivery is implemented once.** Most backends people want are object stores with no delivery semantics of their own. Asking every adapter author to reinvent polling, acknowledgement, deduplication and redelivery would give us a dozen subtly different sets of delivery bugs in packages we do not control. So a store adapter implements four methods and the runtime supplies the rest. See [ADR 0001](adr/0001-store-and-native-transports.md).
 
-## Primary Components
+**Existing applications should not have to change.** Proxy mode exposes a server that has no idea dead-drop exists. The SDK is for applications that want more, not a tax on applications that want less.
 
-### dead-drop Runtime (Agent)
+**Say what is true.** Delivery is at-least-once and ordering is best-effort per recipient, stated plainly in [guarantees.md](guarantees.md) rather than buried. The transport is treated as hostile storage, and [security-model.md](security-model.md) says what is not protected as clearly as what is.
 
-One runtime per machine.
+## What exists today
 
-Responsibilities:
+Four transports: filesystem, git, github and memory. Encryption, chunking, compression, retries, circuit breaking, failover, deduplication, health-based routing, structured logs, Prometheus metrics and tracing. Proxy mode and static exposures. A plugin contract stable enough for third parties to build against.
 
--   Transport management
--   Polling & scheduling
--   Encryption
--   Compression
--   Retry handling
--   Local cache
--   Message routing
--   Logging
--   Metrics
--   Monitoring
--   Health checks
--   Transport failover
--   Configuration
--   Authentication
--   Plugin loading
+## Where it goes next
 
-### SDK / Adapter
+**More transports, as separate packages.** S3-compatible storage, OneDrive and SharePoint are the obvious gaps. GitLab, Bitbucket and Azure DevOps already work through the git transport by remote url; they earn dedicated packages only if their APIs offer something git does not.
 
-Optional library for applications that want deeper integration.
+**A token path for GitHub.** Today authentication is delegated entirely to `gh`. A REST path behind the existing `GhClient` seam would remove that dependency for environments where installing `gh` is the hard part.
 
-Examples:
+**Streaming.** A response is buffered whole today and capped at 32 MiB. Large payloads should stream.
 
--   publish/subscribe
--   RPC
--   queues
--   storage
--   custom services
-
-Most users should be able to expose an existing application without
-importing the SDK.
-
-------------------------------------------------------------------------
-
-## Transport Layer
-
-Each transport implements a common interface.
-
-Examples:
-
--   GitHub
--   GitLab
--   Bitbucket
--   Azure DevOps
--   OneDrive
--   SharePoint
--   Local Filesystem
--   S3-compatible storage
--   Dropbox
--   Custom adapters
-
-Capabilities:
-
--   publish
--   receive
--   acknowledge
--   delete
--   list
--   watch (when supported)
--   health reporting
--   latency measurement
--   rate-limit awareness
-
-dead-drop may use multiple transports simultaneously for redundancy or
-performance.
-
-------------------------------------------------------------------------
-
-## Exposure Modes
-
-### Proxy Mode
-
-Expose an existing server.
-
-Example:
-
-Express -\> dead-drop Runtime -\> Transport -\> dead-drop Runtime -\> Viewer
-
-No application changes.
-
-### SDK Mode
-
-Applications integrate directly for advanced features.
-
-------------------------------------------------------------------------
-
-## Built-in Observability
-
-dead-drop provides first-class observability.
-
-Logging
-
--   request logs
--   transport logs
--   retries
--   failures
--   warnings
-
-Metrics
-
--   latency
--   throughput
--   queue depth
--   transport utilization
--   polling frequency
--   cache hit rate
-
-Monitoring
-
--   transport health
--   failover events
--   rate-limit status
--   active peers
--   uptime
-
-Tracing
-
--   request lifecycle
--   transport hops
--   timing breakdowns
-
-------------------------------------------------------------------------
-
-## Design Goals
-
--   Minimal application changes
--   Transport independence
--   Plugin ecosystem
--   Local-first
--   Extensible
--   Production-ready
--   Observable by default
-
-------------------------------------------------------------------------
+**A plugin ecosystem.** The measure of success is a transport written by someone who has never read this repository's internals, passing the conformance suite on the first try.
 
 ## Non-goals
 
--   Replace dedicated message brokers.
--   Circumvent organizational security policies.
--   Compete with Kubernetes or service meshes.
+**Not a message broker.** A round trip over a git remote costs seconds, not milliseconds. If you have Kafka, use Kafka. dead-drop is for the case where standing up infrastructure is the expensive part, not for throughput.
 
-dead-drop focuses on making distributed communication simple through
-interchangeable transports.
+**Not a way around your security policy.** dead-drop moves data through channels you are already authorised to use. It is not a tunnel for getting data somewhere it is not allowed to go, and features whose main purpose would be evading controls do not belong here.
 
-------------------------------------------------------------------------
+**Not a service mesh.** No competition with Kubernetes, no ambitions on service discovery at scale, no sidecars.
 
-## Long-term Vision
+**Not a database.** The transport holds messages in flight, with retention and a reaper. It is not storage you should query.
 
-dead-drop becomes the runtime that connects applications regardless of
-transport.
+## History
 
-Developers build applications once.
-
-dead-drop decides how they communicate.
+An earlier design sketch specified a single `send`/`receive`/`acknowledge` transport interface. Implementation showed it was the wrong shape for the backends it targeted, and it was replaced by the two-kind contract. The reasoning is preserved in [ADR 0001](adr/0001-store-and-native-transports.md); decision records under [docs/adr](adr/) carry any later deviation.

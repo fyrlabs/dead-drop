@@ -29,7 +29,7 @@ npm run verify
 
 Angular convention: `type(scope): subject`, imperative and lower-case. The body explains what and why, not how.
 
-Anything that deviates from `docs/design-sketch.md` gets an ADR in `docs/adr/` explaining what was rejected and why.
+Anything that deviates from the direction in `docs/vision.md` gets an ADR in `docs/adr/` explaining what was rejected and why.
 
 ## Adding a transport
 

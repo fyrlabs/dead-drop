@@ -30,7 +30,7 @@ flowchart LR
 `ddrop connect` gives you an ordinary local URL. Whatever you point at it, curl or a browser or a client library, talks to the app on the other machine without knowing any of the above happened.
 
 ```bash
-# machine A — an ordinary Express app on :3000, unmodified
+# machine A: an ordinary Express app on :3000, unmodified
 ddrop start &                                             # the runtime, reading ./deaddrop.config.json
 ddrop expose --target http://localhost:3000 --name my-api
 
@@ -61,7 +61,7 @@ npm install -g @fyrlabs/dead-drop
 
 ```bash
 # Once, on either machine:
-ddrop keygen                      # prints ddk1_… — share it with the other peer, securely
+ddrop keygen                      # prints ddk1_…, share it with the other peer, securely
 export DEADDROP_SECRET='ddk1_…'
 ddrop init --name demo            # writes deaddrop.config.json
 ```
@@ -170,7 +170,7 @@ export const acmeTransport = defineTransport({
 });
 ```
 
-Four methods. dead-drop supplies framing, encryption, chunking, acknowledgement, retries, deduplication, dead-lettering and adaptive polling on top. Run the conformance suite against your adapter before publishing it — see [docs/writing-a-transport.md](docs/writing-a-transport.md).
+Four methods. dead-drop supplies framing, encryption, chunking, acknowledgement, retries, deduplication, dead-lettering and adaptive polling on top. Run the conformance suite against your adapter before publishing it. See [docs/writing-a-transport.md](docs/writing-a-transport.md).
 
 ## Commands
 
@@ -221,8 +221,9 @@ What is *not* protected: message sizes, timing, and the object keys the mailbox 
 - [Delivery guarantees](docs/guarantees.md): at-least-once, ordering, duplicates
 - [Writing a transport](docs/writing-a-transport.md)
 - [Operations](docs/operations.md): running it, metrics, troubleshooting
+- [Vision](docs/vision.md): where this is going, and what it refuses to become
 - [Testing](docs/testing.md): what is covered automatically, and a walkthrough for what needs a human
-- [Decision records](docs/adr/): the choices that deviate from the original design sketch
+- [Decision records](docs/adr/): choices that deviate from the original design, and why
 
 ## Development
 

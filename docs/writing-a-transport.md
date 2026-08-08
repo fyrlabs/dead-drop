@@ -82,7 +82,7 @@ async health(): Promise<TransportHealth> {
 }
 ```
 
-Report `degraded` for "working but you should prefer something else" — high latency, a nearly exhausted rate limit. The transport manager scores on health, recent reliability, latency and rate-limit headroom, so an honest `degraded` is what makes failover work.
+Report `degraded` for "working but you should prefer something else": high latency, a nearly exhausted rate limit. The transport manager scores on health, recent reliability, latency and rate-limit headroom, so an honest `degraded` is what makes failover work.
 
 Probe something that would actually fail. A `stat` on a disconnected network mount often succeeds; a write does not.
 
@@ -100,7 +100,7 @@ Throw `DeadDropError` from `@fyrlabs/dead-drop-protocol`. The code decides what 
 
 ## Run the conformance suite
 
-This is the part people skip and should not. The suite is framework-agnostic — it returns plain `{ name, run }` cases — so it works with vitest, `node:test`, jest or a bare script, and it does not pull a test runner into your dependency tree.
+This is the part people skip and should not. The suite is framework-agnostic, returning plain `{ name, run }` cases, so it works with vitest, `node:test`, jest or a bare script, and it does not pull a test runner into your dependency tree.
 
 ```ts
 import { describe, it } from 'vitest';
@@ -122,7 +122,7 @@ The suite adapts to what you declare: claiming `orderedList` adds an ordering te
 
 ## Native transports
 
-If your backend already has delivery semantics — AMQP, MQTT, a websocket relay — use `kind: 'native'` and implement `send`/`subscribe` instead. dead-drop stays out of the way and does not synthesise acknowledgements.
+If your backend already has delivery semantics (AMQP, MQTT, a websocket relay), use `kind: 'native'` and implement `send`/`subscribe` instead. dead-drop stays out of the way and does not synthesise acknowledgements.
 
 Most people do not want this. If your backend is storage, `store` is both less work and more correct.
 

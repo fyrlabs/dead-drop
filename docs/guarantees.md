@@ -44,7 +44,7 @@ Clocks are not synchronised between peers. A peer whose clock is badly wrong wil
 
 ## Failover
 
-An operation that fails on one transport is retried on that transport, then moved to the next one. Failover is skipped for caller-side failures — bad request, unauthorised, payload too large, unsupported — because those fail identically on every backend and retrying them elsewhere only multiplies the damage.
+An operation that fails on one transport is retried on that transport, then moved to the next one. Failover is skipped for caller-side failures (bad request, unauthorised, payload too large, unsupported) because those fail identically on every backend and retrying them elsewhere only multiplies the damage.
 
 With `mode: "parallel"`, a message is written through every healthy transport. The receiver's deduplication is what makes that safe, and it is why parallel mode costs bandwidth rather than correctness.
 
