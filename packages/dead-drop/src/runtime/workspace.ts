@@ -40,6 +40,7 @@ import { MetricsRegistry as Metrics, traceContext } from '../core/index.js';
 import type { StoreTransport, TransportRegistration } from '@fyrlabs/dead-drop-transport-sdk';
 
 import type { WorkspaceConfig } from './config.js';
+import { VERSION } from '../version.js';
 
 /** A handler for inbound requests on one channel. */
 export type RequestHandler = (
@@ -134,7 +135,7 @@ export class Workspace {
     this.keys = KeyRing.fromSecrets(this.name, options.config.secrets);
     this.presenceIntervalMs = options.presenceIntervalMs ?? 30_000;
     this.presenceTtlMs = options.presenceTtlMs ?? this.presenceIntervalMs * 3;
-    this.version = options.version ?? '0.1.0';
+    this.version = options.version ?? VERSION;
     this.startedAt = this.clock.now();
 
     this.manager = new TransportManager({

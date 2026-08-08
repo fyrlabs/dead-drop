@@ -13,7 +13,7 @@
 
 import { parseArgs } from 'node:util';
 import { readFile, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
+import { VERSION } from '../version.js';
 import { resolve } from 'node:path';
 
 import { DeadDropError, generateWorkspaceSecret } from '../protocol/index.js';
@@ -75,17 +75,7 @@ Global options
   --help, --version
 `;
 
-/**
- * Read from the manifest rather than hard-coded: a literal here silently went
- * stale across the 0.2.0 release and `ddrop --version` reported 0.1.0. It also
- * feeds `DeadDropRuntime`, so the drift reached `status` and `/health` too.
- *
- * `../../package.json` resolves to the package manifest from both `src/cli/`
- * and the built `dist/cli/`, which sit at the same depth.
- */
-export const VERSION: string = (
-  createRequire(import.meta.url)('../../package.json') as { version: string }
-).version;
+export { VERSION };
 
 export async function run(argv: string[], io: CliIo = defaultIo): Promise<number> {
   let parsed;

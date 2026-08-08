@@ -29,6 +29,7 @@ import type { RuntimeConfig, WorkspaceConfig } from './config.js';
 import { registerExposure, type ExposureHandle } from './exposure.js';
 import { loadTransports, type ModuleLoader } from './plugins.js';
 import { Workspace } from './workspace.js';
+import { VERSION } from '../version.js';
 
 export interface RuntimeOptions {
   config: RuntimeConfig;
@@ -79,7 +80,7 @@ export class DeadDropRuntime {
     this.clock = options.clock ?? systemClock;
     this.loader = options.loader;
     this.baseDir = options.baseDir ?? process.cwd();
-    this.version = options.version ?? '0.1.0';
+    this.version = options.version ?? VERSION;
     this.logBuffer = new MemoryLogSink(options.logBufferSize ?? 500);
 
     const format = options.logFormat ?? 'json';

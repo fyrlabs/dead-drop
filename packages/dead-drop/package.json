@@ -1,6 +1,6 @@
 {
   "name": "@fyrlabs/dead-drop",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "dead-drop: a transport-agnostic runtime for distributed applications",
   "type": "module",
   "license": "Apache-2.0",

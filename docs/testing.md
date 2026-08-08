@@ -28,6 +28,21 @@ The end-to-end suite is the one that answers "does it work". It runs two indepen
 
 Time is injected everywhere through a `Clock`, so retry and backoff suites run in milliseconds instead of sleeping. `TestClock.advance` drains the microtask queue through a macrotask boundary before each timer, which is what stops fake-timer tests from hanging on promise chains deeper than a fixed tick count.
 
+## Two peers, one machine
+
+You do not need a second laptop to test peer-to-peer behaviour. A peer is a runtime with its own data directory and peer id. What makes two runtimes peers is sharing one transport, not sitting on different hardware.
+
+```bash
+scripts/two-peer-check.sh          # against the built tree
+scripts/two-peer-check.sh 0.2.1    # against that version from npm
+```
+
+It starts two runtimes over one shared filesystem transport, waits for each to discover the other, serves a directory from peer A, fetches it through peer B, and checks the bytes on the transport are ciphertext. Twelve assertions, about a minute.
+
+One thing a same-machine run must do that a two-machine run gets for free: **set `peerId` explicitly in both configs.** It defaults to the machine's hostname, so two runtimes on one box otherwise share a mailbox address, poll each other's mail, and fail with `DECODE_FAILED` on garbage frames. That is correct behaviour for a colliding address, not a bug, and it is the first thing to check if a local two-peer setup misbehaves.
+
+Point both configs at one git repository instead of one directory and the same script shape covers the git transport, which is the closest you get to a real cross-machine test without a second machine. What it still cannot tell you is anything in the next section: real latency, real auth, real rate limits.
+
 ## What needs a human
 
 These need real credentials and a real account, so they cannot run in CI. Work through them before trusting the GitHub transport in production.

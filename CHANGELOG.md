@@ -6,6 +6,16 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+## [0.2.2]
+
+### Fixed
+
+- The runtime reported version `0.1.0` when constructed directly without a `version` option, which reached `ddrop status` and `/health`. The version now comes from one module that reads the package manifest, and a test fails the build if any source file hard-codes one again.
+
+### Docs
+
+- Added a release checklist at `.github/RELEASE_CHECKLIST.md` and `scripts/two-peer-check.sh`, which runs two peers over one shared transport on a single machine. `docs/testing.md` explains the one thing that setup needs: an explicit `peerId`, since it otherwise defaults to the hostname for both.
+
 ## [0.2.1]
 
 ### Fixed

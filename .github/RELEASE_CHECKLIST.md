@@ -1,0 +1,79 @@
+# Release checklist
+
+Work top to bottom. Every item here exists because something went wrong once; the parenthetical says what. Do not skip an item because it looks obvious, especially the ones that only fail in a published artifact.
+
+The notes body template is in [RELEASE_TEMPLATE.md](RELEASE_TEMPLATE.md).
+
+## 1. Before you touch a version number
+
+- [ ] `main` is green on all three CI jobs, **including Windows**. A change that only passes on macOS is not finished.
+- [ ] `npm run verify` passes from a clean checkout (`npm ci`, not a warm `node_modules`).
+- [ ] `npm run format:check` passes. A rename can reflow files you never opened.
+- [ ] `node examples/custom-transport/index.js` reports 18/18 conformance cases.
+- [ ] `rg -ci bridge` matches nothing outside `AGENTS.md` (invariant 8).
+
+## 2. Versions
+
+The two packages **do not share a version**. `@fyrlabs/dead-drop` churns; `@fyrlabs/dead-drop-transport-sdk` is the stable contract and should stand still.
+
+- [ ] `packages/dead-drop/package.json` bumped, and the root `package.json` matches it (the root is private, but its version shows in every build banner).
+- [ ] transport-sdk bumped **only if its public surface actually changed**, by semver against its own last version, not in lockstep.
+- [ ] The transport-sdk dependency in `packages/dead-drop/package.json` is a **caret range**, never an exact pin. (An exact pin forces a second copy of the SDK into any tree holding a third-party adapter, which breaks `DeadDropError` identity and silently turns a permanent failure into an infinite retry. AGENTS.md invariant 10.)
+- [ ] No source file hard-codes a version. `npx vitest run packages/dead-drop/src/version.test.ts` enforces this. (0.2.0 shipped a CLI reporting `0.1.0` from `--version`, `status` and `/health`, because three files each held their own literal.)
+- [ ] `CHANGELOG.md` has an entry, and nothing user-visible is missing from it.
+- [ ] Breaking changes are called out in the changelog **and** in the release notes.
+
+## 3. Docs match the code
+
+- [ ] `docs/configuration.md` matches `packages/dead-drop/src/runtime/config.ts` field for field.
+- [ ] `AGENTS.md` still describes the real layout. (It claimed ten packages for two commits after the consolidation.)
+- [ ] Anything you changed in behaviour, config or the CLI is documented in the same commit.
+
+## 4. The thing that is never done and always should be
+
+- [ ] The live GitHub walkthrough in [`docs/testing.md`](../docs/testing.md) has been run against a real account. Everything GitHub-specific is otherwise tested only against a scripted fake `gh` and a local bare repo, so real auth, rate limits, latency and large-repo behaviour are unverified.
+- [ ] A two-peer run has actually exchanged a message. One machine is enough: `scripts/two-peer-check.sh` starts two runtimes with separate data directories over one shared filesystem transport.
+
+## 5. Tag and publish
+
+- [ ] `NPM_TOKEN` is present in the repository secrets and is **read-write** for the `@fyrlabs` scope. (The first 0.1.0 attempt died with `E404 PUT`, which is what npm returns for an unauthorised publish, not a missing package.)
+- [ ] Tag name and GitHub release title are both `vX.Y.Z`. No `dead-drop` prefix.
+
+```bash
+git tag -a vX.Y.Z -m "vX.Y.Z"
+git push origin vX.Y.Z
+gh run watch $(gh run list --workflow=release.yml --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status
+gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <notes>
+```
+
+The workflow publishes in dependency order and skips whichever package is already on the registry at its manifest version, so a release moving only one package works.
+
+## 6. Verify the published artifact, not the green check
+
+**A green CI run proves the tests passed. It does not prove the tarball is right.** Both 0.1.0 and 0.2.0 passed CI while shipping a CLI that reported the wrong version.
+
+- [ ] Run it:
+
+```bash
+~/.claude/artifacts/-Users-me-workspace-dead-drop/verify-release.sh X.Y.Z
+```
+
+It installs from the registry into a throwaway prefix and checks: retired packages gone, survivors intact, exactly one transport-sdk copy, caret range, both bins, every subpath export, `ddrop --version`, a `dataDir` past the 104-byte socket limit binding, the `DeadDropError` cross-copy brand, and a live runtime answering over its control socket. Expect 40 pass, 0 fail.
+
+## 7. Clean up
+
+- [ ] Superseded tags deleted, locally and on the remote, so the tag list matches what is installable:
+
+```bash
+git push origin :refs/tags/vOLD && git tag -d vOLD
+```
+
+- [ ] A superseded npm version is **deprecated, not unpublished**. Deprecation is reversible; unpublishing is not, and a version number can never be reused.
+
+```bash
+npm deprecate @fyrlabs/dead-drop@X.Y.Z "superseded by A.B.C" --otp=<code>
+```
+
+Deprecation takes tens of seconds to show on the registry. Checking immediately shows the version still active; that is lag, not failure.
+
+- [ ] If you must unpublish: `npm unpublish` **always** demands an OTP, so it can never run unattended, and it returns `E422 Unprocessable Entity` when you fire several in a row even with nothing depending on them. Retry with a fresh code. Never unpublish every version of a name; that blocks republishing it for 24 hours.
