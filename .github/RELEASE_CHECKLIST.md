@@ -62,13 +62,13 @@ It installs from the registry into a throwaway prefix and checks: retired packag
 
 ## 7. Clean up
 
-- [ ] Superseded tags deleted, locally and on the remote, so the tag list matches what is installable:
+- [ ] Tags and releases line up. Every released version keeps its tag and its release page; that history is the point. Delete a tag only when it never had a release, or when its artifact is broken and withdrawn:
 
 ```bash
 git push origin :refs/tags/vOLD && git tag -d vOLD
 ```
 
-- [ ] A superseded npm version is **deprecated, not unpublished**. Deprecation is reversible; unpublishing is not, and a version number can never be reused.
+- [ ] Deprecate a version only if it is **actually bad**, not merely superseded. Deprecating every previous release trains people to ignore the warning. When you do, deprecate rather than unpublish: deprecation is reversible, unpublishing is not, and a version number can never be reused.
 
 ```bash
 npm deprecate @fyrlabs/dead-drop@X.Y.Z "superseded by A.B.C" --otp=<code>

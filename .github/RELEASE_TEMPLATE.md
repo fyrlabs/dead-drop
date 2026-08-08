@@ -31,14 +31,16 @@ Requires Node.js 20.11 or newer.
 
 ### Packages
 
-All published at this version: `@fyrlabs/dead-drop`, `-sdk`, `-runtime`, `-core`, `-protocol`, `-transport-sdk`, `-transport-filesystem`, `-transport-git`, `-transport-github`, `-transport-memory`.
+`@fyrlabs/dead-drop` at this version. `@fyrlabs/dead-drop-transport-sdk` versions independently; state its version explicitly and say whether it moved.
 
 **Full changelog:** https://github.com/fyrlabs/dead-drop/blob/main/CHANGELOG.md
 ```
 
 ## After publishing
 
-- [ ] All ten packages resolve on npm at the new version
-- [ ] `npm install -g @fyrlabs/dead-drop` on a clean machine, then `ddrop --help`
-- [ ] Provenance shows on the npm package pages
+- [ ] `@fyrlabs/dead-drop` resolves on npm at the new version, and transport-sdk at whatever version it should be
+- [ ] `verify-release.sh <version>` passes 40/40 against the registry, not just green CI
+- [ ] `scripts/two-peer-check.sh <version>` passes 12/12 against the published package
+- [ ] Provenance shows on the npm package page
+- [ ] Tags and releases still line up: every released version keeps its tag and its release page. Delete a tag only when it never had a release, or when its artifact is broken and withdrawn
 - [ ] A new Unreleased section opened in `CHANGELOG.md`
