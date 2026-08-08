@@ -2,14 +2,18 @@
 
 The body used for a GitHub release, plus the checklist that has to pass before tagging. Copy the second half into the release notes and fill it in from `CHANGELOG.md`.
 
-All ten packages share one version and are released together. Pushing a `v*` tag runs `.github/workflows/release.yml`, which publishes them in dependency order with npm provenance.
+Two packages, and they **do not share a version**. `@fyrlabs/dead-drop-transport-sdk` is the stable transport contract and moves on its own, rarely; `@fyrlabs/dead-drop` depends on it by caret range and churns freely. The tag name tracks `@fyrlabs/dead-drop`.
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which publishes in dependency order with npm provenance and skips whichever package is already on the registry at its manifest version. So a release that only moves one package works without touching the other.
 
 ## Before tagging
 
 - [ ] `main` is green on all three CI jobs, including Windows
 - [ ] `npm run verify` passes locally from a clean checkout
 - [ ] `CHANGELOG.md` has an entry for this version, and nothing user-visible is missing from it
-- [ ] Version bumped in every package, and the workspace cross-dependencies match it
+- [ ] `@fyrlabs/dead-drop` version bumped, and the transport-sdk dependency is still a caret range, never an exact pin
+- [ ] transport-sdk bumped only if its public surface actually changed, and by semver against its own last version
+- [ ] `ddrop --version` on a built tree reports the manifest version
 - [ ] Breaking changes are called out in the changelog and in the notes below
 - [ ] The live GitHub walkthrough in `docs/testing.md` has been run against a real account
 - [ ] `NPM_TOKEN` is present in the repository secrets
