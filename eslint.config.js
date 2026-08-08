@@ -38,8 +38,85 @@ export default tseslint.config(
     },
   },
   {
-    files: ['packages/cli/**/*.ts'],
+    files: ['packages/dead-drop/src/cli/**/*.ts'],
     rules: { 'no-console': 'off' },
+  },
+  {
+    // Layering used to be enforced by package boundaries: protocol could not
+    // import core because it was not a dependency. Now that everything ships in
+    // one package, only this rule stops the direction of dependency inverting.
+    // The order is protocol <- core <- runtime <- {sdk, cli}; transports sit on
+    // protocol and the transport SDK. See AGENTS.md.
+    files: ['packages/dead-drop/src/protocol/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/core/**', '**/runtime/**', '**/sdk/**', '**/cli/**', '**/transports/**'],
+              message:
+                'protocol is the bottom layer: it must not import from core, runtime, sdk, cli or a transport.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['packages/dead-drop/src/core/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/runtime/**', '**/sdk/**', '**/cli/**', '**/transports/**'],
+              message:
+                'core is policy, not product: it must not import from runtime, sdk, cli or a transport. Naming a transport here breaks transport independence.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['packages/dead-drop/src/runtime/**/*.ts'],
+    ignores: ['packages/dead-drop/src/runtime/plugins.ts', '**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/sdk/**', '**/cli/**', '**/transports/**'],
+              message:
+                'runtime must not import from sdk, cli or a transport. plugins.ts is the single exception: it owns the built-in transport table.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['packages/dead-drop/src/transports/**/*.ts'],
+    ignores: ['packages/dead-drop/src/transports/github/**/*.ts', '**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/core/**', '**/runtime/**', '**/sdk/**', '**/cli/**', '**/transports/**'],
+              message:
+                'a transport sees only the protocol and the transport SDK, exactly as a third-party adapter does. The github transport is the one exception: it delegates to the git transport.',
+            },
+          ],
+        },
+      ],
+    },
   },
   {
     // Examples are plain Node scripts meant to be read and run, not linted for

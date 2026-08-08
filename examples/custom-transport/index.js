@@ -9,7 +9,7 @@
  *   node examples/custom-transport/index.js
  */
 
-import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop/protocol';
 import {
   assertValidKey,
   assertValidPrefix,

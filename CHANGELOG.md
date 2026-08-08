@@ -6,6 +6,21 @@ All packages in this repository share one version number and are released togeth
 
 ## [Unreleased]
 
+## [0.2.0]
+
+### Changed
+
+- **Breaking.** dead-drop now ships as two packages instead of ten. Everything except the transport contract lives in `@fyrlabs/dead-drop`, reachable by subpath: `/sdk`, `/runtime`, `/core`, `/protocol`, `/cli` and `/transports/<name>`. `@fyrlabs/dead-drop-transport-sdk` stays separate so a third-party adapter does not depend on the whole runtime. The eight other packages are gone.
+- **Breaking.** The error model (`DeadDropError` and its codes) moved into `@fyrlabs/dead-drop-transport-sdk`, which is where it belongs: a transport adapter has to throw it, and the transport manager reads its `retryable` flag. `@fyrlabs/dead-drop/protocol` re-exports it, so importing it from the protocol layer still works.
+
+### Fixed
+
+- Built-in transports load through static `import()` thunks rather than a specifier string. A dynamic `import(variable)` cannot be resolved relative to the importing module by bundlers or test runners, so the previous form worked under plain Node and failed everywhere else.
+
+### Internal
+
+- The layering used to be enforced by package boundaries. An eslint `no-restricted-imports` rule now enforces the same direction inside the single package: protocol imports nothing above it, core never names a transport, and a transport sees only the protocol and the transport SDK.
+
 ## [0.1.0]
 
 First release.

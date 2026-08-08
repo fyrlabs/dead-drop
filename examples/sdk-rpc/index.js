@@ -8,8 +8,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { generateWorkspaceSecret } from '@fyrlabs/dead-drop-protocol';
-import { DeadDropRuntime, parseRuntimeConfig } from '@fyrlabs/dead-drop-runtime';
+import { generateWorkspaceSecret } from '@fyrlabs/dead-drop/protocol';
+import { DeadDropRuntime, parseRuntimeConfig } from '@fyrlabs/dead-drop/runtime';
 
 const shared = await mkdtemp(join(tmpdir(), 'deaddrop-rpc-'));
 const secret = generateWorkspaceSecret();

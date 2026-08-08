@@ -88,7 +88,7 @@ Probe something that would actually fail. A `stat` on a disconnected network mou
 
 ## Errors
 
-Throw `DeadDropError` from `@fyrlabs/dead-drop-protocol`. The code decides what happens next:
+Throw `DeadDropError` from `@fyrlabs/dead-drop/protocol`. The code decides what happens next:
 
 | Code | Effect |
 | --- | --- |

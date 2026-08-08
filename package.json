@@ -1,6 +1,6 @@
 {
   "name": "dead-drop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "dead-drop: a transport-agnostic runtime for distributed applications",
   "type": "module",
@@ -15,13 +15,8 @@
     "node": ">=20.11"
   },
   "workspaces": [
-    "packages/protocol",
     "packages/transport-sdk",
-    "packages/core",
-    "packages/transports/*",
-    "packages/runtime",
-    "packages/sdk",
-    "packages/cli",
+    "packages/dead-drop",
     "examples/*"
   ],
   "scripts": {

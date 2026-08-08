@@ -7,7 +7,7 @@
  * bug, and store transports get a ready-made guard.
  */
 
-import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from './errors.js';
 
 export const MAX_KEY_LENGTH = 512;
 const SEGMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;

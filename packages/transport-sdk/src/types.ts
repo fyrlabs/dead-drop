@@ -21,7 +21,7 @@
  * Most authors want `store`.
  */
 
-import type { DeadDropError } from '@fyrlabs/dead-drop-protocol';
+import type { DeadDropError } from './errors.js';
 
 export type TransportKind = 'store' | 'native';
 

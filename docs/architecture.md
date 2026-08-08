@@ -23,15 +23,15 @@ Each layer only knows about the one below it. The application never names a tran
 
 ## Layers, and what each one is not allowed to know
 
-**`@fyrlabs/dead-drop-protocol`** decides what a message *is*: envelope shape, framing, encryption, chunking, the error model. Zero dependencies, zero policy. It knows nothing about transports, workspaces or applications.
+**`@fyrlabs/dead-drop/protocol`** decides what a message *is*: envelope shape, framing, encryption, chunking, the error model. Zero dependencies, zero policy. It knows nothing about transports, workspaces or applications.
 
 **`@fyrlabs/dead-drop-transport-sdk`** is the contract third-party adapters compile against. Deliberately tiny and deliberately stable: it is the only thing outside this repository that has to keep working across releases.
 
-**`@fyrlabs/dead-drop-core`** is all policy. Which transport carries a message, when to retry, when to give up, what to record. The mailbox engine and the transport manager live here.
+**`@fyrlabs/dead-drop/core`** is all policy. Which transport carries a message, when to retry, when to give up, what to record. The mailbox engine and the transport manager live here.
 
-**`@fyrlabs/dead-drop-runtime`** turns that into a product: workspaces, exposures, discovery, the control plane, plugin loading.
+**`@fyrlabs/dead-drop/runtime`** turns that into a product: workspaces, exposures, discovery, the control plane, plugin loading.
 
-**`@fyrlabs/dead-drop-sdk` / `@fyrlabs/dead-drop`** are the two front doors.
+**`@fyrlabs/dead-drop/sdk` / `@fyrlabs/dead-drop`** are the two front doors.
 
 The rule that keeps this honest: nothing above the transport manager ever names a transport. Application code cannot ask for "the GitHub one". If it could, transport independence would be a slogan rather than a property.
 

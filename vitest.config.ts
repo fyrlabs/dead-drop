@@ -1,29 +1,33 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
-const resolvePackage = (path: string): string =>
-  fileURLToPath(new URL(`./packages/${path}/src/index.ts`, import.meta.url));
+const src = (path: string): string => fileURLToPath(new URL(`./packages/${path}`, import.meta.url));
 
 /**
  * Tests run against TypeScript sources, not `dist`, so a failing build never
  * masks a failing test and vice versa. `npm run verify` runs both.
+ *
+ * The aliases mirror the published `exports` map. Root tests and examples
+ * import the package the way a consumer does, so a subpath that is exported
+ * but not wired here fails the same way it would for a user.
  */
 export default defineConfig({
   resolve: {
     alias: {
-      '@fyrlabs/dead-drop-protocol': resolvePackage('protocol'),
-      '@fyrlabs/dead-drop-transport-sdk/testing': fileURLToPath(
-        new URL('./packages/transport-sdk/src/testing/index.ts', import.meta.url),
+      '@fyrlabs/dead-drop-transport-sdk/testing': src('transport-sdk/src/testing/index.ts'),
+      '@fyrlabs/dead-drop-transport-sdk': src('transport-sdk/src/index.ts'),
+      '@fyrlabs/dead-drop/transports/filesystem': src(
+        'dead-drop/src/transports/filesystem/index.ts',
       ),
-      '@fyrlabs/dead-drop-transport-sdk': resolvePackage('transport-sdk'),
-      '@fyrlabs/dead-drop-core': resolvePackage('core'),
-      '@fyrlabs/dead-drop-runtime': resolvePackage('runtime'),
-      '@fyrlabs/dead-drop-sdk': resolvePackage('sdk'),
-      '@fyrlabs/dead-drop': resolvePackage('cli'),
-      '@fyrlabs/dead-drop-transport-memory': resolvePackage('transports/memory'),
-      '@fyrlabs/dead-drop-transport-filesystem': resolvePackage('transports/filesystem'),
-      '@fyrlabs/dead-drop-transport-git': resolvePackage('transports/git'),
-      '@fyrlabs/dead-drop-transport-github': resolvePackage('transports/github'),
+      '@fyrlabs/dead-drop/transports/memory': src('dead-drop/src/transports/memory/index.ts'),
+      '@fyrlabs/dead-drop/transports/github': src('dead-drop/src/transports/github/index.ts'),
+      '@fyrlabs/dead-drop/transports/git': src('dead-drop/src/transports/git/index.ts'),
+      '@fyrlabs/dead-drop/cli': src('dead-drop/src/cli/index.ts'),
+      '@fyrlabs/dead-drop/protocol': src('dead-drop/src/protocol/index.ts'),
+      '@fyrlabs/dead-drop/runtime': src('dead-drop/src/runtime/index.ts'),
+      '@fyrlabs/dead-drop/core': src('dead-drop/src/core/index.ts'),
+      '@fyrlabs/dead-drop/sdk': src('dead-drop/src/sdk/index.ts'),
+      '@fyrlabs/dead-drop': src('dead-drop/src/index.ts'),
     },
   },
   test: {
@@ -41,7 +45,7 @@ export default defineConfig({
         '**/*.test.ts',
         '**/index.ts',
         '**/types.ts',
-        'packages/cli/src/bin.ts',
+        'packages/dead-drop/src/cli/bin.ts',
         'packages/**/testing/**',
       ],
       thresholds: {

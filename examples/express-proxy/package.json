@@ -7,8 +7,7 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "@fyrlabs/dead-drop-protocol": "0.1.0",
-    "@fyrlabs/dead-drop-runtime": "0.1.0",
-    "@fyrlabs/dead-drop-transport-sdk": "0.1.0"
+    "@fyrlabs/dead-drop": "0.2.0",
+    "@fyrlabs/dead-drop-transport-sdk": "0.2.0"
   }
 }

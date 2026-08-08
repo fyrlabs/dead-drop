@@ -16,7 +16,7 @@
  * change to the dead-drop repository is required, which is the whole point.
  */
 
-import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from './errors.js';
 
 import type { TransportDefinition, TransportFactory, TransportRegistration } from './types.js';
 

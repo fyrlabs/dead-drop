@@ -5,10 +5,5 @@
     "outDir": "dist"
   },
   "include": ["src/**/*"],
-  "exclude": ["src/**/*.test.ts"],
-  "references": [
-    {
-      "path": "../protocol"
-    }
-  ]
+  "exclude": ["src/**/*.test.ts"]
 }

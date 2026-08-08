@@ -1,6 +1,6 @@
 {
   "name": "@fyrlabs/dead-drop-transport-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Public SDK for authoring dead-drop transport adapters",
   "type": "module",
   "license": "Apache-2.0",
@@ -30,9 +30,6 @@
   ],
   "engines": {
     "node": ">=20.11"
-  },
-  "dependencies": {
-    "@fyrlabs/dead-drop-protocol": "0.1.0"
   },
   "scripts": {
     "build": "tsc --build"

@@ -1,0 +1,86 @@
+{
+  "name": "@fyrlabs/dead-drop",
+  "version": "0.2.0",
+  "description": "dead-drop: a transport-agnostic runtime for distributed applications",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fyrlabs/dead-drop.git",
+    "directory": "packages/dead-drop"
+  },
+  "homepage": "https://github.com/fyrlabs/dead-drop#readme",
+  "bugs": "https://github.com/fyrlabs/dead-drop/issues",
+  "keywords": [
+    "distributed",
+    "transport",
+    "rpc",
+    "messaging",
+    "local-first",
+    "nat-traversal",
+    "git"
+  ],
+  "bin": {
+    "ddrop": "dist/cli/bin.js",
+    "dead-drop": "dist/cli/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli/index.d.ts",
+      "default": "./dist/cli/index.js"
+    },
+    "./sdk": {
+      "types": "./dist/sdk/index.d.ts",
+      "default": "./dist/sdk/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "default": "./dist/runtime/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "default": "./dist/core/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol/index.d.ts",
+      "default": "./dist/protocol/index.js"
+    },
+    "./transports/filesystem": {
+      "types": "./dist/transports/filesystem/index.d.ts",
+      "default": "./dist/transports/filesystem/index.js"
+    },
+    "./transports/git": {
+      "types": "./dist/transports/git/index.d.ts",
+      "default": "./dist/transports/git/index.js"
+    },
+    "./transports/github": {
+      "types": "./dist/transports/github/index.d.ts",
+      "default": "./dist/transports/github/index.js"
+    },
+    "./transports/memory": {
+      "types": "./dist/transports/memory/index.d.ts",
+      "default": "./dist/transports/memory/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
+  "dependencies": {
+    "@fyrlabs/dead-drop-transport-sdk": "0.2.0"
+  },
+  "scripts": {
+    "build": "tsc --build"
+  }
+}

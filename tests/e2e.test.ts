@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { generateWorkspaceSecret } from '@fyrlabs/dead-drop-protocol';
+import { generateWorkspaceSecret } from '@fyrlabs/dead-drop/protocol';
 import {
   DeadDropRuntime,
   ControlPlaneClient,
@@ -24,18 +24,14 @@ import {
   parseRuntimeConfig,
   startControlPlane,
   type ConnectHandle,
-} from '@fyrlabs/dead-drop-runtime';
-import { filesystemTransport } from '@fyrlabs/dead-drop-transport-filesystem';
-import { memoryTransport, resetMemoryTransports } from '@fyrlabs/dead-drop-transport-memory';
+} from '@fyrlabs/dead-drop/runtime';
+
+import { resetMemoryTransports } from '@fyrlabs/dead-drop/transports/memory';
 
 const SECRET = generateWorkspaceSecret();
 
-/** Resolves built-in transport specifiers to the in-repo sources. */
-const loader = async (specifier: string): Promise<unknown> => {
-  if (specifier.includes('transport-filesystem')) return { filesystemTransport };
-  if (specifier.includes('transport-memory')) return { memoryTransport };
-  throw new Error(`unexpected transport specifier ${specifier}`);
-};
+// No loader is injected: built-in short names now resolve inside the package,
+// so these tests exercise the same plugin path a user gets.
 
 const cleanups: Array<() => Promise<void>> = [];
 let sharedDir: string;
@@ -67,7 +63,7 @@ async function makeRuntime(options: {
     ],
   });
 
-  const runtime = new DeadDropRuntime({ config, loader });
+  const runtime = new DeadDropRuntime({ config });
   await runtime.start();
   cleanups.push(() => runtime.stop());
   return runtime;

@@ -9,7 +9,7 @@
  * the caller already has.
  */
 
-import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '../errors.js';
 
 import type {
   NativeTransport,
