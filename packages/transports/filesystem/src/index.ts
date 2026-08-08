@@ -150,8 +150,8 @@ class FilesystemStore implements StoreTransport {
     }
     found.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 
-    const cursor = options.cursor;
-    const start = cursor ? found.findIndex((entry) => entry.key > cursor) : 0;
+    const after = maxKey(options.cursor, options.startAfter);
+    const start = after ? found.findIndex((entry) => entry.key > after) : 0;
     const from = start < 0 ? found.length : start;
     const limit = options.limit ?? found.length;
     const page = found.slice(from, from + limit);
@@ -388,3 +388,10 @@ export async function directoryExists(path: string): Promise<boolean> {
 }
 
 export default filesystemTransport;
+
+/** `cursor` and `startAfter` both mean "keys after this"; the later one wins. */
+function maxKey(a: string | undefined, b: string | undefined): string | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return a > b ? a : b;
+}

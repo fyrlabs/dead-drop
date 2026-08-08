@@ -138,7 +138,8 @@ class MemoryStore implements StoreTransport {
     }
     matching.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 
-    const start = options.cursor ? matching.findIndex((entry) => entry.key > options.cursor!) : 0;
+    const after = maxKey(options.cursor, options.startAfter);
+    const start = after ? matching.findIndex((entry) => entry.key > after) : 0;
     const from = start < 0 ? matching.length : start;
     const limit = options.limit ?? matching.length;
     const page = matching.slice(from, from + limit);
@@ -245,3 +246,10 @@ export const memoryTransport = defineTransport<MemoryTransportConfig>({
 });
 
 export default memoryTransport;
+
+/** `cursor` and `startAfter` both mean "keys after this"; the later one wins. */
+function maxKey(a: string | undefined, b: string | undefined): string | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return a > b ? a : b;
+}

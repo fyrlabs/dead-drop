@@ -107,6 +107,15 @@ export interface ObjectEntry {
 export interface ListOptions {
   /** Continuation token returned by a previous call. */
   cursor?: string;
+  /**
+   * Return only keys strictly greater than this one.
+   *
+   * Message ids sort by creation time, so a subscriber that remembers the last
+   * key it consumed can ask for "what is new" instead of listing the whole
+   * prefix on every poll. On a remote transport that is the difference between
+   * one cheap call and one that grows with retention.
+   */
+  startAfter?: string;
   /** Upper bound on entries returned. Adapters may return fewer. */
   limit?: number;
   signal?: AbortSignal;

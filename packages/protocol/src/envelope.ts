@@ -104,10 +104,14 @@ export function isExpired(envelope: EnvelopeHeader, now: number = Date.now()): b
 }
 
 const KINDS = new Set<string>(['request', 'response', 'event', 'ack', 'control']);
-/** Workspace, channel and peer names appear in transport keys, so keep them path-safe. */
-const NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
-/** Channels additionally allow `/` so HTTP-ish routing keys work. */
-const CHANNEL_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,255}$/;
+/**
+ * Workspace, channel and peer names become transport key segments, so they are
+ * restricted to what every backend accepts in a path: no `:` (illegal in
+ * Windows filenames), no spaces, no traversal.
+ */
+const NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
+/** Channels additionally allow `/` so hierarchical routing keys work. */
+const CHANNEL_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,255}$/;
 
 export function isValidName(value: string): boolean {
   return NAME_PATTERN.test(value) && !value.includes('..');
