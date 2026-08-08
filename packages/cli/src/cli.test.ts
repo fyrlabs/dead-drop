@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { generateWorkspaceSecret, parseWorkspaceSecret } from '@fyrlabs/dead-drop-protocol';
-import { defaultSocketPath } from '@fyrlabs/dead-drop-runtime';
+import { BUILT_IN, defaultSocketPath } from '@fyrlabs/dead-drop-runtime';
 
 import { VERSION, run, type CliIo } from './cli.js';
 
@@ -192,5 +192,22 @@ describe('ddrop commands that need a runtime', () => {
     const io = capture();
     expect(await run(['start', '--config', join(await temp(), 'nope.json')], io)).toBe(1);
     expect(io.stderr.join('\n')).toMatch(/cannot read config file/);
+  });
+});
+
+// A built-in short name resolves through a bare dynamic import, so the package
+// it names has to be reachable from an installed CLI. In this repository every
+// workspace is hoisted, which means a plain load test passes even when the
+// dependency is missing and a real `npm i -g` would fail. Checking the manifest
+// is the only version of this that can actually fail here.
+describe('built-in transports ship with the cli', () => {
+  it('declares every built-in short name as a dependency', async () => {
+    const manifest = JSON.parse(
+      await readFile(new URL('../package.json', import.meta.url), 'utf8'),
+    ) as { dependencies: Record<string, string> };
+
+    for (const specifier of Object.values(BUILT_IN)) {
+      expect(manifest.dependencies).toHaveProperty(specifier);
+    }
   });
 });

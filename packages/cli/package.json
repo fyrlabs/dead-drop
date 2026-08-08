@@ -36,6 +36,8 @@
     "@fyrlabs/dead-drop-protocol": "0.1.0",
     "@fyrlabs/dead-drop-runtime": "0.1.0",
     "@fyrlabs/dead-drop-transport-filesystem": "0.1.0",
+    "@fyrlabs/dead-drop-transport-git": "0.1.0",
+    "@fyrlabs/dead-drop-transport-github": "0.1.0",
     "@fyrlabs/dead-drop-transport-memory": "0.1.0"
   },
   "scripts": {

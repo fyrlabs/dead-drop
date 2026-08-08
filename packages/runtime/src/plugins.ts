@@ -18,8 +18,14 @@ import type { TransportDefinition, TransportRegistration } from '@fyrlabs/dead-d
 
 import type { TransportConfigEntry } from './config.js';
 
-/** Short names that map to the transports shipped in this repository. */
-const BUILT_IN: Record<string, string> = {
+/**
+ * Short names that map to the transports shipped in this repository.
+ *
+ * Anything named here must be a dependency of whatever ships the runtime to a
+ * user, or the short name resolves to a package that is not installed. The CLI
+ * test asserts exactly that.
+ */
+export const BUILT_IN: Record<string, string> = {
   memory: '@fyrlabs/dead-drop-transport-memory',
   filesystem: '@fyrlabs/dead-drop-transport-filesystem',
   fs: '@fyrlabs/dead-drop-transport-filesystem',
