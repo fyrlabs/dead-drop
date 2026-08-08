@@ -47,7 +47,7 @@ The git and github transport tests need a `git` binary. Nothing needs network ac
 5. **A message id is its trace id.** `workspace.request`, `mailbox.send` and `mailbox.deliver` key their span to the envelope id, a response using its `correlationId`. That is what makes `ddrop trace <requestId>` work with the id a timeout error already returns. Keep it if you add spans.
 6. **Every built-in transport short name must be a dependency of `packages/cli`.** Workspaces are hoisted here, so a module that loads fine in this repo can be missing from a real install. `packages/cli/src/cli.test.ts` enforces this.
 7. **`@fyrlabs/dead-drop-transport-sdk` is the only stable public contract.** It is the one thing outside this repository that must keep working across releases. Changing it is a breaking change.
-8. **Never reintroduce the old name.** The project was called Bridge and the binary was `bridge`, which collided with iproute2's `bridge(8)` on Linux. Check with `rg -ci bridge`, excluding `node_modules`, `dist` and `package-lock.json`. Only two files may match: this one, and `CHANGELOG.md` where the rename is recorded. A hit anywhere else is a regression.
+8. **Never reintroduce the old name.** The project was called Bridge and the binary was `bridge`, which collided with iproute2's `bridge(8)` on Linux. Check with `rg -ci bridge`, excluding `node_modules`, `dist` and `package-lock.json`. This file is the only one that may match. A hit anywhere else is a regression.
 9. **The transport is hostile storage.** Everything on it is ciphertext including the envelope header. Do not add a field that leaks a channel, peer or workspace name in clear text.
 
 ## Conventions

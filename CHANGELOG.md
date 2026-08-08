@@ -6,27 +6,25 @@ All packages in this repository share one version number and are released togeth
 
 ## [Unreleased]
 
-### Added
-
-- `ddrop trace` shows a request as a span tree. Because a message id is its trace id, the request id in a timeout error is the argument you pass.
-- Architecture and quick-start diagrams in the README and `docs/architecture.md`.
-
-### Changed
-
-- **Breaking.** The command is now `ddrop`, with `dead-drop` as a second name for the same binary. The old name collided with iproute2's `bridge(8)` on Linux.
-- **Breaking.** `bridge.config.json` is now `deaddrop.config.json`, `BRIDGE_SECRET` is `DEADDROP_SECRET`, `BRIDGE_PEER_ID` is `DEADDROP_PEER_ID`, the data directory is `.deaddrop`, and the git data branch is `deaddrop-data`.
-- **Breaking.** Prometheus metrics are prefixed `deaddrop_` instead of `bridge_`.
-- **Breaking.** `BridgeError` is now `DeadDropError`, along with its code, options and helper types, plus `BridgeRuntime` and `BridgeClient`.
-- Packages publish under the `@fyrlabs` scope.
-
-### Fixed
-
-- Client commands computed the control socket from the default data directory while `ddrop start` derived it from the config, so the documented quick start could never connect.
-- A leading `~` in a config path resolved to a literal directory named `~` beside the config file.
-- `ddrop connect` reused the configured peer id and raced an already-running `ddrop start` for the same inbox.
-- Static exposures rejected valid paths on Windows because the traversal guard compared a resolved path against an unresolved root.
-- Every per-package README linked to `https://github.com/` with no path.
-
 ## [0.1.0]
 
-Unreleased. This is the first version; the entries above describe it.
+First release.
+
+### Added
+
+- A runtime that moves traffic between machines over infrastructure they already share, with nothing deployed and no public port opened.
+- Four transports: `filesystem` (any shared or synced directory), `git` (any remote `git clone` accepts), `github` (via the `gh` CLI, with rate-limit awareness), and `memory` (tests and examples).
+- Proxy mode. `ddrop expose --target http://localhost:3000` makes an unmodified local server reachable to peers; `ddrop connect peer/name` serves it back as an ordinary local URL. Static directory exposures too.
+- At-least-once delivery over plain object storage: framing, chunking, delete-as-acknowledgement, redelivery with backoff, dead letters, deduplication, retained broadcast topics, and polling that adapts to traffic.
+- AES-256-GCM encryption of the whole envelope, header included, so channel, peer and workspace names never appear in clear text on a transport.
+- Multiple transports per workspace with health-based scoring, retry with jittered backoff, circuit breaking and failover.
+- Observability: structured JSON logs with credential redaction, Prometheus metrics, and tracing where a message id is its own trace id, so `ddrop trace <requestId>` works with the id a timeout error already returns.
+- A plugin contract for third-party transports, plus a framework-agnostic conformance suite. A `store` adapter is four methods.
+- `@fyrlabs/dead-drop-sdk` for applications that want RPC and pub/sub rather than HTTP proxying.
+
+### Known limitations
+
+- The `github` transport is tested against a scripted `gh` and a local bare repository. It has not yet been validated against a live GitHub account, so real rate limits, real auth failures and real large-repository latency are unverified. The walkthrough for checking it yourself is in [docs/testing.md](docs/testing.md).
+- Responses are buffered whole and capped at 32 MiB. Streaming is not implemented.
+- Ordering is best-effort per recipient, and duplicates are suppressed rather than prevented, so handlers must be safe to run twice. See [docs/guarantees.md](docs/guarantees.md).
+- `polling` and `policy` sub-fields are not type-checked when the config loads, so a wrong type there fails later than it should.
