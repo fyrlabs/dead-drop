@@ -3,9 +3,5 @@
   "compilerOptions": { "rootDir": "src", "outDir": "dist" },
   "include": ["src/**/*"],
   "exclude": ["src/**/*.test.ts"],
-  "references": [
-    { "path": "../../protocol" },
-    { "path": "../../transport-sdk" },
-    { "path": "../git" }
-  ]
+  "references": [{ "path": "../../protocol" }, { "path": "../../transport-sdk" }]
 }

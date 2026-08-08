@@ -22,6 +22,7 @@ export default defineConfig({
       '@dead-drop/cli': resolvePackage('cli'),
       '@dead-drop/transport-memory': resolvePackage('transports/memory'),
       '@dead-drop/transport-filesystem': resolvePackage('transports/filesystem'),
+      '@dead-drop/transport-git': resolvePackage('transports/git'),
       '@dead-drop/transport-github': resolvePackage('transports/github'),
     },
   },

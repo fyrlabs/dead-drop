@@ -17,6 +17,12 @@
       "path": "./packages/transports/filesystem"
     },
     {
+      "path": "./packages/transports/git"
+    },
+    {
+      "path": "./packages/transports/github"
+    },
+    {
       "path": "./packages/runtime"
     },
     {
