@@ -9,12 +9,12 @@ Neither machine listens on a public port. Both write and read encrypted objects 
 ```mermaid
 flowchart LR
     subgraph A ["Machine A, behind NAT"]
-        app["Your app<br/>localhost:3000<br/><i>unmodified</i>"]
+        app["Your app on localhost:3000, unmodified"]
         ra["dead-drop runtime"]
         app --- ra
     end
 
-    store[("Shared storage<br/>git repo, folder, S3<br/><b>sees only ciphertext</b>")]
+    store[("Shared storage: a git repo, a folder, S3")]
 
     subgraph B ["Machine B, elsewhere"]
         rb["dead-drop runtime"]
@@ -24,8 +24,10 @@ flowchart LR
 
     ra -- "writes encrypted objects" --> store
     store -- "polled, then decrypted" --> rb
-    rb -. "response travels back the same way" .-> store
+    rb -. "the response returns the same way" .-> store
 ```
+
+The storage in the middle only ever holds ciphertext, envelope headers included, so it never learns a channel, peer or workspace name.
 
 `ddrop connect` gives you an ordinary local URL. Whatever you point at it, curl or a browser or a client library, talks to the app on the other machine without knowing any of the above happened.
 

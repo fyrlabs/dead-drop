@@ -2,17 +2,17 @@
 
 ```mermaid
 flowchart TB
-    app["<b>Application</b><br/>Express, Next.js, a CLI, a script"]
+    app["Application: Express, Next.js, a CLI, a script"]
 
     subgraph rt ["dead-drop runtime, one per machine"]
         direction TB
-        ws["<b>Workspace</b><br/>request/response, pub/sub, RPC"]
-        mb["<b>Mailbox engine</b><br/>framing, chunking, ack,<br/>dedupe, redelivery, polling"]
-        tm["<b>Transport manager</b><br/>scoring, retry, circuit breaker,<br/>failover, health"]
+        ws["Workspace: request/response, pub/sub, RPC"]
+        mb["Mailbox engine: framing, chunking, ack, dedupe, redelivery, polling"]
+        tm["Transport manager: scoring, retry, circuit breaker, failover, health"]
         ws --> mb --> tm
     end
 
-    adapters["filesystem &nbsp;│&nbsp; git &nbsp;│&nbsp; github &nbsp;│&nbsp; memory &nbsp;│&nbsp; your adapter"]
+    adapters["Adapters: filesystem, git, github, memory, or your own"]
     peer["The same stack, on another machine"]
 
     app -- "local socket, or nothing at all in proxy mode" --> ws
