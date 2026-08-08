@@ -4,6 +4,8 @@
 
 `bridge.config.json`, found in this order: `--config <path>`, `./bridge.config.json`, `~/.bridge/config.json`.
 
+Relative paths in the config resolve against the config file's directory, not the working directory, and a leading `~` expands to your home directory.
+
 ```json
 {
   "dataDir": "~/.bridge",
@@ -71,7 +73,7 @@ Shutdown on SIGINT/SIGTERM is graceful: pending requests are rejected with `CANC
 
 ## Troubleshooting
 
-**`cannot reach the Bridge runtime … Is "bridge start" running?`** — the CLI could not open the control socket. Check the runtime is up and that `--socket` matches `dataDir`.
+**`cannot reach the Bridge runtime … Is "bridge start" running?`** — the CLI could not open the control socket. The path it tried is in the message. Client commands derive it from the config they discover, so a command run from a directory without `bridge.config.json` falls back to `~/.bridge/bridge.sock` and misses a project-local runtime; pass `--config` or `--socket` in that case.
 
 **`bridge discover` shows nothing.** Peers announce every 30 seconds and a beacon is stale after 90. Confirm both peers use the same workspace *name* and the same secret — the name is an HKDF salt, so `demo` and `Demo` produce unrelated keys and neither can read the other. `bridge discover --stale` shows expired beacons.
 

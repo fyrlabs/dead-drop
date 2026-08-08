@@ -241,7 +241,7 @@ async function start(values: Values, io: CliIo): Promise<number> {
 }
 
 async function status(values: Values, io: CliIo): Promise<number> {
-  const body = await client(values).request<Record<string, unknown>>('GET', '/status');
+  const body = await (await client(values)).request<Record<string, unknown>>('GET', '/status');
   if (values.json) {
     io.out(JSON.stringify(body, null, 2));
     return 0;
@@ -278,14 +278,16 @@ async function status(values: Values, io: CliIo): Promise<number> {
 }
 
 async function listWorkspaces(values: Values, io: CliIo): Promise<number> {
-  const body = await client(values).request<{ workspaces: string[] }>('GET', '/workspaces');
+  const body = await (await client(values)).request<{ workspaces: string[] }>('GET', '/workspaces');
   io.out(values.json ? JSON.stringify(body, null, 2) : body.workspaces.join('\n'));
   return 0;
 }
 
 async function discover(values: Values, io: CliIo): Promise<number> {
   const query = buildQuery(values, values.stale ? { stale: 'true' } : {});
-  const body = await client(values).request<{
+  const body = await (
+    await client(values)
+  ).request<{
     peers: Array<{ peerId: string; services: string[]; exposures: string[]; announcedAt: number }>;
   }>('GET', `/peers${query}`);
   if (values.json) {
@@ -311,7 +313,9 @@ async function transport(args: string[], values: Values, io: CliIo): Promise<num
     io.err('bridge: transport takes "list" or "health"');
     return 2;
   }
-  const body = await client(values).request<{
+  const body = await (
+    await client(values)
+  ).request<{
     transports: Array<{
       name: string;
       id: string;
@@ -356,11 +360,9 @@ async function expose(args: string[], values: Values, io: CliIo): Promise<number
   const body = target
     ? { name, type: 'http', target }
     : { name, type: 'static', directory: resolve(directory as string) };
-  const result = await client(values).request<{ name: string; channel: string }>(
-    'POST',
-    `/expose${buildQuery(values)}`,
-    body,
-  );
+  const result = await (
+    await client(values)
+  ).request<{ name: string; channel: string }>('POST', `/expose${buildQuery(values)}`, body);
   io.out(
     values.json
       ? JSON.stringify(result, null, 2)
@@ -428,7 +430,9 @@ async function call(args: string[], values: Values, io: CliIo): Promise<number> 
     return 2;
   }
   const input = parseInput(values.input);
-  const body = await client(values).request<{ result: unknown }>(
+  const body = await (
+    await client(values)
+  ).request<{ result: unknown }>(
     'POST',
     `/call${buildQuery(values)}`,
     { target, channel, input, ...(values.timeout ? { timeoutMs: Number(values.timeout) } : {}) },
@@ -444,11 +448,12 @@ async function publish(args: string[], values: Values, io: CliIo): Promise<numbe
     io.err('bridge: publish takes <channel>');
     return 2;
   }
-  const body = await client(values).request<{ id: string }>(
-    'POST',
-    `/publish${buildQuery(values)}`,
-    { channel, payload: parseInput(values.input) },
-  );
+  const body = await (
+    await client(values)
+  ).request<{ id: string }>('POST', `/publish${buildQuery(values)}`, {
+    channel,
+    payload: parseInput(values.input),
+  });
   io.out(values.json ? JSON.stringify(body, null, 2) : body.id);
   return 0;
 }
@@ -458,10 +463,9 @@ async function logs(values: Values, io: CliIo): Promise<number> {
   if (typeof values.limit === 'string') params.set('limit', values.limit);
   if (typeof values.level === 'string') params.set('level', values.level);
   const query = params.toString();
-  const body = await client(values).request<{ records: LogRecord[] }>(
-    'GET',
-    `/logs${query ? `?${query}` : ''}`,
-  );
+  const body = await (
+    await client(values)
+  ).request<{ records: LogRecord[] }>('GET', `/logs${query ? `?${query}` : ''}`);
   if (values.json) {
     io.out(JSON.stringify(body, null, 2));
     return 0;
@@ -472,16 +476,27 @@ async function logs(values: Values, io: CliIo): Promise<number> {
 }
 
 async function metrics(values: Values, io: CliIo): Promise<number> {
-  io.out(await client(values).request<string>('GET', '/metrics'));
+  io.out(await (await client(values)).request<string>('GET', '/metrics'));
   return 0;
 }
 
 // ------------------------------------------------------------------- helpers
 
-function client(values: Values): ControlPlaneClient {
-  const socketPath =
-    typeof values.socket === 'string' ? values.socket : defaultSocketPath(DEFAULT_DATA_DIR);
-  return new ControlPlaneClient(socketPath);
+/**
+ * Where the runtime is listening.
+ *
+ * `bridge start` derives its socket from the config's `dataDir`, so a client
+ * that assumed the default data dir would miss every runtime started from a
+ * project-local config — which is exactly what `bridge init` writes. `--socket`
+ * still wins, and a missing config is not an error here: a runtime started
+ * without one listens on the default path.
+ */
+async function client(values: Values): Promise<ControlPlaneClient> {
+  if (typeof values.socket === 'string') return new ControlPlaneClient(values.socket);
+  const path = await findConfigPath(values);
+  if (path === undefined) return new ControlPlaneClient(defaultSocketPath(DEFAULT_DATA_DIR));
+  const config = await loadRuntimeConfig(path);
+  return new ControlPlaneClient(config.controlSocket ?? defaultSocketPath(config.dataDir));
 }
 
 function buildQuery(values: Values, extra: Record<string, string> = {}): string {
@@ -491,24 +506,34 @@ function buildQuery(values: Values, extra: Record<string, string> = {}): string 
   return text ? `?${text}` : '';
 }
 
-/** Config discovery: explicit flag, then the working directory, then the home dir. */
-async function resolveConfig(values: Values): Promise<RuntimeConfig> {
-  // An explicit --config that cannot be read is a mistake worth naming exactly,
-  // not something to paper over by falling back to a different file.
-  if (typeof values.config === 'string') return loadRuntimeConfig(resolve(values.config));
+function configCandidates(): string[] {
+  return [resolve('bridge.config.json'), resolve(DEFAULT_DATA_DIR, 'config.json')];
+}
 
-  const candidates = [resolve('bridge.config.json'), resolve(DEFAULT_DATA_DIR, 'config.json')];
-  for (const candidate of candidates) {
+/** Config discovery: explicit flag, then the working directory, then the home dir. */
+async function findConfigPath(values: Values): Promise<string | undefined> {
+  // An explicit --config that cannot be read is a mistake worth naming exactly,
+  // not something to paper over by falling back to a different file, so it is
+  // returned unchecked and left for the loader to complain about.
+  if (typeof values.config === 'string') return resolve(values.config);
+
+  for (const candidate of configCandidates()) {
     try {
       await readFile(candidate);
     } catch {
       continue;
     }
-    return loadRuntimeConfig(candidate);
+    return candidate;
   }
+  return undefined;
+}
+
+async function resolveConfig(values: Values): Promise<RuntimeConfig> {
+  const path = await findConfigPath(values);
+  if (path !== undefined) return loadRuntimeConfig(path);
   throw new BridgeError(
     'CONFIG_INVALID',
-    `no config file found (looked in ${candidates.join(', ')}). Run "bridge init" to create one.`,
+    `no config file found (looked in ${configCandidates().join(', ')}). Run "bridge init" to create one.`,
   );
 }
 

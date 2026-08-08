@@ -5,6 +5,12 @@
   "description": "Bridge — a transport-agnostic runtime for distributed applications",
   "type": "module",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fyrlabs/dead-drop.git"
+  },
+  "homepage": "https://github.com/fyrlabs/dead-drop#readme",
+  "bugs": "https://github.com/fyrlabs/dead-drop/issues",
   "engines": {
     "node": ">=20.11"
   },

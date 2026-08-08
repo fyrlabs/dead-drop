@@ -4,6 +4,13 @@
   "description": "Bridge transport backed by a git repository",
   "type": "module",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fyrlabs/dead-drop.git",
+    "directory": "packages/transports/git"
+  },
+  "homepage": "https://github.com/fyrlabs/dead-drop#readme",
+  "bugs": "https://github.com/fyrlabs/dead-drop/issues",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -14,7 +21,8 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=20.11"

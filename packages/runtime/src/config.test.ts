@@ -1,5 +1,5 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -84,6 +84,32 @@ describe('parseRuntimeConfig', () => {
       resolve('/srv/project/store'),
     );
     expect(config.workspaces[0]?.exposures?.[0]?.directory).toBe(resolve('/srv/project/public'));
+  });
+
+  // A config file is not a shell, so `~` would otherwise resolve to a literal
+  // directory named "~" next to the config: wrong, and silently so.
+  it('expands a leading ~ to the home directory', () => {
+    const config = parseRuntimeConfig(
+      {
+        dataDir: '~/.bridge',
+        controlSocket: '~/run/bridge.sock',
+        workspaces: [
+          {
+            name: 'demo',
+            secrets: ['s'],
+            transports: [{ use: 'filesystem', config: { root: '~/shared/store' } }],
+            exposures: [{ name: 'site', type: 'static', directory: '~/public' }],
+          },
+        ],
+      },
+      { baseDir: '/srv/project' },
+    );
+    expect(config.dataDir).toBe(resolve(homedir(), '.bridge'));
+    expect(config.controlSocket).toBe(resolve(homedir(), 'run/bridge.sock'));
+    expect((config.workspaces[0]?.transports[0]?.config as { root: string }).root).toBe(
+      resolve(homedir(), 'shared/store'),
+    );
+    expect(config.workspaces[0]?.exposures?.[0]?.directory).toBe(resolve(homedir(), 'public'));
   });
 
   const rejections: Array<[string, unknown, RegExp]> = [

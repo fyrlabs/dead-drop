@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { parseWorkspaceSecret } from '@dead-drop/protocol';
+import { generateWorkspaceSecret, parseWorkspaceSecret } from '@dead-drop/protocol';
+import { defaultSocketPath } from '@dead-drop/runtime';
 
 import { VERSION, run, type CliIo } from './cli.js';
 
@@ -19,6 +20,19 @@ function capture(): CliIo & { stdout: string[]; stderr: string[] } {
     err: (line) => stderr.push(line),
     // Never block a test on a signal.
     waitForShutdown: async () => undefined,
+  };
+}
+
+function workspaceConfig(extra: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...extra,
+    workspaces: [
+      {
+        name: 'demo',
+        secrets: [generateWorkspaceSecret()],
+        transports: [{ use: 'memory' }],
+      },
+    ],
   };
 }
 
@@ -145,6 +159,33 @@ describe('bridge commands that need a runtime', () => {
     const badTransport = capture();
     expect(await run(['transport', 'explode'], badTransport)).toBe(2);
     expect(badTransport.stderr.join('\n')).toContain('list');
+  });
+
+  // `bridge init` writes a project-local dataDir, so a client that always
+  // assumed ~/.bridge would never find a runtime started from that config.
+  it('looks for the socket under the config data dir, not the default one', async () => {
+    const dir = await temp();
+    const dataDir = join(dir, 'state');
+    const config = join(dir, 'bridge.config.json');
+    await writeFile(config, JSON.stringify(workspaceConfig({ dataDir })));
+
+    const io = capture();
+    expect(await run(['status', '--config', config], io)).toBe(1);
+    expect(io.stderr.join('\n')).toContain(defaultSocketPath(dataDir));
+  });
+
+  it('lets an explicit controlSocket in the config win over the data dir', async () => {
+    const dir = await temp();
+    const controlSocket = join(dir, 'custom.sock');
+    const config = join(dir, 'bridge.config.json');
+    await writeFile(
+      config,
+      JSON.stringify(workspaceConfig({ dataDir: join(dir, 'state'), controlSocket })),
+    );
+
+    const io = capture();
+    expect(await run(['status', '--config', config], io)).toBe(1);
+    expect(io.stderr.join('\n')).toContain(controlSocket);
   });
 
   it('reports a missing config file with the paths it looked in', async () => {

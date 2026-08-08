@@ -6,12 +6,15 @@ Bridge is a local-first runtime that lets applications on different machines tal
 
 ```bash
 # machine A — an ordinary Express app on :3000, unmodified
+bridge start &                                             # the runtime, reading ./bridge.config.json
 bridge expose --target http://localhost:3000 --name my-api
 
 # machine B
 bridge connect machine-a/my-api
 # http://127.0.0.1:53219  →  curl it, open it in a browser, point a client at it
 ```
+
+Both machines need a `bridge.config.json` first: same workspace secret, same transport. The quick start below writes one.
 
 ## What this is, and what it is not
 
@@ -55,12 +58,16 @@ bridge init --name demo            # writes bridge.config.json
 }
 ```
 
+`bridge start` runs in the foreground, so the commands after it belong in a second shell:
+
 ```bash
 bridge start          # machine A
 bridge start          # machine B, same secret, peerId "machine-b", no exposures
 bridge discover       # machine B sees machine-a and its exposures
 bridge connect machine-a/my-api
 ```
+
+Client commands find the runtime through the `dataDir` in the config they discover, so run them from the directory holding `bridge.config.json`, or pass `--config` or `--socket`.
 
 ## Quick start: over GitHub
 
@@ -90,7 +97,8 @@ For applications that want Bridge-native interactions rather than HTTP proxying:
 ```ts
 import { createClient } from '@dead-drop/sdk';
 
-const bridge = createClient({ workspace: 'demo' });
+// dataDir must match the running runtime's; it defaults to ~/.bridge.
+const bridge = createClient({ workspace: 'demo', dataDir: '.bridge' });
 
 await bridge.publish('events/orders', { type: 'order.created', id: 42 });
 const sum = await bridge.call('machine-a', 'math.add', { a: 10, b: 20 });
@@ -144,6 +152,7 @@ Four methods. Bridge supplies framing, encryption, chunking, acknowledgement, re
 ```text
 bridge start                         run the runtime
 bridge status                        runtime, workspaces, transports
+bridge list                          workspaces this runtime serves
 bridge discover                      peers visible in the workspace
 bridge transport list | health       transport scores and health
 bridge expose --target <url> --name <n>
@@ -155,7 +164,7 @@ bridge logs | metrics
 bridge keygen | init
 ```
 
-Everything takes `--json` for scripting.
+`--json` makes the output machine-readable, including errors. `call` always returns JSON; `metrics` is Prometheus text either way.
 
 ## Packages
 

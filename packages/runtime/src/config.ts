@@ -80,6 +80,21 @@ export interface RuntimeConfig {
 
 export const DEFAULT_DATA_DIR = resolve(homedir(), '.bridge');
 
+/**
+ * Resolves a path from the config file.
+ *
+ * A leading `~` is expanded because people write it and a config file is not a
+ * shell: left alone it resolves to a literal directory named `~` beside the
+ * config, which fails silently and confusingly. Everything else relative is
+ * resolved against the config file's directory, not the working directory, so a
+ * config means the same thing wherever it is run from.
+ */
+function resolveConfigPath(value: string, baseDir: string | undefined): string {
+  if (value === '~' || value.startsWith('~/')) return resolve(homedir(), value.slice(2));
+  if (isAbsolute(value)) return value;
+  return resolve(baseDir ?? process.cwd(), value);
+}
+
 /** Expands `${env:NAME}` references. Throws if a referenced variable is unset. */
 export function expandEnv(value: string, env: NodeJS.ProcessEnv = process.env): string {
   return value.replace(/\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, name: string) => {
@@ -130,9 +145,7 @@ export function parseRuntimeConfig(
   const source = expanded as Record<string, unknown>;
 
   const dataDirRaw = typeof source.dataDir === 'string' ? source.dataDir : DEFAULT_DATA_DIR;
-  const dataDir = isAbsolute(dataDirRaw)
-    ? dataDirRaw
-    : resolve(options.baseDir ?? process.cwd(), dataDirRaw);
+  const dataDir = resolveConfigPath(dataDirRaw, options.baseDir);
 
   if (source.logLevel !== undefined && !isLogLevel(source.logLevel)) {
     fail(`logLevel must be one of debug, info, warn, error, silent`);
@@ -155,7 +168,9 @@ export function parseRuntimeConfig(
     logLevel: isLogLevel(source.logLevel) ? source.logLevel : 'info',
     workspaces,
   };
-  if (typeof source.controlSocket === 'string') config.controlSocket = source.controlSocket;
+  if (typeof source.controlSocket === 'string') {
+    config.controlSocket = resolveConfigPath(source.controlSocket, options.baseDir);
+  }
   return config;
 }
 
@@ -281,7 +296,7 @@ function parseExposure(raw: unknown, label: string, baseDir?: string): ExposureC
     if (typeof source.directory !== 'string') {
       fail(`${label}: static exposures need a "directory"`);
     }
-    exposure.directory = resolve(baseDir ?? process.cwd(), source.directory as string);
+    exposure.directory = resolveConfigPath(source.directory as string, baseDir);
   }
   if (source.allowPeers !== undefined) {
     if (!Array.isArray(source.allowPeers)) fail(`${label}: allowPeers must be an array`);
@@ -304,7 +319,7 @@ function resolvePaths(config: unknown, baseDir?: string): unknown {
   const source = { ...(config as Record<string, unknown>) };
   for (const key of ['root', 'workDir', 'directory', 'path']) {
     const value = source[key];
-    if (typeof value === 'string' && !isAbsolute(value)) source[key] = resolve(baseDir, value);
+    if (typeof value === 'string') source[key] = resolveConfigPath(value, baseDir);
   }
   return source;
 }
