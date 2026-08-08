@@ -211,10 +211,15 @@ function staticHandler(
 
 /** Resolves `path` under `root`, returning undefined if it would escape. */
 export function resolveWithinRoot(root: string, path: string): string | undefined {
+  // The containment check compares two absolute paths, so the root has to be
+  // resolved here rather than trusted from the caller: a relative root, a
+  // trailing separator, or a Windows path without its drive letter would all
+  // make the comparison below reject paths that are genuinely inside it.
+  const base = resolve(root);
   const normalised = normalize(path).replace(/^([/\\])+/, '');
   if (normalised.split(/[/\\]/).includes('..')) return undefined;
-  const candidate = resolve(root, normalised);
-  if (candidate !== root && !candidate.startsWith(root + sep)) return undefined;
+  const candidate = resolve(base, normalised);
+  if (candidate !== base && !candidate.startsWith(base + sep)) return undefined;
   return candidate;
 }
 

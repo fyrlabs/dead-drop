@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { DEFAULT_DATA_DIR, expandEnv, loadRuntimeConfig, parseRuntimeConfig } from './config.js';
@@ -226,7 +227,12 @@ describe('plugin loading', () => {
     expect(resolveSpecifier('fs')).toBe('@fyrlabs/dead-drop-transport-filesystem');
     expect(resolveSpecifier('github')).toBe('@fyrlabs/dead-drop-transport-github');
     expect(resolveSpecifier('@acme/bridge-transport-foo')).toBe('@acme/bridge-transport-foo');
-    expect(resolveSpecifier('./local.js', '/srv')).toMatch(/^file:\/\/\/srv\/local\.js$/);
+    // Built from the same primitives as the implementation: on Windows a
+    // rooted path picks up the current drive, so a literal file:/// string
+    // would only ever be right on POSIX.
+    expect(resolveSpecifier('./local.js', '/srv')).toBe(
+      pathToFileURL(resolve('/srv/local.js')).href,
+    );
   });
 
   it('finds a definition behind a default export, a named export or the factory', () => {
