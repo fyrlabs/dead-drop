@@ -8,7 +8,7 @@ import { DEFAULT_DATA_DIR, expandEnv, loadRuntimeConfig, parseRuntimeConfig } fr
 import { extractDefinition, loadTransport, resolveSpecifier } from './plugins.js';
 import { resolveWithinRoot, statusForError } from './exposure.js';
 import { memoryTransport } from '@fyrlabs/dead-drop-transport-memory';
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -52,12 +52,12 @@ describe('parseRuntimeConfig', () => {
         workspaces: [
           {
             name: 'demo',
-            secrets: ['${env:BRIDGE_SECRET}'],
+            secrets: ['${env:DEADDROP_SECRET}'],
             transports: [{ use: 'filesystem', config: { root: '${env:STORE}' } }],
           },
         ],
       },
-      { env: { BRIDGE_SECRET: 'ddk1_secret', STORE: '/srv/store' } },
+      { env: { DEADDROP_SECRET: 'ddk1_secret', STORE: '/srv/store' } },
     );
     expect(config.workspaces[0]?.secrets).toEqual(['ddk1_secret']);
     expect((config.workspaces[0]?.transports[0]?.config as { root: string }).root).toBe(
@@ -92,8 +92,8 @@ describe('parseRuntimeConfig', () => {
   it('expands a leading ~ to the home directory', () => {
     const config = parseRuntimeConfig(
       {
-        dataDir: '~/.bridge',
-        controlSocket: '~/run/bridge.sock',
+        dataDir: '~/.deaddrop',
+        controlSocket: '~/run/deaddrop.sock',
         workspaces: [
           {
             name: 'demo',
@@ -105,8 +105,8 @@ describe('parseRuntimeConfig', () => {
       },
       { baseDir: '/srv/project' },
     );
-    expect(config.dataDir).toBe(resolve(homedir(), '.bridge'));
-    expect(config.controlSocket).toBe(resolve(homedir(), 'run/bridge.sock'));
+    expect(config.dataDir).toBe(resolve(homedir(), '.deaddrop'));
+    expect(config.controlSocket).toBe(resolve(homedir(), 'run/deaddrop.sock'));
     expect((config.workspaces[0]?.transports[0]?.config as { root: string }).root).toBe(
       resolve(homedir(), 'shared/store'),
     );
@@ -203,16 +203,16 @@ describe('parseRuntimeConfig', () => {
 
 describe('loadRuntimeConfig', () => {
   it('reads and parses a file', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'bridge-config-'));
+    const dir = await mkdtemp(join(tmpdir(), 'deaddrop-config-'));
     dirs.push(dir);
-    const path = join(dir, 'bridge.config.json');
+    const path = join(dir, 'deaddrop.config.json');
     await writeFile(path, JSON.stringify(valid));
     const config = await loadRuntimeConfig(path);
     expect(config.workspaces[0]?.name).toBe('demo');
   });
 
   it('reports a missing or malformed file clearly', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'bridge-config-'));
+    const dir = await mkdtemp(join(tmpdir(), 'deaddrop-config-'));
     dirs.push(dir);
     await expect(loadRuntimeConfig(join(dir, 'nope.json'))).rejects.toThrowError(/cannot read/);
     const broken = join(dir, 'broken.json');
@@ -226,7 +226,7 @@ describe('plugin loading', () => {
     expect(resolveSpecifier('memory')).toBe('@fyrlabs/dead-drop-transport-memory');
     expect(resolveSpecifier('fs')).toBe('@fyrlabs/dead-drop-transport-filesystem');
     expect(resolveSpecifier('github')).toBe('@fyrlabs/dead-drop-transport-github');
-    expect(resolveSpecifier('@acme/bridge-transport-foo')).toBe('@acme/bridge-transport-foo');
+    expect(resolveSpecifier('@acme/deaddrop-transport-foo')).toBe('@acme/deaddrop-transport-foo');
     // Built from the same primitives as the implementation: on Windows a
     // rooted path picks up the current drive, so a literal file:/// string
     // would only ever be right on POSIX.
@@ -293,12 +293,12 @@ describe('exposure helpers', () => {
     );
   });
 
-  it('maps Bridge error codes to sensible http statuses', () => {
-    expect(statusForError(new BridgeError('NOT_FOUND', 'x'))).toBe(404);
-    expect(statusForError(new BridgeError('TIMEOUT', 'x'))).toBe(504);
-    expect(statusForError(new BridgeError('UNAUTHORIZED', 'x'))).toBe(403);
-    expect(statusForError(new BridgeError('RATE_LIMITED', 'x'))).toBe(429);
-    expect(statusForError(new BridgeError('TRANSPORT_ERROR', 'x'))).toBe(502);
-    expect(statusForError(new BridgeError('INTERNAL', 'x'))).toBe(500);
+  it('maps dead-drop error codes to sensible http statuses', () => {
+    expect(statusForError(new DeadDropError('NOT_FOUND', 'x'))).toBe(404);
+    expect(statusForError(new DeadDropError('TIMEOUT', 'x'))).toBe(504);
+    expect(statusForError(new DeadDropError('UNAUTHORIZED', 'x'))).toBe(403);
+    expect(statusForError(new DeadDropError('RATE_LIMITED', 'x'))).toBe(429);
+    expect(statusForError(new DeadDropError('TRANSPORT_ERROR', 'x'))).toBe(502);
+    expect(statusForError(new DeadDropError('INTERNAL', 'x'))).toBe(500);
   });
 });

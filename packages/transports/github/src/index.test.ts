@@ -30,7 +30,7 @@ async function temp(prefix: string): Promise<string> {
 }
 
 async function bareRemote(): Promise<string> {
-  const dir = await temp('bridge-gh-remote-');
+  const dir = await temp('deaddrop-gh-remote-');
   await execFileAsync('git', ['init', '--bare', '--quiet', '--initial-branch=main', dir]);
   return dir;
 }
@@ -49,8 +49,8 @@ function context(overrides: Partial<TransportContext> = {}): TransportContext {
 
 function fakeGh(overrides: Partial<GhClient> & { url?: string } = {}): GhClient {
   const info: GhRepoInfo = {
-    nameWithOwner: 'acme/bridge-data',
-    url: overrides.url ?? 'https://github.com/acme/bridge-data.git',
+    nameWithOwner: 'acme/deaddrop-data',
+    url: overrides.url ?? 'https://github.com/acme/deaddrop-data.git',
     isPrivate: true,
     defaultBranch: 'main',
   };
@@ -68,8 +68,8 @@ async function store(
 ): Promise<StoreTransport> {
   return githubTransport.definition.create(
     {
-      repo: 'acme/bridge-data',
-      workDir: await temp('bridge-gh-work-'),
+      repo: 'acme/deaddrop-data',
+      workDir: await temp('deaddrop-gh-work-'),
       gh,
       batchWindowMs: 0,
       freshnessMs: 0,
@@ -117,7 +117,7 @@ describe('github transport', () => {
         created.length === 0
           ? undefined
           : {
-              nameWithOwner: 'acme/bridge-data',
+              nameWithOwner: 'acme/deaddrop-data',
               url: remote,
               isPrivate: true,
               defaultBranch: 'main',
@@ -135,7 +135,7 @@ describe('github transport', () => {
 
     const transport = await store(gh, { createIfMissing: true });
     await transport.put('inbox/peer-b/1.ddf', new Uint8Array([1]));
-    expect(created).toEqual([{ repo: 'acme/bridge-data', private: true }]);
+    expect(created).toEqual([{ repo: 'acme/deaddrop-data', private: true }]);
   }, 60_000);
 
   it('reports the API rate limit and degrades when it runs low', async () => {
@@ -187,19 +187,19 @@ describe('github transport', () => {
     );
     expect(() => githubTransport({ repo: 'a/b', workDir: '' })).toThrowError(/workDir/);
     expect(() => githubTransport('nope' as never)).toThrowError(/must be an object/);
-    expect(githubTransport({ repo: 'acme/bridge', workDir: '/tmp/x' }).config.repo).toBe(
-      'acme/bridge',
+    expect(githubTransport({ repo: 'acme/deaddrop', workDir: '/tmp/x' }).config.repo).toBe(
+      'acme/deaddrop',
     );
   });
 });
 
 describe('gh helpers', () => {
   it('validates owner/name and rejects anything flag-like', () => {
-    expect(isValidRepo('acme/bridge-data')).toBe(true);
-    expect(isValidRepo('acme/bridge.data_1')).toBe(true);
+    expect(isValidRepo('acme/deaddrop-data')).toBe(true);
+    expect(isValidRepo('acme/deaddrop.data_1')).toBe(true);
     expect(isValidRepo('acme')).toBe(false);
     expect(isValidRepo('--flag/x')).toBe(false);
-    expect(isValidRepo('acme/bridge; rm -rf /')).toBe(false);
+    expect(isValidRepo('acme/deaddrop; rm -rf /')).toBe(false);
     expect(isValidRepo('acme/../etc')).toBe(false);
   });
 

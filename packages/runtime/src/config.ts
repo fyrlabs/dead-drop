@@ -4,7 +4,7 @@
  * Config is data, not code: it is read from JSON so the CLI, a container image
  * and a test can all produce the same runtime. Transport plugins are named by
  * package specifier and loaded at start-up, which is what lets a third-party
- * adapter be used without changing Bridge.
+ * adapter be used without changing dead-drop.
  *
  * Secrets are never written here in plain text by us. `${env:NAME}` references
  * are expanded at load time so the config file can live in version control.
@@ -14,14 +14,14 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 
-import { BridgeError, isValidName } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError, isValidName } from '@fyrlabs/dead-drop-protocol';
 import type { LogLevel } from '@fyrlabs/dead-drop-core';
 import { isLogLevel } from '@fyrlabs/dead-drop-core';
 
 export interface TransportConfigEntry {
   /**
    * Package specifier or built-in id: `filesystem`, `memory`, `git`,
-   * `@my-company/bridge-transport-foo`, or a relative path to a local module.
+   * `@my-company/deaddrop-transport-foo`, or a relative path to a local module.
    */
   use: string;
   /** Instance name, defaulting to the transport's own id. */
@@ -78,7 +78,7 @@ export interface RuntimeConfig {
   workspaces: WorkspaceConfig[];
 }
 
-export const DEFAULT_DATA_DIR = resolve(homedir(), '.bridge');
+export const DEFAULT_DATA_DIR = resolve(homedir(), '.deaddrop');
 
 /**
  * Resolves a path from the config file.
@@ -100,7 +100,7 @@ export function expandEnv(value: string, env: NodeJS.ProcessEnv = process.env): 
   return value.replace(/\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, name: string) => {
     const resolved = env[name];
     if (resolved === undefined) {
-      throw new BridgeError(
+      throw new DeadDropError(
         'CONFIG_INVALID',
         `config references unset environment variable ${name}`,
       );
@@ -130,7 +130,7 @@ function expandDeep(value: unknown, env: NodeJS.ProcessEnv): unknown {
  * casting after every validation branch.
  */
 function fail(message: string): never {
-  throw new BridgeError('CONFIG_INVALID', message);
+  throw new DeadDropError('CONFIG_INVALID', message);
 }
 
 export function parseRuntimeConfig(
@@ -191,7 +191,7 @@ function parseWorkspace(raw: unknown, index: number, baseDir?: string): Workspac
     fail(`workspace ${label}: peerId must be alphanumeric with . _ - separators`);
   }
   if (!Array.isArray(source.secrets) || source.secrets.length === 0) {
-    fail(`workspace ${label}: at least one secret is required (run "bridge keygen")`);
+    fail(`workspace ${label}: at least one secret is required (run "ddrop keygen")`);
   }
   for (const secret of source.secrets) {
     if (typeof secret !== 'string') fail(`workspace ${label}: secrets must be strings`);
@@ -332,13 +332,13 @@ export async function loadRuntimeConfig(
   try {
     text = await readFile(path, 'utf8');
   } catch (cause) {
-    throw new BridgeError('CONFIG_INVALID', `cannot read config file ${path}`, { cause });
+    throw new DeadDropError('CONFIG_INVALID', `cannot read config file ${path}`, { cause });
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch (cause) {
-    throw new BridgeError('CONFIG_INVALID', `config file ${path} is not valid JSON`, { cause });
+    throw new DeadDropError('CONFIG_INVALID', `config file ${path} is not valid JSON`, { cause });
   }
   return parseRuntimeConfig(parsed, { env, baseDir: resolve(path, '..') });
 }

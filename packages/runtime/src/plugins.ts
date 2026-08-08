@@ -3,7 +3,7 @@
  *
  * The blueprint's hard requirement is that a third party can ship a transport
  * without touching this repository. That means resolving adapters by module
- * specifier at run time: `@my-company/bridge-transport-foo`, a local path, or
+ * specifier at run time: `@my-company/deaddrop-transport-foo`, a local path, or
  * one of the built-in short names.
  *
  * Built-ins are still loaded dynamically so a runtime that only uses the
@@ -13,7 +13,7 @@
 import { pathToFileURL } from 'node:url';
 import { isAbsolute, resolve } from 'node:path';
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 import type { TransportDefinition, TransportRegistration } from '@fyrlabs/dead-drop-transport-sdk';
 
 import type { TransportConfigEntry } from './config.js';
@@ -46,7 +46,7 @@ export function extractDefinition(module: unknown, specifier: string): Transport
     const definition = asDefinition(candidate);
     if (definition) return definition;
   }
-  throw new BridgeError(
+  throw new DeadDropError(
     'CONFIG_INVALID',
     `module "${specifier}" does not export a transport created with defineTransport`,
   );
@@ -92,7 +92,7 @@ export async function loadTransport(
   try {
     module = await loader(specifier);
   } catch (cause) {
-    throw new BridgeError(
+    throw new DeadDropError(
       'CONFIG_INVALID',
       `cannot load transport "${entry.use}". Is the package installed? (resolved to ${specifier})`,
       { cause, details: { use: entry.use, specifier } },

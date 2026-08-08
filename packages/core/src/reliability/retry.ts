@@ -1,13 +1,13 @@
 /**
  * Retry with exponential backoff and jitter.
  *
- * Jitter is not optional here. Bridge peers poll on a shared schedule against a
+ * Jitter is not optional here. dead-drop peers poll on a shared schedule against a
  * rate-limited API; without jitter a transport hiccup makes every peer retry in
  * lockstep and re-create the outage. `full` jitter (random between 0 and the
  * computed delay) is the default because it spreads retries widest.
  */
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 
 import type { Clock } from '../clock.js';
 import { systemClock } from '../clock.js';
@@ -36,7 +36,7 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
 
 export interface RetryContext {
   attempt: number;
-  error: BridgeError;
+  error: DeadDropError;
   delayMs: number;
 }
 
@@ -46,7 +46,7 @@ export interface RetryOptions {
   signal?: AbortSignal;
   random?: () => number;
   /** Decides retryability. Defaults to `error.retryable`. */
-  isRetryable?: (error: BridgeError) => boolean;
+  isRetryable?: (error: DeadDropError) => boolean;
   /** Called before each sleep. Use it for logging and metrics. */
   onRetry?: (context: RetryContext) => void;
 }
@@ -84,47 +84,47 @@ export async function withRetry<T>(
 ): Promise<T> {
   const policy: RetryPolicy = { ...DEFAULT_RETRY_POLICY, ...options.policy };
   if (policy.maxAttempts < 1) {
-    throw new BridgeError('CONFIG_INVALID', 'retry policy maxAttempts must be at least 1');
+    throw new DeadDropError('CONFIG_INVALID', 'retry policy maxAttempts must be at least 1');
   }
   const clock = options.clock ?? systemClock;
   const random = options.random ?? Math.random;
-  const isRetryable = options.isRetryable ?? ((error: BridgeError) => error.retryable);
+  const isRetryable = options.isRetryable ?? ((error: DeadDropError) => error.retryable);
   const startedAt = clock.now();
 
-  let lastError: BridgeError | undefined;
+  let lastError: DeadDropError | undefined;
   for (let attempt = 1; attempt <= policy.maxAttempts; attempt++) {
     if (options.signal?.aborted) {
-      throw new BridgeError('CANCELLED', 'operation aborted before attempt', {
+      throw new DeadDropError('CANCELLED', 'operation aborted before attempt', {
         details: { attempt },
       });
     }
     try {
       return await operation(attempt);
     } catch (error) {
-      const bridgeError = BridgeError.from(error, 'TRANSPORT_ERROR');
-      lastError = bridgeError;
-      if (bridgeError.code === 'CANCELLED' || !isRetryable(bridgeError)) throw bridgeError;
+      const deadDropError = DeadDropError.from(error, 'TRANSPORT_ERROR');
+      lastError = deadDropError;
+      if (deadDropError.code === 'CANCELLED' || !isRetryable(deadDropError)) throw deadDropError;
       if (attempt === policy.maxAttempts) break;
 
-      const delayMs = bridgeError.retryAfterMs ?? backoffDelay(attempt, policy, random);
+      const delayMs = deadDropError.retryAfterMs ?? backoffDelay(attempt, policy, random);
       if (
         policy.maxElapsedMs !== undefined &&
         clock.now() - startedAt + delayMs > policy.maxElapsedMs
       ) {
         break;
       }
-      options.onRetry?.({ attempt, error: bridgeError, delayMs });
+      options.onRetry?.({ attempt, error: deadDropError, delayMs });
       try {
         await clock.sleep(delayMs, options.signal);
       } catch {
-        throw new BridgeError('CANCELLED', 'operation aborted while backing off', {
+        throw new DeadDropError('CANCELLED', 'operation aborted while backing off', {
           details: { attempt },
         });
       }
     }
   }
 
-  throw new BridgeError(
+  throw new DeadDropError(
     lastError?.code ?? 'TRANSPORT_ERROR',
     `operation failed after ${policy.maxAttempts} attempts: ${lastError?.message ?? 'unknown'}`,
     {
@@ -150,7 +150,7 @@ export async function withTimeout<T>(
       new Promise<never>((_resolve, reject) => {
         cancel = clock.setTimeout(ms, () =>
           reject(
-            new BridgeError('TIMEOUT', `${message} (${ms}ms)`, { details: { timeoutMs: ms } }),
+            new DeadDropError('TIMEOUT', `${message} (${ms}ms)`, { details: { timeoutMs: ms } }),
           ),
         );
       }),

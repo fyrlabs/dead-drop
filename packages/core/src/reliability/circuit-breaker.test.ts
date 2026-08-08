@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 
 import { TestClock } from '../clock.js';
 import { CircuitBreaker } from './circuit-breaker.js';
@@ -31,7 +31,7 @@ describe('CircuitBreaker', () => {
     const breaker = make(clock);
     for (let i = 0; i < 3; i++) breaker.recordFailure();
     const operation = vi.fn(async () => 'ok');
-    const error = await breaker.execute(operation).catch((e: unknown) => e as BridgeError);
+    const error = await breaker.execute(operation).catch((e: unknown) => e as DeadDropError);
     expect(operation).not.toHaveBeenCalled();
     expect(error.code).toBe('TRANSPORT_ERROR');
     expect(error.retryable).toBe(true);
@@ -96,14 +96,14 @@ describe('CircuitBreaker', () => {
     const breaker = make(new TestClock(0));
     await expect(
       breaker.execute(async () => {
-        throw new BridgeError('TRANSPORT_ERROR', 'boom');
+        throw new DeadDropError('TRANSPORT_ERROR', 'boom');
       }),
     ).rejects.toThrow();
     expect(breaker.errorRate).toBe(1);
 
     await expect(
       breaker.execute(async () => {
-        throw new BridgeError('CANCELLED', 'shutting down');
+        throw new DeadDropError('CANCELLED', 'shutting down');
       }),
     ).rejects.toMatchObject({ code: 'CANCELLED' });
     // The cancellation left the sample window untouched.

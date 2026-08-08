@@ -10,7 +10,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 
 const execFileAsync = promisify(execFile);
 
@@ -64,11 +64,11 @@ export class Git {
     });
   }
 
-  /** Runs git, throwing a `BridgeError` on a non-zero exit. */
+  /** Runs git, throwing a `DeadDropError` on a non-zero exit. */
   async run(args: string[], options: { signal?: AbortSignal } = {}): Promise<GitResult> {
     const result = await this.tryRun(args, options);
     if (result.code !== 0) {
-      throw new BridgeError(
+      throw new DeadDropError(
         'TRANSPORT_ERROR',
         `git ${args[0]} failed: ${firstLine(result.stderr)}`,
         {
@@ -100,19 +100,19 @@ export class Git {
         killed?: boolean;
       };
       if (failure.code === 'ENOENT') {
-        throw new BridgeError(
+        throw new DeadDropError(
           'CONFIG_INVALID',
           `the git transport needs the "${this.gitPath}" binary on PATH`,
           { cause: error },
         );
       }
       if (failure.killed) {
-        throw new BridgeError('TIMEOUT', `git ${args[0]} exceeded ${this.timeoutMs}ms`, {
+        throw new DeadDropError('TIMEOUT', `git ${args[0]} exceeded ${this.timeoutMs}ms`, {
           cause: error,
         });
       }
       if ((error as Error).name === 'AbortError') {
-        throw new BridgeError('CANCELLED', 'git command aborted', { cause: error });
+        throw new DeadDropError('CANCELLED', 'git command aborted', { cause: error });
       }
       return {
         stdout: failure.stdout ?? '',

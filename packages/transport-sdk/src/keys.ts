@@ -7,7 +7,7 @@
  * bug, and store transports get a ready-made guard.
  */
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 
 export const MAX_KEY_LENGTH = 512;
 const SEGMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -36,7 +36,7 @@ export function isValidKey(key: string): boolean {
 /** Throws unless `key` is safe to interpolate into a path or URL. */
 export function assertValidKey(key: string): void {
   if (!isValidKey(key)) {
-    throw new BridgeError('BAD_REQUEST', `invalid transport key: ${JSON.stringify(key)}`);
+    throw new DeadDropError('BAD_REQUEST', `invalid transport key: ${JSON.stringify(key)}`);
   }
 }
 
@@ -48,7 +48,7 @@ export function assertValidPrefix(prefix: string): void {
   if (prefix === '') return;
   const normalised = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
   if (!isValidKey(normalised)) {
-    throw new BridgeError('BAD_REQUEST', `invalid transport prefix: ${JSON.stringify(prefix)}`);
+    throw new DeadDropError('BAD_REQUEST', `invalid transport prefix: ${JSON.stringify(prefix)}`);
   }
 }
 

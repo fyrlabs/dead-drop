@@ -1,7 +1,7 @@
 {
   "name": "@fyrlabs/dead-drop-runtime",
   "version": "0.1.0",
-  "description": "Bridge runtime: workspaces, exposures, discovery and the local control plane",
+  "description": "dead-drop runtime: workspaces, exposures, discovery and the local control plane",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {

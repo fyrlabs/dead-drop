@@ -2,7 +2,7 @@
   "name": "dead-drop",
   "version": "0.1.0",
   "private": true,
-  "description": "Bridge — a transport-agnostic runtime for distributed applications",
+  "description": "dead-drop: a transport-agnostic runtime for distributed applications",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {

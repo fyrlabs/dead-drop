@@ -2,7 +2,7 @@
  * `@fyrlabs/dead-drop-transport-memory` — an in-process object store.
  *
  * Two jobs: it is the transport the test suite and examples use to run a full
- * Bridge without touching a network or a disk, and it is the smallest possible
+ * dead-drop without touching a network or a disk, and it is the smallest possible
  * worked example of the store contract for adapter authors.
  *
  * Instances sharing the same `namespace` share one backing map, so two runtimes
@@ -12,7 +12,7 @@
 
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 import {
   assertValidKey,
   assertValidPrefix,
@@ -96,13 +96,13 @@ class MemoryStore implements StoreTransport {
     await this.simulate(options.signal);
     const existing = this.objects.get(key);
     if (options.ifAbsent && existing) {
-      throw new BridgeError('TRANSPORT_ERROR', `object already exists: ${key}`, {
+      throw new DeadDropError('TRANSPORT_ERROR', `object already exists: ${key}`, {
         details: { key },
         retryable: false,
       });
     }
     if (options.ifMatch !== undefined && existing?.etag !== options.ifMatch) {
-      throw new BridgeError('TRANSPORT_ERROR', `etag mismatch for ${key}`, { retryable: false });
+      throw new DeadDropError('TRANSPORT_ERROR', `etag mismatch for ${key}`, { retryable: false });
     }
     const etag = `m${++this.etagCounter}`;
     // Copy: callers reuse buffers, and a store must not alias them.
@@ -200,10 +200,10 @@ class MemoryStore implements StoreTransport {
 
   private async simulate(signal?: AbortSignal): Promise<void> {
     if (this.closed) {
-      throw new BridgeError('TRANSPORT_ERROR', 'memory transport is closed');
+      throw new DeadDropError('TRANSPORT_ERROR', 'memory transport is closed');
     }
     if (signal?.aborted || this.context.signal.aborted) {
-      throw new BridgeError('CANCELLED', 'operation aborted');
+      throw new DeadDropError('CANCELLED', 'operation aborted');
     }
     const latency = this.config.latencyMs ?? 0;
     if (latency > 0) await delay(latency);
@@ -211,7 +211,7 @@ class MemoryStore implements StoreTransport {
     if (failureRate > 0) {
       const random = this.config.random ?? Math.random;
       if (random() < failureRate) {
-        throw new BridgeError('TRANSPORT_ERROR', 'simulated memory transport failure');
+        throw new DeadDropError('TRANSPORT_ERROR', 'simulated memory transport failure');
       }
     }
     this.lastSuccessAt = this.context.now();
@@ -232,11 +232,11 @@ export const memoryTransport = defineTransport<MemoryTransportConfig>({
   parseConfig(raw) {
     if (raw === undefined || raw === null) return {};
     if (typeof raw !== 'object' || Array.isArray(raw)) {
-      throw new BridgeError('CONFIG_INVALID', 'memory transport config must be an object');
+      throw new DeadDropError('CONFIG_INVALID', 'memory transport config must be an object');
     }
     const config = raw as MemoryTransportConfig;
     if (config.namespace !== undefined && typeof config.namespace !== 'string') {
-      throw new BridgeError('CONFIG_INVALID', 'memory transport namespace must be a string');
+      throw new DeadDropError('CONFIG_INVALID', 'memory transport namespace must be a string');
     }
     return config;
   },

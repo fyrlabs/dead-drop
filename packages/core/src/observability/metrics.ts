@@ -178,68 +178,68 @@ export class Histogram extends Metric {
   }
 }
 
-/** The metrics a Bridge runtime always publishes. */
+/** The metrics a dead-drop runtime always publishes. */
 export class MetricsRegistry {
   private readonly metrics = new Map<string, Metric>();
 
   readonly messagesSent = this.counter(
-    'bridge_messages_sent_total',
+    'deaddrop_messages_sent_total',
     'Envelopes handed to a transport',
   );
   readonly messagesReceived = this.counter(
-    'bridge_messages_received_total',
+    'deaddrop_messages_received_total',
     'Envelopes accepted from a transport',
   );
   readonly messagesDropped = this.counter(
-    'bridge_messages_dropped_total',
+    'deaddrop_messages_dropped_total',
     'Envelopes discarded (expired, duplicate, undecodable, dead-lettered)',
   );
   readonly transportOperations = this.counter(
-    'bridge_transport_operations_total',
+    'deaddrop_transport_operations_total',
     'Transport operations by transport, operation and outcome',
   );
   readonly transportRetries = this.counter(
-    'bridge_transport_retries_total',
+    'deaddrop_transport_retries_total',
     'Transport operations retried',
   );
   readonly failovers = this.counter(
-    'bridge_failovers_total',
+    'deaddrop_failovers_total',
     'Times an operation moved to a different transport',
   );
-  readonly requestsTotal = this.counter('bridge_requests_total', 'Bridge requests by outcome');
+  readonly requestsTotal = this.counter('deaddrop_requests_total', 'dead-drop requests by outcome');
 
   readonly transportLatency = this.histogram(
-    'bridge_transport_operation_duration_ms',
+    'deaddrop_transport_operation_duration_ms',
     'Transport operation duration in milliseconds',
   );
   readonly requestLatency = this.histogram(
-    'bridge_request_duration_ms',
+    'deaddrop_request_duration_ms',
     'End-to-end request duration in milliseconds',
   );
   readonly payloadBytes = this.histogram(
-    'bridge_payload_bytes',
+    'deaddrop_payload_bytes',
     'Wire size of transported frames',
     DEFAULT_SIZE_BUCKETS,
   );
 
-  readonly queueDepth = this.gauge('bridge_queue_depth', 'Messages waiting in the outbox');
+  readonly queueDepth = this.gauge('deaddrop_queue_depth', 'Messages waiting in the outbox');
   readonly inflightRequests = this.gauge(
-    'bridge_inflight_requests',
+    'deaddrop_inflight_requests',
     'Requests awaiting a response',
   );
   readonly transportHealth = this.gauge(
-    'bridge_transport_health',
+    'deaddrop_transport_health',
     'Transport health: 1 healthy, 0.5 degraded, 0 unavailable',
   );
   readonly transportRateLimitRemaining = this.gauge(
-    'bridge_transport_rate_limit_remaining',
+    'deaddrop_transport_rate_limit_remaining',
     'Remaining rate-limit budget reported by a transport',
   );
   readonly pollIntervalMs = this.gauge(
-    'bridge_poll_interval_ms',
+    'deaddrop_poll_interval_ms',
     'Current adaptive poll interval per transport',
   );
-  readonly cacheHitRatio = this.gauge('bridge_cache_hit_ratio', 'Local cache hit ratio, 0..1');
+  readonly cacheHitRatio = this.gauge('deaddrop_cache_hit_ratio', 'Local cache hit ratio, 0..1');
 
   counter(name: string, help: string): Counter {
     return this.register(name, () => new Counter(name, help)) as Counter;

@@ -1,5 +1,5 @@
 /**
- * The `bridge` command.
+ * The `ddrop` command.
  *
  * Two kinds of command: those that need a running runtime (`status`, `expose`,
  * `connect`, `logs`, `metrics`, `discover`) and talk to it over the control
@@ -15,10 +15,10 @@ import { parseArgs } from 'node:util';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-import { BridgeError, generateWorkspaceSecret } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError, generateWorkspaceSecret } from '@fyrlabs/dead-drop-protocol';
 import { createLogger, prettySink, type LogRecord, type Span } from '@fyrlabs/dead-drop-core';
 import {
-  BridgeRuntime,
+  DeadDropRuntime,
   ControlPlaneClient,
   DEFAULT_DATA_DIR,
   connect,
@@ -46,30 +46,30 @@ const defaultIo: CliIo = {
     }),
 };
 
-const USAGE = `bridge — a transport-agnostic runtime for distributed applications
+const USAGE = `ddrop — a transport-agnostic runtime for distributed applications
 
 Usage
-  bridge start [--config <file>]              run the runtime in the foreground
-  bridge status [--json]                      show runtime, workspace and transport state
-  bridge list                                 list workspaces
-  bridge discover [--json] [--stale]          list peers visible in the workspace
-  bridge transport list [--json]              show transports and their scores
-  bridge transport health [--json]            re-probe transports and show health
-  bridge expose --target <url> --name <name>  expose a local http server
-  bridge expose <dir> --name <name>           expose a directory of static files
-  bridge connect <peer>/<exposure> [--port n] serve a remote exposure locally
-  bridge call <peer> <channel> [--input json] make an rpc call
-  bridge publish <channel> [--input json]     broadcast an event
-  bridge logs [--limit n] [--level warn]      recent runtime logs
-  bridge trace [<traceId>]                    recent traces, or one trace as a span tree
-  bridge metrics                              Prometheus metrics
-  bridge keygen                               print a new workspace secret
-  bridge init [--name <workspace>]            write a starter bridge.config.json
+  ddrop start [--config <file>]              run the runtime in the foreground
+  ddrop status [--json]                      show runtime, workspace and transport state
+  ddrop list                                 list workspaces
+  ddrop discover [--json] [--stale]          list peers visible in the workspace
+  ddrop transport list [--json]              show transports and their scores
+  ddrop transport health [--json]            re-probe transports and show health
+  ddrop expose --target <url> --name <name>  expose a local http server
+  ddrop expose <dir> --name <name>           expose a directory of static files
+  ddrop connect <peer>/<exposure> [--port n] serve a remote exposure locally
+  ddrop call <peer> <channel> [--input json] make an rpc call
+  ddrop publish <channel> [--input json]     broadcast an event
+  ddrop logs [--limit n] [--level warn]      recent runtime logs
+  ddrop trace [<traceId>]                    recent traces, or one trace as a span tree
+  ddrop metrics                              Prometheus metrics
+  ddrop keygen                               print a new workspace secret
+  ddrop init [--name <workspace>]            write a starter deaddrop.config.json
 
 Global options
-  --config <file>    config file (default ./bridge.config.json, then ~/.bridge/config.json)
+  --config <file>    config file (default ./deaddrop.config.json, then ~/.deaddrop/config.json)
   --workspace <name> workspace to act on (default: the runtime's first)
-  --socket <path>    control plane socket (default <dataDir>/bridge.sock)
+  --socket <path>    control plane socket (default <dataDir>/deaddrop.sock)
   --json             machine-readable output
   --help, --version
 `;
@@ -102,8 +102,8 @@ export async function run(argv: string[], io: CliIo = defaultIo): Promise<number
       },
     });
   } catch (error) {
-    io.err(`bridge: ${(error as Error).message}`);
-    io.err('Run "bridge --help" for usage.');
+    io.err(`ddrop: ${(error as Error).message}`);
+    io.err('Run "ddrop --help" for usage.');
     return 2;
   }
 
@@ -121,11 +121,11 @@ export async function run(argv: string[], io: CliIo = defaultIo): Promise<number
   try {
     return await dispatch(command, positionals.slice(1), values, io);
   } catch (error) {
-    const bridgeError = BridgeError.from(error);
+    const deadDropError = DeadDropError.from(error);
     if (values.json) {
-      io.out(JSON.stringify({ error: bridgeError.toJSON() }, null, 2));
+      io.out(JSON.stringify({ error: deadDropError.toJSON() }, null, 2));
     } else {
-      io.err(`bridge: ${bridgeError.message}`);
+      io.err(`ddrop: ${deadDropError.message}`);
     }
     return 1;
   }
@@ -169,8 +169,8 @@ async function dispatch(
     case 'metrics':
       return metrics(values, io);
     default:
-      io.err(`bridge: unknown command "${command}"`);
-      io.err('Run "bridge --help" for usage.');
+      io.err(`ddrop: unknown command "${command}"`);
+      io.err('Run "ddrop --help" for usage.');
       return 2;
   }
 }
@@ -186,22 +186,22 @@ function keygen(values: Values, io: CliIo): number {
     io.err('');
     io.err('Share this secret with every peer in the workspace, over a channel you trust.');
     io.err('Anyone holding it can read and write the workspace. Store it in a secret manager');
-    io.err('and reference it from the config as "${env:BRIDGE_SECRET}".');
+    io.err('and reference it from the config as "${env:DEADDROP_SECRET}".');
   }
   return 0;
 }
 
 async function init(values: Values, io: CliIo): Promise<number> {
   const name = typeof values.name === 'string' ? values.name : 'default';
-  const path = resolve(typeof values.config === 'string' ? values.config : 'bridge.config.json');
+  const path = resolve(typeof values.config === 'string' ? values.config : 'deaddrop.config.json');
   const config = {
-    dataDir: '.bridge',
+    dataDir: '.deaddrop',
     logLevel: 'info',
     workspaces: [
       {
         name,
-        secrets: ['${env:BRIDGE_SECRET}'],
-        transports: [{ use: 'filesystem', config: { root: './.bridge/store' } }],
+        secrets: ['${env:DEADDROP_SECRET}'],
+        transports: [{ use: 'filesystem', config: { root: './.deaddrop/store' } }],
         exposures: [],
       },
     ],
@@ -209,19 +209,22 @@ async function init(values: Values, io: CliIo): Promise<number> {
   await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, { flag: 'wx' }).catch(
     (error: NodeJS.ErrnoException) => {
       if (error.code === 'EEXIST') {
-        throw new BridgeError('CONFIG_INVALID', `${path} already exists; refusing to overwrite it`);
+        throw new DeadDropError(
+          'CONFIG_INVALID',
+          `${path} already exists; refusing to overwrite it`,
+        );
       }
       throw error;
     },
   );
   io.out(`Wrote ${path}`);
-  io.err('Next: export BRIDGE_SECRET="$(bridge keygen)" && bridge start');
+  io.err('Next: export DEADDROP_SECRET="$(ddrop keygen)" && ddrop start');
   return 0;
 }
 
 async function start(values: Values, io: CliIo): Promise<number> {
   const config = await resolveConfig(values);
-  const runtime = new BridgeRuntime({
+  const runtime = new DeadDropRuntime({
     config,
     logFormat: values.pretty ? 'pretty' : 'json',
     version: VERSION,
@@ -233,7 +236,7 @@ async function start(values: Values, io: CliIo): Promise<number> {
     socketPath,
     logger: runtime.logger,
   });
-  io.err(`bridge: runtime listening on ${socketPath}`);
+  io.err(`ddrop: runtime listening on ${socketPath}`);
   try {
     await (io.waitForShutdown?.() ?? Promise.resolve());
   } finally {
@@ -261,7 +264,7 @@ async function status(values: Values, io: CliIo): Promise<number> {
       mailbox: { pollIntervalMs: number; retrying: number };
     }>;
   };
-  io.out(`bridge ${runtime.version}  up ${formatDuration(runtime.uptimeMs)}`);
+  io.out(`ddrop ${runtime.version}  up ${formatDuration(runtime.uptimeMs)}`);
   for (const workspace of runtime.workspaces) {
     io.out('');
     io.out(`workspace ${workspace.name}  peer ${workspace.peerId}`);
@@ -313,7 +316,7 @@ async function discover(values: Values, io: CliIo): Promise<number> {
 async function transport(args: string[], values: Values, io: CliIo): Promise<number> {
   const sub = args[0] ?? 'list';
   if (sub !== 'list' && sub !== 'health') {
-    io.err('bridge: transport takes "list" or "health"');
+    io.err('ddrop: transport takes "list" or "health"');
     return 2;
   }
   const body = await (
@@ -352,12 +355,12 @@ async function expose(args: string[], values: Values, io: CliIo): Promise<number
   const directory = args[0];
   const target = typeof values.target === 'string' ? values.target : undefined;
   if (!target && !directory) {
-    io.err('bridge: expose needs --target <url> or a directory argument');
+    io.err('ddrop: expose needs --target <url> or a directory argument');
     return 2;
   }
   const name = typeof values.name === 'string' ? values.name : undefined;
   if (!name) {
-    io.err('bridge: expose needs --name <name>');
+    io.err('ddrop: expose needs --name <name>');
     return 2;
   }
   const body = target
@@ -377,7 +380,7 @@ async function expose(args: string[], values: Values, io: CliIo): Promise<number
 async function connectCommand(args: string[], values: Values, io: CliIo): Promise<number> {
   const spec = args[0];
   if (!spec || !spec.includes('/')) {
-    io.err('bridge: connect takes <peer>/<exposure>');
+    io.err('ddrop: connect takes <peer>/<exposure>');
     return 2;
   }
   const separator = spec.indexOf('/');
@@ -389,7 +392,7 @@ async function connectCommand(args: string[], values: Values, io: CliIo): Promis
   // mean base64-ing every request body through a second JSON hop.
   //
   // That means this process is a second peer, so it must not claim the peer id
-  // of an already-running `bridge start`: two runtimes polling one inbox would
+  // of an already-running `ddrop start`: two runtimes polling one inbox would
   // race for the same messages and lose responses. It gets its own ephemeral
   // identity, and withdraws its presence beacon on exit.
   const base = await resolveConfig(values);
@@ -400,7 +403,7 @@ async function connectCommand(args: string[], values: Values, io: CliIo): Promis
       peerId: `${workspace.peerId ?? 'peer'}-c${process.pid.toString(16)}`,
     })),
   };
-  const runtime = new BridgeRuntime({ config, logFormat: 'pretty', version: VERSION });
+  const runtime = new DeadDropRuntime({ config, logFormat: 'pretty', version: VERSION });
   await runtime.start();
   const workspace =
     typeof values.workspace === 'string'
@@ -416,7 +419,7 @@ async function connectCommand(args: string[], values: Values, io: CliIo): Promis
     ...(values.timeout ? { timeoutMs: Number(values.timeout) } : {}),
   });
   io.out(handle.url);
-  io.err(`bridge: forwarding ${handle.url} -> ${target}/${exposure}`);
+  io.err(`ddrop: forwarding ${handle.url} -> ${target}/${exposure}`);
   try {
     await (io.waitForShutdown?.() ?? Promise.resolve());
   } finally {
@@ -429,7 +432,7 @@ async function connectCommand(args: string[], values: Values, io: CliIo): Promis
 async function call(args: string[], values: Values, io: CliIo): Promise<number> {
   const [target, channel] = args;
   if (!target || !channel) {
-    io.err('bridge: call takes <peer> <channel>');
+    io.err('ddrop: call takes <peer> <channel>');
     return 2;
   }
   const input = parseInput(values.input);
@@ -448,7 +451,7 @@ async function call(args: string[], values: Values, io: CliIo): Promise<number> 
 async function publish(args: string[], values: Values, io: CliIo): Promise<number> {
   const channel = args[0];
   if (!channel) {
-    io.err('bridge: publish takes <channel>');
+    io.err('ddrop: publish takes <channel>');
     return 2;
   }
   const body = await (
@@ -531,7 +534,7 @@ function printTraceList(spans: Span[], io: CliIo): void {
     );
   }
   io.out('');
-  io.out('bridge trace <traceId> expands one of them.');
+  io.out('ddrop trace <traceId> expands one of them.');
 }
 
 function printSpanTree(spans: Span[], io: CliIo): void {
@@ -581,9 +584,9 @@ async function metrics(values: Values, io: CliIo): Promise<number> {
 /**
  * Where the runtime is listening.
  *
- * `bridge start` derives its socket from the config's `dataDir`, so a client
+ * `ddrop start` derives its socket from the config's `dataDir`, so a client
  * that assumed the default data dir would miss every runtime started from a
- * project-local config — which is exactly what `bridge init` writes. `--socket`
+ * project-local config — which is exactly what `ddrop init` writes. `--socket`
  * still wins, and a missing config is not an error here: a runtime started
  * without one listens on the default path.
  */
@@ -603,7 +606,7 @@ function buildQuery(values: Values, extra: Record<string, string> = {}): string 
 }
 
 function configCandidates(): string[] {
-  return [resolve('bridge.config.json'), resolve(DEFAULT_DATA_DIR, 'config.json')];
+  return [resolve('deaddrop.config.json'), resolve(DEFAULT_DATA_DIR, 'config.json')];
 }
 
 /** Config discovery: explicit flag, then the working directory, then the home dir. */
@@ -627,9 +630,9 @@ async function findConfigPath(values: Values): Promise<string | undefined> {
 async function resolveConfig(values: Values): Promise<RuntimeConfig> {
   const path = await findConfigPath(values);
   if (path !== undefined) return loadRuntimeConfig(path);
-  throw new BridgeError(
+  throw new DeadDropError(
     'CONFIG_INVALID',
-    `no config file found (looked in ${configCandidates().join(', ')}). Run "bridge init" to create one.`,
+    `no config file found (looked in ${configCandidates().join(', ')}). Run "ddrop init" to create one.`,
   );
 }
 

@@ -1,26 +1,26 @@
-# Bridge
+# dead-drop
 
-**Build the application. Bring the transport. Bridge connects them.**
+**Build the application. Bring the transport. dead-drop connects them.**
 
-Bridge is a local-first runtime that lets applications on different machines talk to each other through infrastructure you already have: a git repository, a shared or synced folder, object storage, or an adapter you write yourself. There is nothing to deploy, no public endpoint, no broker, and the application does not need to know how its bytes move.
+dead-drop is a local-first runtime that lets applications on different machines talk to each other through infrastructure you already have: a git repository, a shared or synced folder, object storage, or an adapter you write yourself. There is nothing to deploy, no public endpoint, no broker, and the application does not need to know how its bytes move.
 
 ```bash
 # machine A — an ordinary Express app on :3000, unmodified
-bridge start &                                             # the runtime, reading ./bridge.config.json
-bridge expose --target http://localhost:3000 --name my-api
+ddrop start &                                             # the runtime, reading ./deaddrop.config.json
+ddrop expose --target http://localhost:3000 --name my-api
 
 # machine B
-bridge connect machine-a/my-api
+ddrop connect machine-a/my-api
 # http://127.0.0.1:53219  →  curl it, open it in a browser, point a client at it
 ```
 
-Both machines need a `bridge.config.json` first: same workspace secret, same transport. The quick start below writes one.
+Both machines need a `deaddrop.config.json` first: same workspace secret, same transport. The quick start below writes one.
 
 ## What this is, and what it is not
 
-Bridge is genuinely useful when you want two machines to talk and the network between them is the problem: a laptop behind NAT, a locked-down corporate environment, a CI runner, an air-gapped review box that can still reach a git remote. It is a real runtime with encryption, retries, failover, deduplication, health-based routing and observability.
+dead-drop is genuinely useful when you want two machines to talk and the network between them is the problem: a laptop behind NAT, a locked-down corporate environment, a CI runner, an air-gapped review box that can still reach a git remote. It is a real runtime with encryption, retries, failover, deduplication, health-based routing and observability.
 
-It is **not** a message broker, and it will not pretend to be one. A round trip over a git remote costs seconds, not milliseconds. If you have Kafka, use Kafka. Bridge is for the case where standing up infrastructure is the expensive part.
+It is **not** a message broker, and it will not pretend to be one. A round trip over a git remote costs seconds, not milliseconds. If you have Kafka, use Kafka. dead-drop is for the case where standing up infrastructure is the expensive part.
 
 Delivery is **at-least-once**. Ordering is best-effort per recipient. Both are stated plainly in [docs/guarantees.md](docs/guarantees.md) rather than buried.
 
@@ -36,42 +36,42 @@ npm install -g @fyrlabs/dead-drop
 
 ```bash
 # Once, on either machine:
-bridge keygen                      # prints ddk1_… — share it with the other peer, securely
-export BRIDGE_SECRET='ddk1_…'
-bridge init --name demo            # writes bridge.config.json
+ddrop keygen                      # prints ddk1_… — share it with the other peer, securely
+export DEADDROP_SECRET='ddk1_…'
+ddrop init --name demo            # writes deaddrop.config.json
 ```
 
-`bridge.config.json`:
+`deaddrop.config.json`:
 
 ```json
 {
-  "dataDir": ".bridge",
+  "dataDir": ".deaddrop",
   "workspaces": [
     {
       "name": "demo",
       "peerId": "machine-a",
-      "secrets": ["${env:BRIDGE_SECRET}"],
-      "transports": [{ "use": "filesystem", "config": { "root": "/Volumes/shared/bridge" } }],
+      "secrets": ["${env:DEADDROP_SECRET}"],
+      "transports": [{ "use": "filesystem", "config": { "root": "/Volumes/shared/deaddrop" } }],
       "exposures": [{ "name": "my-api", "type": "http", "target": "http://localhost:3000" }]
     }
   ]
 }
 ```
 
-`bridge start` runs in the foreground, so the commands after it belong in a second shell:
+`ddrop start` runs in the foreground, so the commands after it belong in a second shell:
 
 ```bash
-bridge start          # machine A
-bridge start          # machine B, same secret, peerId "machine-b", no exposures
-bridge discover       # machine B sees machine-a and its exposures
-bridge connect machine-a/my-api
+ddrop start          # machine A
+ddrop start          # machine B, same secret, peerId "machine-b", no exposures
+ddrop discover       # machine B sees machine-a and its exposures
+ddrop connect machine-a/my-api
 ```
 
-Client commands find the runtime through the `dataDir` in the config they discover, so run them from the directory holding `bridge.config.json`, or pass `--config` or `--socket`.
+Client commands find the runtime through the `dataDir` in the config they discover, so run them from the directory holding `deaddrop.config.json`, or pass `--config` or `--socket`.
 
 ## Quick start: over GitHub
 
-Data moves by pushing and pulling a dedicated branch. Authentication is whatever `gh` already has; Bridge never sees a token.
+Data moves by pushing and pulling a dedicated branch. Authentication is whatever `gh` already has; dead-drop never sees a token.
 
 ```bash
 gh auth login && gh auth setup-git
@@ -81,27 +81,27 @@ gh auth login && gh auth setup-git
 {
   "use": "github",
   "config": {
-    "repo": "your-org/bridge-workspace",
-    "workDir": "./.bridge/github",
+    "repo": "your-org/deaddrop-workspace",
+    "workDir": "./.deaddrop/github",
     "createIfMissing": true
   }
 }
 ```
 
-Bridge writes to a `bridge-data` orphan branch, so your repository's real history is untouched. Deleting that branch discards undelivered messages and nothing else.
+dead-drop writes to a `deaddrop-data` orphan branch, so your repository's real history is untouched. Deleting that branch discards undelivered messages and nothing else.
 
 ## Native SDK
 
-For applications that want Bridge-native interactions rather than HTTP proxying:
+For applications that want dead-drop-native interactions rather than HTTP proxying:
 
 ```ts
 import { createClient } from '@fyrlabs/dead-drop-sdk';
 
-// dataDir must match the running runtime's; it defaults to ~/.bridge.
-const bridge = createClient({ workspace: 'demo', dataDir: '.bridge' });
+// dataDir must match the running runtime's; it defaults to ~/.deaddrop.
+const ddrop = createClient({ workspace: 'demo', dataDir: '.deaddrop' });
 
-await bridge.publish('events/orders', { type: 'order.created', id: 42 });
-const sum = await bridge.call('machine-a', 'math.add', { a: 10, b: 20 });
+await ddrop.publish('events/orders', { type: 'order.created', id: 42 });
+const sum = await ddrop.call('machine-a', 'math.add', { a: 10, b: 20 });
 ```
 
 And on the serving side, from an embedded runtime:
@@ -145,24 +145,24 @@ export const acmeTransport = defineTransport({
 });
 ```
 
-Four methods. Bridge supplies framing, encryption, chunking, acknowledgement, retries, deduplication, dead-lettering and adaptive polling on top. Run the conformance suite against your adapter before publishing it — see [docs/writing-a-transport.md](docs/writing-a-transport.md).
+Four methods. dead-drop supplies framing, encryption, chunking, acknowledgement, retries, deduplication, dead-lettering and adaptive polling on top. Run the conformance suite against your adapter before publishing it — see [docs/writing-a-transport.md](docs/writing-a-transport.md).
 
 ## Commands
 
 ```text
-bridge start                         run the runtime
-bridge status                        runtime, workspaces, transports
-bridge list                          workspaces this runtime serves
-bridge discover                      peers visible in the workspace
-bridge transport list | health       transport scores and health
-bridge expose --target <url> --name <n>
-bridge expose <dir> --name <n>
-bridge connect <peer>/<exposure>
-bridge call <peer> <channel> --input '{"a":1}'
-bridge publish <channel> --input '{...}'
-bridge logs | metrics
-bridge trace [<traceId>]             recent traces, or one as a span tree
-bridge keygen | init
+ddrop start                         run the runtime
+ddrop status                        runtime, workspaces, transports
+ddrop list                          workspaces this runtime serves
+ddrop discover                      peers visible in the workspace
+ddrop transport list | health       transport scores and health
+ddrop expose --target <url> --name <n>
+ddrop expose <dir> --name <n>
+ddrop connect <peer>/<exposure>
+ddrop call <peer> <channel> --input '{"a":1}'
+ddrop publish <channel> --input '{...}'
+ddrop logs | metrics
+ddrop trace [<traceId>]             recent traces, or one as a span tree
+ddrop keygen | init
 ```
 
 `--json` makes the output machine-readable, including errors. `call` always returns JSON; `metrics` is Prometheus text either way.
@@ -176,7 +176,7 @@ bridge keygen | init
 | `@fyrlabs/dead-drop-core` | Transport manager, reliability, mailbox engine, observability. |
 | `@fyrlabs/dead-drop-runtime` | Workspaces, exposures, discovery, control plane. |
 | `@fyrlabs/dead-drop-sdk` | Application client. |
-| `@fyrlabs/dead-drop` | The `bridge` command. |
+| `@fyrlabs/dead-drop` | The `ddrop` command. |
 | `@fyrlabs/dead-drop-transport-filesystem` | Reference transport: any directory. |
 | `@fyrlabs/dead-drop-transport-git` | Any git remote. |
 | `@fyrlabs/dead-drop-transport-github` | GitHub, via `gh` for auth and repo management. |

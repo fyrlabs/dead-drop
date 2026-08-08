@@ -1,5 +1,5 @@
 /**
- * `@fyrlabs/dead-drop-transport-github` — GitHub as a Bridge transport.
+ * `@fyrlabs/dead-drop-transport-github` — GitHub as a dead-drop transport.
  *
  * Deliberately thin. All data movement is `@fyrlabs/dead-drop-transport-git`: peers
  * push and pull a dedicated branch of a repository. This package adds only the
@@ -8,7 +8,7 @@
  *   - resolving `owner/name` to a clone url through the `gh` CLI, so whatever
  *     authentication the user already has (`gh auth login`, SSH keys, a
  *     credential helper) is what gets used and no token is ever handed to
- *     Bridge;
+ *     dead-drop;
  *   - optionally creating the repository, private by default;
  *   - reporting the API rate limit, which the transport manager uses when
  *     scoring transports so a nearly-exhausted GitHub loses to a healthy peer.
@@ -17,7 +17,7 @@
  * later without changing anything above this file.
  */
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 import {
   defineTransport,
   type ListOptions,
@@ -37,7 +37,7 @@ export interface GitHubTransportConfig {
   repo: string;
   /** Local clone directory. */
   workDir: string;
-  /** Branch that holds Bridge data. Default `bridge-data`. */
+  /** Branch that holds dead-drop data. Default `deaddrop-data`. */
   branch?: string;
   /** Subdirectory inside the branch, so one repo can host several workspaces. */
   prefix?: string;
@@ -83,7 +83,7 @@ class GitHubStore implements StoreTransport {
     const repo = this.config.repo;
     const auth = await this.gh.authStatus();
     if (!auth.authenticated) {
-      throw new BridgeError(
+      throw new DeadDropError(
         'UNAUTHORIZED',
         `the GitHub CLI is not authenticated. Run "gh auth login" and "gh auth setup-git". (${auth.message})`,
       );
@@ -92,7 +92,7 @@ class GitHubStore implements StoreTransport {
     let info = await this.gh.repoInfo(repo);
     if (!info) {
       if (!this.config.createIfMissing) {
-        throw new BridgeError(
+        throw new DeadDropError(
           'NOT_FOUND',
           `repository ${repo} does not exist or is not visible to you. ` +
             'Create it, or set "createIfMissing": true.',
@@ -101,7 +101,7 @@ class GitHubStore implements StoreTransport {
       this.context.logger.info('creating the GitHub repository for this workspace', { repo });
       info = await this.gh.createRepo(repo, {
         private: this.config.private ?? true,
-        description: 'Bridge workspace transport. Machine-managed.',
+        description: 'dead-drop workspace transport. Machine-managed.',
       });
     }
 
@@ -110,7 +110,7 @@ class GitHubStore implements StoreTransport {
       // and no token in our memory.
       remote: info.url,
       workDir: this.config.workDir,
-      branch: this.config.branch ?? 'bridge-data',
+      branch: this.config.branch ?? 'deaddrop-data',
       ...(this.config.prefix !== undefined ? { prefix: this.config.prefix } : {}),
       ...(this.config.gitPath ? { gitPath: this.config.gitPath } : {}),
       ...(this.config.timeoutMs ? { timeoutMs: this.config.timeoutMs } : {}),
@@ -147,7 +147,7 @@ class GitHubStore implements StoreTransport {
     try {
       health = await (await this.store()).health();
     } catch (error) {
-      return { status: 'unavailable', message: BridgeError.from(error).message };
+      return { status: 'unavailable', message: DeadDropError.from(error).message };
     }
 
     const interval = this.config.rateLimitIntervalMs ?? 60_000;
@@ -182,14 +182,14 @@ export const githubTransport = defineTransport<GitHubTransportConfig>({
   },
   parseConfig(raw) {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-      throw new BridgeError('CONFIG_INVALID', 'github transport config must be an object');
+      throw new DeadDropError('CONFIG_INVALID', 'github transport config must be an object');
     }
     const config = raw as GitHubTransportConfig;
     if (typeof config.repo !== 'string' || !isValidRepo(config.repo)) {
-      throw new BridgeError('CONFIG_INVALID', 'github transport requires "repo" as "owner/name"');
+      throw new DeadDropError('CONFIG_INVALID', 'github transport requires "repo" as "owner/name"');
     }
     if (typeof config.workDir !== 'string' || config.workDir.length === 0) {
-      throw new BridgeError('CONFIG_INVALID', 'github transport requires "workDir"');
+      throw new DeadDropError('CONFIG_INVALID', 'github transport requires "workDir"');
     }
     return config;
   },

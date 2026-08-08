@@ -2,7 +2,7 @@
  * `@fyrlabs/dead-drop-transport-filesystem` — a store transport backed by a directory.
  *
  * This is the reference transport. Point two machines at the same directory and
- * Bridge works: a shared network mount, a Dropbox/OneDrive/Drive folder, an
+ * dead-drop works: a shared network mount, a Dropbox/OneDrive/Drive folder, an
  * SMB share, or just two runtimes on one box for local development.
  *
  * Writes are atomic (temp file plus rename) because sync clients and other
@@ -27,7 +27,7 @@ import { watch, type FSWatcher } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 import {
   assertValidKey,
   assertValidPrefix,
@@ -68,7 +68,7 @@ class FilesystemStore implements StoreTransport {
 
   constructor(config: FilesystemTransportConfig, context: TransportContext) {
     if (typeof config?.root !== 'string' || config.root.length === 0) {
-      throw new BridgeError('CONFIG_INVALID', 'filesystem transport requires a root directory');
+      throw new DeadDropError('CONFIG_INVALID', 'filesystem transport requires a root directory');
     }
     this.root = resolve(config.root);
     this.config = config;
@@ -95,7 +95,7 @@ class FilesystemStore implements StoreTransport {
         return { key, etag: await this.etagFor(path) };
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-          throw new BridgeError('TRANSPORT_ERROR', `object already exists: ${key}`, {
+          throw new DeadDropError('TRANSPORT_ERROR', `object already exists: ${key}`, {
             details: { key },
             retryable: false,
           });
@@ -107,7 +107,9 @@ class FilesystemStore implements StoreTransport {
     if (options.ifMatch !== undefined) {
       const current = await this.etagFor(path).catch(() => undefined);
       if (current !== options.ifMatch) {
-        throw new BridgeError('TRANSPORT_ERROR', `etag mismatch for ${key}`, { retryable: false });
+        throw new DeadDropError('TRANSPORT_ERROR', `etag mismatch for ${key}`, {
+          retryable: false,
+        });
       }
     }
 
@@ -228,7 +230,7 @@ class FilesystemStore implements StoreTransport {
       await this.ensureRoot();
       // A real write proves the mount is not read-only or stale, which a stat
       // on a disconnected network share will not.
-      const probe = join(this.root, `.bridge-health-${randomBytes(4).toString('hex')}`);
+      const probe = join(this.root, `.deaddrop-health-${randomBytes(4).toString('hex')}`);
       await writeFile(probe, '');
       await unlink(probe);
       const health: TransportHealth = {
@@ -318,7 +320,7 @@ class FilesystemStore implements StoreTransport {
     // Belt and braces: assertValidKey already rejects traversal, but a symlinked
     // or case-folding root could still surprise us.
     if (path !== this.root && !path.startsWith(this.root + sep)) {
-      throw new BridgeError('BAD_REQUEST', `key escapes the transport root: ${key}`);
+      throw new DeadDropError('BAD_REQUEST', `key escapes the transport root: ${key}`);
     }
     return path;
   }
@@ -329,18 +331,18 @@ class FilesystemStore implements StoreTransport {
   }
 
   private checkOpen(signal?: AbortSignal): void {
-    if (this.closed) throw new BridgeError('TRANSPORT_ERROR', 'filesystem transport is closed');
+    if (this.closed) throw new DeadDropError('TRANSPORT_ERROR', 'filesystem transport is closed');
     if (signal?.aborted || this.context.signal.aborted) {
-      throw new BridgeError('CANCELLED', 'operation aborted');
+      throw new DeadDropError('CANCELLED', 'operation aborted');
     }
   }
 
-  private wrap(error: unknown, message: string): BridgeError {
+  private wrap(error: unknown, message: string): DeadDropError {
     const code = (error as NodeJS.ErrnoException).code;
     // A full disk or a vanished mount is not worth retrying immediately; a
     // transient EBUSY/EAGAIN is.
     const retryable = code === 'EBUSY' || code === 'EAGAIN' || code === 'EMFILE';
-    return new BridgeError('TRANSPORT_ERROR', `${message}: ${(error as Error).message}`, {
+    return new DeadDropError('TRANSPORT_ERROR', `${message}: ${(error as Error).message}`, {
       cause: error,
       retryable,
       details: { code },
@@ -361,14 +363,14 @@ export const filesystemTransport = defineTransport<FilesystemTransportConfig>({
   },
   parseConfig(raw) {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-      throw new BridgeError('CONFIG_INVALID', 'filesystem transport config must be an object');
+      throw new DeadDropError('CONFIG_INVALID', 'filesystem transport config must be an object');
     }
     const config = raw as FilesystemTransportConfig;
     if (typeof config.root !== 'string' || config.root.length === 0) {
-      throw new BridgeError('CONFIG_INVALID', 'filesystem transport requires "root"');
+      throw new DeadDropError('CONFIG_INVALID', 'filesystem transport requires "root"');
     }
     if (config.pollIntervalMs !== undefined && config.pollIntervalMs < 50) {
-      throw new BridgeError('CONFIG_INVALID', 'pollIntervalMs must be at least 50');
+      throw new DeadDropError('CONFIG_INVALID', 'pollIntervalMs must be at least 50');
     }
     return config;
   },

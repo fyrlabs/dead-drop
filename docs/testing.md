@@ -35,12 +35,12 @@ These need real credentials and a real account, so they cannot run in CI. Work t
 **GitHub transport, live**
 
 - [ ] `gh auth login` and `gh auth setup-git`, then start a runtime with a `github` transport against a private repository you own.
-- [ ] Confirm the `bridge-data` orphan branch is created and the repository's default branch is untouched.
-- [ ] Run two peers on different machines. Confirm `bridge discover` sees both and `bridge connect` proxies a real request.
+- [ ] Confirm the `deaddrop-data` orphan branch is created and the repository's default branch is untouched.
+- [ ] Run two peers on different machines. Confirm `ddrop discover` sees both and `ddrop connect` proxies a real request.
 - [ ] Confirm no readable application data appears in the repository: clone the data branch and inspect it.
 - [ ] Revoke `gh` auth mid-session. Confirm health reports `unavailable` with an actionable message and that failover to a second transport happens if one is configured.
-- [ ] Drive the API rate limit low (or set `rateLimitIntervalMs` short and check `bridge transport health`). Confirm the transport reports `degraded` below 10% headroom.
-- [ ] Push to the data branch from outside Bridge while a peer is sending, and confirm the push-race path recovers.
+- [ ] Drive the API rate limit low (or set `rateLimitIntervalMs` short and check `ddrop transport health`). Confirm the transport reports `degraded` below 10% headroom.
+- [ ] Push to the data branch from outside dead-drop while a peer is sending, and confirm the push-race path recovers.
 - [ ] Measure the real round trip. Set `requestTimeoutMs` accordingly and record it for your team.
 
 **Scale and endurance**
@@ -52,7 +52,7 @@ These need real credentials and a real account, so they cannot run in CI. Work t
 
 **Platform**
 
-- [ ] Windows: named-pipe control plane, path handling, `bridge connect`.
+- [ ] Windows: named-pipe control plane, path handling, `ddrop connect`.
 - [ ] A network filesystem (SMB/NFS): the filesystem transport's polling watcher and atomic writes.
 - [ ] OneDrive or Dropbox as the shared directory: confirm the sync client does not corrupt partially written frames. Atomic rename should prevent it; verify it.
 

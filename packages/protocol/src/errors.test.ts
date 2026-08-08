@@ -1,25 +1,25 @@
 import { describe, expect, it } from 'vitest';
 
-import { BridgeError, isBridgeErrorCode } from './errors.js';
+import { DeadDropError, isDeadDropErrorCode } from './errors.js';
 import { decodeJson, encodeJson, isErrorPayload } from './json.js';
 
-describe('BridgeError', () => {
+describe('DeadDropError', () => {
   it('marks transport-ish codes retryable and others not', () => {
-    expect(new BridgeError('TIMEOUT', 'slow').retryable).toBe(true);
-    expect(new BridgeError('RATE_LIMITED', 'slow down').retryable).toBe(true);
-    expect(new BridgeError('BAD_REQUEST', 'nope').retryable).toBe(false);
-    expect(new BridgeError('BAD_REQUEST', 'nope', { retryable: true }).retryable).toBe(true);
+    expect(new DeadDropError('TIMEOUT', 'slow').retryable).toBe(true);
+    expect(new DeadDropError('RATE_LIMITED', 'slow down').retryable).toBe(true);
+    expect(new DeadDropError('BAD_REQUEST', 'nope').retryable).toBe(false);
+    expect(new DeadDropError('BAD_REQUEST', 'nope', { retryable: true }).retryable).toBe(true);
   });
 
   it('serialises to a wire shape without the cause chain', () => {
-    const error = new BridgeError('RATE_LIMITED', 'slow down', {
+    const error = new DeadDropError('RATE_LIMITED', 'slow down', {
       cause: new Error('secret internals'),
       details: { transport: 'github' },
       retryAfterMs: 5000,
     });
     const json = error.toJSON();
     expect(json).toEqual({
-      name: 'BridgeError',
+      name: 'DeadDropError',
       code: 'RATE_LIMITED',
       message: 'slow down',
       retryable: true,
@@ -30,30 +30,30 @@ describe('BridgeError', () => {
   });
 
   it('round-trips through JSON and tolerates junk', () => {
-    const original = new BridgeError('NOT_FOUND', 'missing', { details: { key: 'a' } });
-    const restored = BridgeError.fromJSON(JSON.parse(JSON.stringify(original.toJSON())));
+    const original = new DeadDropError('NOT_FOUND', 'missing', { details: { key: 'a' } });
+    const restored = DeadDropError.fromJSON(JSON.parse(JSON.stringify(original.toJSON())));
     expect(restored.code).toBe('NOT_FOUND');
     expect(restored.details).toEqual({ key: 'a' });
 
-    expect(BridgeError.fromJSON('garbage').code).toBe('INTERNAL');
-    expect(BridgeError.fromJSON({ code: 'MADE_UP', message: 'x' }).code).toBe('INTERNAL');
+    expect(DeadDropError.fromJSON('garbage').code).toBe('INTERNAL');
+    expect(DeadDropError.fromJSON({ code: 'MADE_UP', message: 'x' }).code).toBe('INTERNAL');
   });
 
   it('coerces arbitrary throwables, mapping aborts to CANCELLED', () => {
-    const original = new BridgeError('TIMEOUT', 'x');
-    expect(BridgeError.from(original)).toBe(original);
-    expect(BridgeError.from('boom').code).toBe('INTERNAL');
-    expect(BridgeError.from(new Error('boom'), 'TRANSPORT_ERROR').code).toBe('TRANSPORT_ERROR');
+    const original = new DeadDropError('TIMEOUT', 'x');
+    expect(DeadDropError.from(original)).toBe(original);
+    expect(DeadDropError.from('boom').code).toBe('INTERNAL');
+    expect(DeadDropError.from(new Error('boom'), 'TRANSPORT_ERROR').code).toBe('TRANSPORT_ERROR');
 
     const abort = new Error('aborted');
     abort.name = 'AbortError';
-    expect(BridgeError.from(abort).code).toBe('CANCELLED');
+    expect(DeadDropError.from(abort).code).toBe('CANCELLED');
   });
 
   it('recognises its own codes', () => {
-    expect(isBridgeErrorCode('TIMEOUT')).toBe(true);
-    expect(isBridgeErrorCode('NOPE')).toBe(false);
-    expect(isBridgeErrorCode(7)).toBe(false);
+    expect(isDeadDropErrorCode('TIMEOUT')).toBe(true);
+    expect(isDeadDropErrorCode('NOPE')).toBe(false);
+    expect(isDeadDropErrorCode(7)).toBe(false);
   });
 });
 

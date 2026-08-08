@@ -9,7 +9,7 @@
  * the caller already has.
  */
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 
 import type {
   NativeTransport,
@@ -103,7 +103,7 @@ function storeCases(harness: ConformanceHarness): ConformanceCase[] {
     {
       name: 'put then get returns the exact bytes',
       run: store(async (t) => {
-        const data = bytes('hello bridge');
+        const data = bytes('hello ddrop');
         const result = await t.put('inbox/peer-a/one.ddf', data);
         assert(result.key === 'inbox/peer-a/one.ddf', 'put must echo the key it wrote');
         await settle();
@@ -232,8 +232,8 @@ function storeCases(harness: ConformanceHarness): ConformanceCase[] {
           } catch (error) {
             threw = true;
             assert(
-              BridgeError.is(error),
-              `put(${JSON.stringify(key)}) must reject with a BridgeError`,
+              DeadDropError.is(error),
+              `put(${JSON.stringify(key)}) must reject with a DeadDropError`,
             );
           }
           assert(threw, `put(${JSON.stringify(key)}) should have been rejected`);
@@ -263,7 +263,7 @@ function storeCases(harness: ConformanceHarness): ConformanceCase[] {
           await t.put('inbox/peer-a/claim', bytes('second'), { ifAbsent: true });
         } catch (error) {
           threw = true;
-          assert(BridgeError.is(error), 'ifAbsent conflict must reject with a BridgeError');
+          assert(DeadDropError.is(error), 'ifAbsent conflict must reject with a DeadDropError');
         }
         assert(threw, 'ifAbsent must reject when the key already exists');
         assertBytesEqual(await t.get('inbox/peer-a/claim'), bytes('first'), 'original preserved');

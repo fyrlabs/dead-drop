@@ -1,5 +1,5 @@
 /**
- * End-to-end tests: two independent Bridge runtimes, a real transport, real
+ * End-to-end tests: two independent dead-drop runtimes, a real transport, real
  * HTTP servers, no mocks below the test boundary.
  *
  * This is the suite that actually answers "does the thing work". Everything
@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { generateWorkspaceSecret } from '@fyrlabs/dead-drop-protocol';
 import {
-  BridgeRuntime,
+  DeadDropRuntime,
   ControlPlaneClient,
   connect,
   defaultSocketPath,
@@ -45,8 +45,8 @@ async function makeRuntime(options: {
   store: string;
   exposures?: Array<Record<string, unknown>>;
   subscribe?: string[];
-}): Promise<BridgeRuntime> {
-  const dataDir = await mkdtemp(join(tmpdir(), `bridge-${options.peerId}-`));
+}): Promise<DeadDropRuntime> {
+  const dataDir = await mkdtemp(join(tmpdir(), `deaddrop-${options.peerId}-`));
   cleanups.push(() => rm(dataDir, { recursive: true, force: true }));
 
   const config = parseRuntimeConfig({
@@ -67,7 +67,7 @@ async function makeRuntime(options: {
     ],
   });
 
-  const runtime = new BridgeRuntime({ config, loader });
+  const runtime = new DeadDropRuntime({ config, loader });
   await runtime.start();
   cleanups.push(() => runtime.stop());
   return runtime;
@@ -104,7 +104,7 @@ async function startTargetServer(
 }
 
 beforeEach(async () => {
-  sharedDir = await mkdtemp(join(tmpdir(), 'bridge-shared-'));
+  sharedDir = await mkdtemp(join(tmpdir(), 'deaddrop-shared-'));
   cleanups.push(() => rm(sharedDir, { recursive: true, force: true }));
 });
 
@@ -147,7 +147,7 @@ describe('two runtimes over a shared directory', () => {
       method: 'POST',
       received: 'hello from the other side',
     });
-    // The exposed server never learned Bridge exists.
+    // The exposed server never learned dead-drop exists.
     expect(server.status().workspaces[0]?.exposures).toEqual(['my-api']);
   }, 30_000);
 
@@ -188,10 +188,10 @@ describe('two runtimes over a shared directory', () => {
   }, 30_000);
 
   it('serves static files and blocks path traversal', async () => {
-    const siteDir = join(sharedDir, '..', `bridge-site-${Date.now()}`);
+    const siteDir = join(sharedDir, '..', `deaddrop-site-${Date.now()}`);
     await mkdir(join(siteDir, 'assets'), { recursive: true });
     cleanups.push(() => rm(siteDir, { recursive: true, force: true }));
-    await writeFile(join(siteDir, 'index.html'), '<h1>Bridge</h1>');
+    await writeFile(join(siteDir, 'index.html'), '<h1>dead-drop</h1>');
     await writeFile(join(siteDir, 'assets', 'app.js'), 'console.log(1)');
     await writeFile(join(siteDir, '..', 'outside.txt'), 'must not be served');
 
@@ -212,7 +212,7 @@ describe('two runtimes over a shared directory', () => {
     const index = await fetch(`${handle.url}/`);
     expect(index.status).toBe(200);
     expect(index.headers.get('content-type')).toContain('text/html');
-    expect(await index.text()).toContain('<h1>Bridge</h1>');
+    expect(await index.text()).toContain('<h1>dead-drop</h1>');
 
     const asset = await fetch(`${handle.url}/assets/app.js`);
     expect(asset.status).toBe(200);
@@ -345,7 +345,7 @@ describe('control plane', () => {
     const runtime = await makeRuntime({ peerId: 'control-peer', store: sharedDir });
     runtime.defaultWorkspace().service('echo', { say: (input) => input });
 
-    const dataDir = await mkdtemp(join(tmpdir(), 'bridge-control-'));
+    const dataDir = await mkdtemp(join(tmpdir(), 'deaddrop-control-'));
     cleanups.push(() => rm(dataDir, { recursive: true, force: true }));
     const socketPath = defaultSocketPath(dataDir);
     const control = await startControlPlane({ runtime, socketPath, logger: runtime.logger });
@@ -375,7 +375,7 @@ describe('control plane', () => {
     expect(called.result).toEqual({ hello: 'world' });
 
     const metrics = await client.request<string>('GET', '/metrics');
-    expect(metrics).toContain('bridge_messages_sent_total');
+    expect(metrics).toContain('deaddrop_messages_sent_total');
 
     const logs = await client.request<{ records: unknown[] }>('GET', '/logs?limit=5');
     expect(Array.isArray(logs.records)).toBe(true);
@@ -384,8 +384,8 @@ describe('control plane', () => {
   }, 30_000);
 
   it('reports an actionable error when no runtime is listening', async () => {
-    const client = new ControlPlaneClient(join(tmpdir(), 'bridge-missing.sock'));
-    await expect(client.request('GET', '/health')).rejects.toThrowError(/bridge start/);
+    const client = new ControlPlaneClient(join(tmpdir(), 'deaddrop-missing.sock'));
+    await expect(client.request('GET', '/health')).rejects.toThrowError(/ddrop start/);
   });
 });
 

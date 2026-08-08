@@ -1,10 +1,10 @@
-# Bridge Vision
+# dead-drop Vision
 
 ## Vision
 
-Bridge is a transport-agnostic runtime for distributed applications.
+dead-drop is a transport-agnostic runtime for distributed applications.
 
-Instead of requiring developers to deploy infrastructure, Bridge allows
+Instead of requiring developers to deploy infrastructure, dead-drop allows
 applications running on different machines to communicate through
 pluggable transports such as GitHub, GitLab, Bitbucket, Azure DevOps,
 OneDrive, local filesystems, or future adapters.
@@ -17,7 +17,7 @@ machines.
 ## Philosophy
 
 -   Transport is an implementation detail.
--   Applications talk only to the local Bridge Runtime.
+-   Applications talk only to the local dead-drop Runtime.
 -   Any transport can be swapped without changing application code.
 -   Multiple transports can be active simultaneously.
 -   Automatic failover between transports is supported.
@@ -27,7 +27,7 @@ machines.
 
 ## Primary Components
 
-### Bridge Runtime (Agent)
+### dead-drop Runtime (Agent)
 
 One runtime per machine.
 
@@ -95,7 +95,7 @@ Capabilities:
 -   latency measurement
 -   rate-limit awareness
 
-Bridge may use multiple transports simultaneously for redundancy or
+dead-drop may use multiple transports simultaneously for redundancy or
 performance.
 
 ------------------------------------------------------------------------
@@ -108,7 +108,7 @@ Expose an existing server.
 
 Example:
 
-Express -\> Bridge Runtime -\> Transport -\> Bridge Runtime -\> Viewer
+Express -\> dead-drop Runtime -\> Transport -\> dead-drop Runtime -\> Viewer
 
 No application changes.
 
@@ -120,7 +120,7 @@ Applications integrate directly for advanced features.
 
 ## Built-in Observability
 
-Bridge provides first-class observability.
+dead-drop provides first-class observability.
 
 Logging
 
@@ -173,16 +173,16 @@ Tracing
 -   Circumvent organizational security policies.
 -   Compete with Kubernetes or service meshes.
 
-Bridge focuses on making distributed communication simple through
+dead-drop focuses on making distributed communication simple through
 interchangeable transports.
 
 ------------------------------------------------------------------------
 
 ## Long-term Vision
 
-Bridge becomes the runtime that connects applications regardless of
+dead-drop becomes the runtime that connects applications regardless of
 transport.
 
 Developers build applications once.
 
-Bridge decides how they communicate.
+dead-drop decides how they communicate.

@@ -14,8 +14,8 @@
  *     commit-and-push. Ten messages sent in the same tick cost one push, not
  *     ten. A `put` still resolves only once its data is pushed, so the store
  *     contract's durability promise holds.
- *   - **A dedicated orphan branch.** Bridge data never shares history with the
- *     repository's code, so a `bridge` branch can be force-pruned or deleted
+ *   - **A dedicated orphan branch.** dead-drop data never shares history with the
+ *     repository's code, so a `ddrop` branch can be force-pruned or deleted
  *     without touching anything a human cares about.
  */
 
@@ -23,7 +23,7 @@ import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 import {
   assertValidKey,
   assertValidPrefix,
@@ -43,7 +43,7 @@ import { Git, isNonFastForward, redactUrl } from './git.js';
 export interface GitTransportConfig {
   /** Anything `git clone` accepts: an https url, an ssh url, or a local path. */
   remote: string;
-  /** Branch that holds Bridge objects. Default `bridge-data`. */
+  /** Branch that holds dead-drop objects. Default `deaddrop-data`. */
   branch?: string;
   /** Local clone directory. Created if missing. */
   workDir: string;
@@ -96,7 +96,7 @@ class GitStore implements StoreTransport {
 
   constructor(config: GitTransportConfig, context: TransportContext) {
     this.config = {
-      branch: 'bridge-data',
+      branch: 'deaddrop-data',
       prefix: '',
       freshnessMs: 5000,
       batchWindowMs: 50,
@@ -121,7 +121,7 @@ class GitStore implements StoreTransport {
     assertValidKey(key);
     this.checkOpen(options.signal);
     if (data.length > MAX_OBJECT_BYTES) {
-      throw new BridgeError(
+      throw new DeadDropError(
         'PAYLOAD_TOO_LARGE',
         `git objects are capped at ${MAX_OBJECT_BYTES} bytes; got ${data.length}`,
       );
@@ -133,7 +133,7 @@ class GitStore implements StoreTransport {
       // another peer may have created the key since our last fetch.
       await this.sync(true);
       if (await this.exists(key)) {
-        throw new BridgeError('TRANSPORT_ERROR', `object already exists: ${key}`, {
+        throw new DeadDropError('TRANSPORT_ERROR', `object already exists: ${key}`, {
           details: { key },
           retryable: false,
         });
@@ -205,7 +205,7 @@ class GitStore implements StoreTransport {
       await this.git.run(['ls-remote', '--exit-code', '--heads', 'origin']).catch(async (error) => {
         // exit code 2 just means the branch does not exist yet, which is fine
         // on a fresh repository.
-        if (BridgeError.is(error) && String(error.details?.code) === '2') return;
+        if (DeadDropError.is(error) && String(error.details?.code) === '2') return;
         throw error;
       });
       const latencyMs = this.context.now() - started;
@@ -219,7 +219,7 @@ class GitStore implements StoreTransport {
       if (latencyMs > 10_000) health.message = `remote round trip took ${latencyMs}ms`;
       return health;
     } catch (error) {
-      const message = redactUrl(BridgeError.from(error).message);
+      const message = redactUrl(DeadDropError.from(error).message);
       this.lastError = message;
       return { status: 'unavailable', latencyMs: this.context.now() - started, message };
     }
@@ -255,8 +255,8 @@ class GitStore implements StoreTransport {
       }
     }
 
-    await this.git.run(['config', 'user.name', this.config.authorName ?? 'Bridge Runtime']);
-    await this.git.run(['config', 'user.email', this.config.authorEmail ?? 'bridge@localhost']);
+    await this.git.run(['config', 'user.name', this.config.authorName ?? 'dead-drop Runtime']);
+    await this.git.run(['config', 'user.email', this.config.authorEmail ?? 'ddrop@localhost']);
     // Rebase on pull keeps the data branch linear; merge commits here are noise.
     await this.git.run(['config', 'pull.rebase', 'true']);
 
@@ -265,7 +265,7 @@ class GitStore implements StoreTransport {
     if (fetched.code === 0) {
       await this.git.run(['checkout', '-B', branch, `origin/${branch}`, '--']);
     } else {
-      // Branch does not exist on the remote yet. An orphan branch keeps Bridge
+      // Branch does not exist on the remote yet. An orphan branch keeps dead-drop
       // data out of the repository's real history entirely.
       const existsLocally = await this.git.tryRun(['rev-parse', '--verify', branch]);
       if (existsLocally.code === 0) {
@@ -276,12 +276,12 @@ class GitStore implements StoreTransport {
         await mkdir(this.dataDir, { recursive: true });
         await writeFile(
           join(this.workDir, 'README.md'),
-          '# Bridge data branch\n\n' +
-            'Machine-managed. Every file here is an encrypted Bridge frame.\n' +
+          '# dead-drop data branch\n\n' +
+            'Machine-managed. Every file here is an encrypted dead-drop frame.\n' +
             'Deleting this branch discards undelivered messages and nothing else.\n',
         );
         await this.git.run(['add', '--', 'README.md']);
-        await this.git.run(['commit', '--quiet', '-m', 'chore: initialise bridge data branch']);
+        await this.git.run(['commit', '--quiet', '-m', 'chore: initialise ddrop data branch']);
         await this.createBranch();
       }
     }
@@ -369,14 +369,14 @@ class GitStore implements StoreTransport {
         'commit',
         '--quiet',
         '-m',
-        `bridge: ${touched} object${touched === 1 ? '' : 's'}`,
+        `ddrop: ${touched} object${touched === 1 ? '' : 's'}`,
       ]);
       const pushed = await this.git.tryRun(['push', '--quiet', 'origin', `HEAD:${branch}`]);
       if (pushed.code === 0) return;
 
       lastError = pushed.stderr;
       if (!isNonFastForward(pushed.stderr)) {
-        throw new BridgeError('TRANSPORT_ERROR', `git push failed: ${redactUrl(pushed.stderr)}`, {
+        throw new DeadDropError('TRANSPORT_ERROR', `git push failed: ${redactUrl(pushed.stderr)}`, {
           retryable: true,
         });
       }
@@ -385,7 +385,7 @@ class GitStore implements StoreTransport {
       await this.git.tryRun(['reset', '--quiet', '--hard', `origin/${branch}`]);
     }
 
-    throw new BridgeError(
+    throw new DeadDropError(
       'TRANSPORT_ERROR',
       `git push kept losing races after ${this.config.pushRetries} attempts: ` +
         redactUrl(String(lastError).slice(0, 300)),
@@ -430,7 +430,7 @@ class GitStore implements StoreTransport {
     assertValidKey(key);
     const path = resolve(this.dataDir, ...key.split('/'));
     if (path !== this.dataDir && !path.startsWith(this.dataDir + sep)) {
-      throw new BridgeError('BAD_REQUEST', `key escapes the repository data directory: ${key}`);
+      throw new DeadDropError('BAD_REQUEST', `key escapes the repository data directory: ${key}`);
     }
     return path;
   }
@@ -451,7 +451,7 @@ class GitStore implements StoreTransport {
 
     const fetched = await this.git.tryRun(['fetch', '--quiet', 'origin', branch]);
     if (fetched.code !== 0) {
-      throw new BridgeError(
+      throw new DeadDropError(
         'TRANSPORT_ERROR',
         `cannot create or fetch branch "${branch}" on the remote: ${redactUrl(pushed.stderr)}`,
         { retryable: true },
@@ -465,14 +465,14 @@ class GitStore implements StoreTransport {
   }
 
   private checkOpen(signal?: AbortSignal): void {
-    if (this.closed) throw new BridgeError('TRANSPORT_ERROR', 'git transport is closed');
+    if (this.closed) throw new DeadDropError('TRANSPORT_ERROR', 'git transport is closed');
     if (signal?.aborted || this.context.signal.aborted) {
-      throw new BridgeError('CANCELLED', 'operation aborted');
+      throw new DeadDropError('CANCELLED', 'operation aborted');
     }
   }
 
-  private wrap(error: unknown, message: string): BridgeError {
-    return new BridgeError(
+  private wrap(error: unknown, message: string): DeadDropError {
+    return new DeadDropError(
       'TRANSPORT_ERROR',
       `${message}: ${redactUrl((error as Error).message)}`,
       {
@@ -507,17 +507,17 @@ export const gitTransport = defineTransport<GitTransportConfig>({
   },
   parseConfig(raw) {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-      throw new BridgeError('CONFIG_INVALID', 'git transport config must be an object');
+      throw new DeadDropError('CONFIG_INVALID', 'git transport config must be an object');
     }
     const config = raw as GitTransportConfig;
     if (typeof config.remote !== 'string' || config.remote.length === 0) {
-      throw new BridgeError('CONFIG_INVALID', 'git transport requires "remote"');
+      throw new DeadDropError('CONFIG_INVALID', 'git transport requires "remote"');
     }
     if (typeof config.workDir !== 'string' || config.workDir.length === 0) {
-      throw new BridgeError('CONFIG_INVALID', 'git transport requires "workDir"');
+      throw new DeadDropError('CONFIG_INVALID', 'git transport requires "workDir"');
     }
     if (config.branch !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(config.branch)) {
-      throw new BridgeError('CONFIG_INVALID', 'git transport branch name is invalid');
+      throw new DeadDropError('CONFIG_INVALID', 'git transport branch name is invalid');
     }
     if (config.prefix !== undefined && config.prefix !== '') assertValidPrefix(config.prefix);
     return config;

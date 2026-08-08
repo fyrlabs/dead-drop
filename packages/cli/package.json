@@ -1,7 +1,7 @@
 {
   "name": "@fyrlabs/dead-drop",
   "version": "0.1.0",
-  "description": "The bridge command line interface",
+  "description": "The ddrop command line interface",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {
@@ -12,7 +12,8 @@
   "homepage": "https://github.com/fyrlabs/dead-drop#readme",
   "bugs": "https://github.com/fyrlabs/dead-drop/issues",
   "bin": {
-    "bridge": "./dist/bin.js"
+    "ddrop": "./dist/bin.js",
+    "dead-drop": "./dist/bin.js"
   },
   "exports": {
     ".": {

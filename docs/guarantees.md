@@ -6,7 +6,7 @@ Short version: **at-least-once delivery, best-effort ordering per recipient, ded
 
 A message is deleted from the transport only after its handler returns successfully. Delete *is* the acknowledgement. If the process dies between "handler succeeded" and "message deleted", the message is delivered again on restart.
 
-Bridge does not claim exactly-once, because the underlying transports cannot provide it. A store that can be written and deleted, with a consumer that can crash at any point, gives at-least-once and nothing stronger.
+dead-drop does not claim exactly-once, because the underlying transports cannot provide it. A store that can be written and deleted, with a consumer that can crash at any point, gives at-least-once and nothing stronger.
 
 ## Deduplication
 
@@ -24,7 +24,7 @@ Messages for one recipient are stored under keys prefixed with a time-sortable i
 
 It is **best-effort**, not guaranteed, and there is one specific reason. When a handler fails, the message is scheduled for redelivery with backoff and the poller moves on to the next message. That is deliberate: blocking the queue head until a poisoned message succeeds turns one bad message into a total outage for that peer. The cost is that a retried message arrives out of order.
 
-If you need strict ordering, put a sequence number in your payload and reorder in the handler. Bridge will not silently pretend to do it for you.
+If you need strict ordering, put a sequence number in your payload and reorder in the handler. dead-drop will not silently pretend to do it for you.
 
 There is no ordering guarantee at all across different recipients, across transports, or for broadcast topics.
 
@@ -40,7 +40,7 @@ Broadcast messages are different: a subscriber's cursor has already moved past a
 
 A message with a TTL is dropped, unacknowledged, once `ts + ttlMs` has passed. Requests set a TTL equal to their timeout, so a request nobody answered in time does not sit on the transport forever.
 
-Clocks are not synchronised between peers. A peer whose clock is badly wrong will expire messages early or late. Bridge does not attempt to correct for this.
+Clocks are not synchronised between peers. A peer whose clock is badly wrong will expire messages early or late. dead-drop does not attempt to correct for this.
 
 ## Failover
 

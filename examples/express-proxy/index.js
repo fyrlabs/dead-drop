@@ -1,7 +1,7 @@
 /**
  * Proxy mode: an ordinary HTTP server on one runtime, reachable from another.
  *
- * The "application" here is a plain node:http server with no idea Bridge
+ * The "application" here is a plain node:http server with no idea dead-drop
  * exists. That is the whole point of proxy mode: nothing about it changes.
  *
  *   node examples/express-proxy/index.js
@@ -13,13 +13,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { generateWorkspaceSecret } from '@fyrlabs/dead-drop-protocol';
-import { BridgeRuntime, connect, parseRuntimeConfig } from '@fyrlabs/dead-drop-runtime';
+import { DeadDropRuntime, connect, parseRuntimeConfig } from '@fyrlabs/dead-drop-runtime';
 
-const shared = await mkdtemp(join(tmpdir(), 'bridge-example-'));
+const shared = await mkdtemp(join(tmpdir(), 'deaddrop-example-'));
 const secret = generateWorkspaceSecret();
 
 // ---------------------------------------------------------------------------
-// 1. An application. Completely unaware of Bridge.
+// 1. An application. Completely unaware of dead-drop.
 // ---------------------------------------------------------------------------
 const app = createServer((request, response) => {
   response.writeHead(200, { 'content-type': 'application/json' });
@@ -47,7 +47,7 @@ const makeConfig = (peerId, exposures = []) =>
     ],
   });
 
-const server = new BridgeRuntime({
+const server = new DeadDropRuntime({
   config: makeConfig('machine-a', [
     { name: 'my-api', type: 'http', target: 'http://127.0.0.1:3000' },
   ]),
@@ -57,7 +57,7 @@ await server.start();
 // ---------------------------------------------------------------------------
 // 3. A second runtime, on what would be another machine, consuming it.
 // ---------------------------------------------------------------------------
-const client = new BridgeRuntime({ config: makeConfig('machine-b') });
+const client = new DeadDropRuntime({ config: makeConfig('machine-b') });
 await client.start();
 
 const handle = await connect({
@@ -66,7 +66,7 @@ const handle = await connect({
   exposure: 'my-api',
   logger: client.logger,
 });
-console.log(`bridge endpoint: ${handle.url}  ->  machine-a/my-api`);
+console.log(`ddrop endpoint: ${handle.url}  ->  machine-a/my-api`);
 
 const response = await fetch(`${handle.url}/users?active=1`);
 console.log('response:', await response.json());

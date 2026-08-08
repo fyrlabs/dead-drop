@@ -8,7 +8,7 @@ import { DedupeStore } from './dedupe.js';
 
 const dirs: string[] = [];
 async function tempFile(name = 'dedupe.json'): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'bridge-dedupe-'));
+  const dir = await mkdtemp(join(tmpdir(), 'deaddrop-dedupe-'));
   dirs.push(dir);
   return join(dir, name);
 }

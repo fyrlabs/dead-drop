@@ -4,7 +4,7 @@
  *
  * The unit tests in `packages/cli` cover argument handling and failure
  * messages. This covers the part that only breaks when the pieces are wired
- * together: `bridge start` serving a socket that `bridge status`, `expose`,
+ * together: `ddrop start` serving a socket that `ddrop status`, `expose`,
  * `call`, `publish`, `logs` and `metrics` can actually talk to.
  */
 
@@ -35,7 +35,7 @@ function capture(waitForever = false): CliIo & { stdout: string[]; stderr: strin
 }
 
 async function temp(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'bridge-cli-e2e-'));
+  const dir = await mkdtemp(join(tmpdir(), 'deaddrop-cli-e2e-'));
   dirs.push(dir);
   return dir;
 }
@@ -47,12 +47,12 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-describe('bridge start and the commands that talk to it', () => {
+describe('ddrop start and the commands that talk to it', () => {
   it('serves status, expose, call, publish, logs and metrics over the socket', async () => {
     const dir = await temp();
     const dataDir = join(dir, 'state');
     const socket = defaultSocketPath(dataDir);
-    const configPath = join(dir, 'bridge.config.json');
+    const configPath = join(dir, 'deaddrop.config.json');
     await writeFile(
       configPath,
       JSON.stringify({
@@ -144,7 +144,7 @@ describe('bridge start and the commands that talk to it', () => {
 
     const metrics = capture();
     expect(await run(['metrics', '--socket', socket], metrics)).toBe(0);
-    expect(metrics.stdout.join('\n')).toContain('bridge_messages_sent_total');
+    expect(metrics.stdout.join('\n')).toContain('deaddrop_messages_sent_total');
 
     const logs = capture();
     expect(await run(['logs', '--socket', socket, '--limit', '5'], logs)).toBe(0);
@@ -191,7 +191,7 @@ describe('bridge start and the commands that talk to it', () => {
     const { createServer } = await import('node:http');
     const target = createServer((_request, response) => {
       response.writeHead(200, { 'content-type': 'text/plain' });
-      response.end('served through bridge');
+      response.end('served through ddrop');
     });
     await new Promise<void>((resolve) => target.listen(0, '127.0.0.1', resolve));
     const address = target.address();
@@ -245,7 +245,7 @@ describe('bridge start and the commands that talk to it', () => {
     const url = client.stdout[0] as string;
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
     const response = await fetch(`${url}/anything`);
-    expect(await response.text()).toBe('served through bridge');
+    expect(await response.text()).toBe('served through ddrop');
 
     for (const stop of shutdowns.splice(0)) stop();
     expect(await clientRun).toBe(0);

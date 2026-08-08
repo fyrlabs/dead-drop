@@ -1,5 +1,5 @@
 /**
- * The Bridge runtime: one process, many workspaces.
+ * The dead-drop runtime: one process, many workspaces.
  *
  * One runtime per machine is the model from the blueprint, and the reason is
  * cost: every workspace polls its transports, and a separate process per
@@ -11,7 +11,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 import {
   MetricsRegistry,
   Tracer,
@@ -58,7 +58,7 @@ export interface RuntimeStatus {
   }>;
 }
 
-export class BridgeRuntime {
+export class DeadDropRuntime {
   readonly metrics = new MetricsRegistry();
   readonly tracer: Tracer;
   readonly logger: Logger;
@@ -87,7 +87,7 @@ export class BridgeRuntime {
     this.logger = createLogger({
       level: this.config.logLevel,
       clock: this.clock,
-      // Tee: operators tail the process output, `bridge logs` reads the buffer.
+      // Tee: operators tail the process output, `ddrop logs` reads the buffer.
       sink: (record) => {
         this.logBuffer.sink(record);
         output(record);
@@ -126,7 +126,7 @@ export class BridgeRuntime {
   workspace(name: string): Workspace {
     const workspace = this.workspaces.get(name);
     if (!workspace) {
-      throw new BridgeError('NOT_FOUND', `no workspace named "${name}"`, {
+      throw new DeadDropError('NOT_FOUND', `no workspace named "${name}"`, {
         details: { known: [...this.workspaces.keys()] },
       });
     }
@@ -136,7 +136,7 @@ export class BridgeRuntime {
   /** The workspace to use when the caller did not name one. */
   defaultWorkspace(): Workspace {
     const first = this.workspaces.values().next();
-    if (first.done) throw new BridgeError('NOT_FOUND', 'the runtime has no workspaces');
+    if (first.done) throw new DeadDropError('NOT_FOUND', 'the runtime has no workspaces');
     return first.value;
   }
 
@@ -170,7 +170,7 @@ export class BridgeRuntime {
     return options.limit ? records.slice(-options.limit) : [...records];
   }
 
-  /** Adds an exposure to a running workspace. Used by `bridge expose`. */
+  /** Adds an exposure to a running workspace. Used by `ddrop expose`. */
   addExposure(
     workspaceName: string,
     config: Parameters<typeof registerExposure>[1],

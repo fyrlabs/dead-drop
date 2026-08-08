@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 import type { StoreTransport, TransportRegistration } from '@fyrlabs/dead-drop-transport-sdk';
 
 import { harness } from './testing.js';
@@ -202,7 +202,7 @@ describe('TransportManager run', () => {
 
     await expect(
       subject.run('put', async () => {
-        throw new BridgeError('UNAUTHORIZED', 'bad workspace secret');
+        throw new DeadDropError('UNAUTHORIZED', 'bad workspace secret');
       }),
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     expect(subject.metrics.failovers.get({ from: 'first', to: 'second' })).toBe(0);
@@ -226,7 +226,7 @@ describe('TransportManager run', () => {
       .run('put', (transport) =>
         (transport as StoreTransport).put('ws/demo/inbox/peer-b/1.ddf', new Uint8Array()),
       )
-      .catch((error: unknown) => error as BridgeError);
+      .catch((error: unknown) => error as DeadDropError);
     await clock.advance(1000);
     const error = await promise;
     expect(error.code).toBe('NO_TRANSPORT_AVAILABLE');
@@ -274,7 +274,7 @@ describe('TransportManager run', () => {
 
     const promise = subject
       .run('put', () => new Promise<void>(() => {}))
-      .catch((error: unknown) => error as BridgeError);
+      .catch((error: unknown) => error as DeadDropError);
     await clock.advance(2000);
     expect((await promise).message).toMatch(/failed after 1 attempts|TIMEOUT|timed/i);
   });
@@ -309,9 +309,9 @@ describe('TransportManager run', () => {
       .runAll('put', (transport) =>
         (transport as StoreTransport).put('ws/demo/inbox/peer-b/1.ddf', new Uint8Array()),
       )
-      .catch((error: unknown) => error as BridgeError);
+      .catch((error: unknown) => error as DeadDropError);
     await clock.advance(1000);
-    expect(await promise).toBeInstanceOf(BridgeError);
+    expect(await promise).toBeInstanceOf(DeadDropError);
   });
 });
 

@@ -12,16 +12,16 @@
  * Instead there are two kinds of transport:
  *
  *   - `store`  — put / get / list / delete, optionally watch. Roughly 50 lines
- *     for a typical backend. The Bridge mailbox engine layers framing, ordering,
+ *     for a typical backend. The dead-drop mailbox engine layers framing, ordering,
  *     acknowledgement, retry and deduplication on top.
  *   - `native` — the backend already is a message system with its own delivery
  *     semantics (AMQP, MQTT, a websocket relay). It sends and subscribes
- *     directly and Bridge stays out of the way.
+ *     directly and dead-drop stays out of the way.
  *
  * Most authors want `store`.
  */
 
-import type { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import type { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 
 export type TransportKind = 'store' | 'native';
 
@@ -46,7 +46,7 @@ export interface TransportCapabilities {
   /** `list` returns entries in lexicographic key order. Enables FIFO-ish delivery. */
   orderedList: boolean;
   /**
-   * `native` only: the backend acknowledges delivery itself, so Bridge should
+   * `native` only: the backend acknowledges delivery itself, so dead-drop should
    * not synthesise acks.
    */
   acknowledgements?: boolean;
@@ -91,7 +91,7 @@ export interface TransportHealth {
   lastSuccessAt?: number;
   /** 0..1 over the adapter's own recent window, if it tracks one. */
   errorRate?: number;
-  /** Human-readable detail for `bridge transport health`. */
+  /** Human-readable detail for `ddrop transport health`. */
   message?: string;
 }
 
@@ -189,7 +189,7 @@ export interface TransportDefinition<Config = unknown> {
   capabilities: TransportCapabilities;
   /**
    * Validates and normalises configuration loaded from a file or the CLI.
-   * Throw a `BridgeError('CONFIG_INVALID', ...)` on bad input. Optional: skip it
+   * Throw a `DeadDropError('CONFIG_INVALID', ...)` on bad input. Optional: skip it
    * when the transport is only ever constructed from typed code.
    */
   parseConfig?(raw: unknown): Config;
@@ -210,4 +210,4 @@ export type TransportFactory<Config = unknown> = (
 ) => TransportRegistration<Config>;
 
 /** Thrown by adapters through the shared error type. Re-exported for convenience. */
-export type { BridgeError };
+export type { DeadDropError };

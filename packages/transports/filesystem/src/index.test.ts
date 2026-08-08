@@ -11,7 +11,7 @@ import { directoryExists, filesystemTransport } from './index.js';
 const roots: string[] = [];
 
 async function makeRoot(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), 'bridge-fs-'));
+  const root = await mkdtemp(join(tmpdir(), 'deaddrop-fs-'));
   roots.push(root);
   return root;
 }

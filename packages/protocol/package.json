@@ -1,7 +1,7 @@
 {
   "name": "@fyrlabs/dead-drop-protocol",
   "version": "0.1.0",
-  "description": "Bridge wire protocol: envelopes, framing, chunking, cryptography",
+  "description": "dead-drop wire protocol: envelopes, framing, chunking, cryptography",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {

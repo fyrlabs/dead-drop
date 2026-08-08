@@ -8,7 +8,7 @@
  * records what happened. Nothing above it names a transport.
  */
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 import type {
   Transport,
   TransportCapabilities,
@@ -145,13 +145,13 @@ export class TransportManager {
     if (this.started) return;
     this.started = true;
     if (this.registrations.length === 0) {
-      throw new BridgeError('CONFIG_INVALID', 'a workspace needs at least one transport');
+      throw new DeadDropError('CONFIG_INVALID', 'a workspace needs at least one transport');
     }
 
     for (const registration of this.registrations) {
       const name = registrationName(registration);
       if (this.managed.has(name)) {
-        throw new BridgeError(
+        throw new DeadDropError(
           'CONFIG_INVALID',
           `duplicate transport instance name "${name}"; give one of them a distinct name`,
         );
@@ -221,7 +221,7 @@ export class TransportManager {
   get(name: string): ManagedTransport {
     const entry = this.managed.get(name);
     if (!entry) {
-      throw new BridgeError('NOT_FOUND', `no transport named "${name}"`, {
+      throw new DeadDropError('NOT_FOUND', `no transport named "${name}"`, {
         details: { known: [...this.managed.keys()] },
       });
     }
@@ -317,7 +317,7 @@ export class TransportManager {
    *
    * Retries stay on one transport (a transient blip is usually local); moving
    * to the next transport happens only once that one is exhausted, and it is
-   * counted separately so `bridge metrics` can distinguish a flaky transport
+   * counted separately so `ddrop metrics` can distinguish a flaky transport
    * from a flaky network.
    */
   async run<T>(
@@ -335,7 +335,7 @@ export class TransportManager {
   ): Promise<T> {
     const candidates = this.select(options.requirements ?? {});
     if (candidates.length === 0) {
-      throw new BridgeError(
+      throw new DeadDropError(
         'NO_TRANSPORT_AVAILABLE',
         `no transport satisfies the requirements for ${operation}`,
         { details: { operation, requirements: options.requirements ?? {} } },
@@ -343,7 +343,7 @@ export class TransportManager {
     }
 
     const timeoutMs = options.timeoutMs ?? this.operationTimeoutMs;
-    let lastError: BridgeError | undefined;
+    let lastError: DeadDropError | undefined;
 
     for (const [index, entry] of candidates.entries()) {
       if (index > 0) {
@@ -358,15 +358,15 @@ export class TransportManager {
       try {
         return await this.runOn(entry, operation, body, timeoutMs, options);
       } catch (error) {
-        const bridgeError = BridgeError.from(error, 'TRANSPORT_ERROR');
+        const deadDropError = DeadDropError.from(error, 'TRANSPORT_ERROR');
         // Caller-side problems are not the transport's fault; another transport
         // will fail identically, so stop rather than amplify the damage.
-        if (!isWorthFailingOver(bridgeError)) throw bridgeError;
-        lastError = bridgeError;
+        if (!isWorthFailingOver(deadDropError)) throw deadDropError;
+        lastError = deadDropError;
       }
     }
 
-    throw new BridgeError(
+    throw new DeadDropError(
       'NO_TRANSPORT_AVAILABLE',
       `every transport failed for ${operation}: ${lastError?.message ?? 'unknown error'}`,
       {
@@ -389,7 +389,7 @@ export class TransportManager {
   ): Promise<T[]> {
     const candidates = this.select(options.requirements ?? {});
     if (candidates.length === 0) {
-      throw new BridgeError('NO_TRANSPORT_AVAILABLE', `no transport available for ${operation}`);
+      throw new DeadDropError('NO_TRANSPORT_AVAILABLE', `no transport available for ${operation}`);
     }
     const timeoutMs = options.timeoutMs ?? this.operationTimeoutMs;
     const results = await Promise.allSettled(
@@ -400,7 +400,7 @@ export class TransportManager {
     );
     if (fulfilled.length === 0) {
       const first = results[0];
-      throw BridgeError.from(
+      throw DeadDropError.from(
         first && first.status === 'rejected' ? first.reason : undefined,
         'NO_TRANSPORT_AVAILABLE',
       );
@@ -428,7 +428,7 @@ export class TransportManager {
         } catch (error) {
           entry.health = {
             status: 'unavailable',
-            message: BridgeError.from(error).message,
+            message: DeadDropError.from(error).message,
             latencyMs: this.clock.now() - started,
           };
           entry.lastHealthCheckAt = this.clock.now();
@@ -499,15 +499,15 @@ export class TransportManager {
       return result;
     } catch (error) {
       entry.consecutiveFailures += 1;
-      const bridgeError = BridgeError.from(error, 'TRANSPORT_ERROR');
+      const deadDropError = DeadDropError.from(error, 'TRANSPORT_ERROR');
       this.metrics.transportOperations.inc({
         transport: entry.name,
         operation,
-        outcome: bridgeError.code === 'CANCELLED' ? 'cancelled' : 'failure',
+        outcome: deadDropError.code === 'CANCELLED' ? 'cancelled' : 'failure',
       });
-      span?.setAttribute('error', bridgeError.message);
-      span?.end(bridgeError.code === 'CANCELLED' ? 'cancelled' : 'error');
-      throw bridgeError;
+      span?.setAttribute('error', deadDropError.message);
+      span?.end(deadDropError.code === 'CANCELLED' ? 'cancelled' : 'error');
+      throw deadDropError;
     }
   }
 
@@ -531,7 +531,7 @@ export class TransportManager {
     const names = new Set(this.managed.keys());
     for (const name of [this.policy.primary, ...(this.policy.fallback ?? [])]) {
       if (name !== undefined && !names.has(name)) {
-        throw new BridgeError(
+        throw new DeadDropError(
           'CONFIG_INVALID',
           `transport policy references unknown transport "${name}"`,
           { details: { configured: [...names] } },
@@ -546,7 +546,7 @@ export class TransportManager {
  * payload or an unauthorised workspace fails the same way everywhere, and
  * retrying it on three backends just multiplies the noise.
  */
-function isWorthFailingOver(error: BridgeError): boolean {
+function isWorthFailingOver(error: DeadDropError): boolean {
   switch (error.code) {
     case 'BAD_REQUEST':
     case 'CANCELLED':

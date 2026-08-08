@@ -1,5 +1,5 @@
 /**
- * Bridge-native interactions: services, RPC and publish/subscribe.
+ * dead-drop-native interactions: services, RPC and publish/subscribe.
  *
  *   node examples/sdk-rpc/index.js
  */
@@ -9,13 +9,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { generateWorkspaceSecret } from '@fyrlabs/dead-drop-protocol';
-import { BridgeRuntime, parseRuntimeConfig } from '@fyrlabs/dead-drop-runtime';
+import { DeadDropRuntime, parseRuntimeConfig } from '@fyrlabs/dead-drop-runtime';
 
-const shared = await mkdtemp(join(tmpdir(), 'bridge-rpc-'));
+const shared = await mkdtemp(join(tmpdir(), 'deaddrop-rpc-'));
 const secret = generateWorkspaceSecret();
 
 const runtimeFor = async (peerId) => {
-  const runtime = new BridgeRuntime({
+  const runtime = new DeadDropRuntime({
     config: parseRuntimeConfig({
       dataDir: join(shared, `${peerId}-state`),
       logLevel: 'warn',
@@ -51,7 +51,7 @@ console.log(
   await consumer.defaultWorkspace().call('provider', 'math.add', { a: 10, b: 20 }),
 );
 
-// Remote failures arrive as BridgeErrors with the remote code intact.
+// Remote failures arrive as DeadDropErrors with the remote code intact.
 try {
   await consumer.defaultWorkspace().call('provider', 'math.divide', { a: 1, b: 0 });
 } catch (error) {

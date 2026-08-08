@@ -2,15 +2,15 @@
  * `@fyrlabs/dead-drop-sdk` — the optional application-facing client.
  *
  * Optional is the point: an existing application is exposed with
- * `bridge expose` and never imports this. The SDK is for applications that want
- * Bridge-native interactions — publish/subscribe, RPC, services.
+ * `ddrop expose` and never imports this. The SDK is for applications that want
+ * dead-drop-native interactions — publish/subscribe, RPC, services.
  *
  * It talks to the local runtime over the control-plane socket, so transport
  * credentials and workspace secrets stay in the runtime process and out of
  * application memory.
  */
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 import {
   ControlPlaneClient,
   defaultSocketPath,
@@ -23,14 +23,14 @@ export type { PeerRecord, RuntimeStatus, TransportInfoLike };
 export interface ClientOptions {
   /** Workspace to act in. Defaults to the runtime's first workspace. */
   workspace?: string;
-  /** Control plane socket. Defaults to `<dataDir>/bridge.sock`. */
+  /** Control plane socket. Defaults to `<dataDir>/deaddrop.sock`. */
   socketPath?: string;
   dataDir?: string;
   /** Default timeout for `call`. Default 30s. */
   timeoutMs?: number;
 }
 
-export class BridgeClient {
+export class DeadDropClient {
   private readonly control: ControlPlaneClient;
   private readonly workspace: string | undefined;
   private readonly timeoutMs: number;
@@ -77,7 +77,7 @@ export class BridgeClient {
   /**
    * Calls `channel` on `target` and returns the decoded result.
    *
-   * Remote handler failures arrive as `BridgeError`s with the remote code
+   * Remote handler failures arrive as `DeadDropError`s with the remote code
    * preserved, so a caller can distinguish "no such service" from "the service
    * threw" without string matching.
    */
@@ -109,8 +109,8 @@ export class BridgeClient {
 }
 
 /** Convenience factory matching the shape used in the design docs. */
-export function createClient(options: ClientOptions = {}): BridgeClient {
-  return new BridgeClient(options);
+export function createClient(options: ClientOptions = {}): DeadDropClient {
+  return new DeadDropClient(options);
 }
 
-export { BridgeError };
+export { DeadDropError };

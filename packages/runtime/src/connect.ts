@@ -1,8 +1,8 @@
 /**
  * The consuming half of proxy mode.
  *
- * `bridge connect my-api` starts a local HTTP server; every request it receives
- * is packed into a Bridge request, carried by whatever transport is configured,
+ * `ddrop connect my-api` starts a local HTTP server; every request it receives
+ * is packed into a dead-drop request, carried by whatever transport is configured,
  * answered by the remote runtime's exposure, and unpacked back into an HTTP
  * response. A browser or curl on this machine sees an ordinary local server.
  */
@@ -11,7 +11,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { once } from 'node:events';
 
 import {
-  BridgeError,
+  DeadDropError,
   HTTP_REQUEST_CONTENT_TYPE,
   decodeHttpResponse,
   encodeHttpRequest,
@@ -57,7 +57,7 @@ export async function connect(options: ConnectOptions): Promise<ConnectHandle> {
     void handle(request, response).catch((error: unknown) => {
       logger.error('failed to answer a local request', { error: String(error) });
       if (!response.headersSent) response.writeHead(500, { 'content-type': 'text/plain' });
-      response.end('Bridge failed to answer this request.');
+      response.end('dead-drop failed to answer this request.');
     });
   });
 
@@ -85,18 +85,18 @@ export async function connect(options: ConnectOptions): Promise<ConnectHandle> {
       response.writeHead(remote.status, remote.statusText, remote.headers);
       response.end(Buffer.from(remote.body));
     } catch (error) {
-      const bridgeError = BridgeError.from(error);
+      const deadDropError = DeadDropError.from(error);
       logger.warn('remote request failed', {
         method: request.method,
         path: request.url,
-        code: bridgeError.code,
-        error: bridgeError.message,
+        code: deadDropError.code,
+        error: deadDropError.message,
       });
-      // Surfacing the Bridge error code as an HTTP status keeps the failure
+      // Surfacing the dead-drop error code as an HTTP status keeps the failure
       // legible to a browser without leaking transport detail into the body.
-      response.writeHead(statusForError(bridgeError), { 'content-type': 'text/plain' });
+      response.writeHead(statusForError(deadDropError), { 'content-type': 'text/plain' });
       response.end(
-        `Bridge could not reach ${options.target}/${options.exposure}: ${bridgeError.code}`,
+        `dead-drop could not reach ${options.target}/${options.exposure}: ${deadDropError.code}`,
       );
     }
   }

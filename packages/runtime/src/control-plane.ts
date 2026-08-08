@@ -15,15 +15,15 @@ import { chmod, mkdir, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { platform } from 'node:os';
 
-import { BridgeError, decodeJson, encodeJson } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError, decodeJson, encodeJson } from '@fyrlabs/dead-drop-protocol';
 import type { Logger } from '@fyrlabs/dead-drop-core';
 
 import { closeServer } from './connect.js';
 import { statusForError } from './exposure.js';
-import type { BridgeRuntime } from './runtime.js';
+import type { DeadDropRuntime } from './runtime.js';
 
 export interface ControlPlaneOptions {
-  runtime: BridgeRuntime;
+  runtime: DeadDropRuntime;
   /** Socket path, or a `\\.\pipe\...` name on Windows. */
   socketPath: string;
   logger: Logger;
@@ -39,8 +39,8 @@ export interface ControlPlaneHandle {
 /** Default socket location for a data directory. */
 export function defaultSocketPath(dataDir: string): string {
   return platform() === 'win32'
-    ? `\\\\.\\pipe\\bridge-${hash(dataDir)}`
-    : join(dataDir, 'bridge.sock');
+    ? `\\\\.\\pipe\\deaddrop-${hash(dataDir)}`
+    : join(dataDir, 'deaddrop.sock');
 }
 
 function hash(value: string): string {
@@ -57,13 +57,13 @@ export async function startControlPlane(options: ControlPlaneOptions): Promise<C
 
   const server = createServer((request, response) => {
     void route(request, response).catch((error: unknown) => {
-      const bridgeError = BridgeError.from(error);
-      send(response, statusForError(bridgeError), { error: bridgeError.toJSON() });
+      const deadDropError = DeadDropError.from(error);
+      send(response, statusForError(deadDropError), { error: deadDropError.toJSON() });
     });
   });
 
   async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const url = new URL(request.url ?? '/', 'http://bridge.local');
+    const url = new URL(request.url ?? '/', 'http://deaddrop.local');
     const path = url.pathname;
     const method = request.method ?? 'GET';
 
@@ -126,7 +126,7 @@ export async function startControlPlane(options: ControlPlaneOptions): Promise<C
         payload?: unknown;
       };
       if (typeof body.channel !== 'string') {
-        throw new BridgeError('BAD_REQUEST', 'publish requires a channel');
+        throw new DeadDropError('BAD_REQUEST', 'publish requires a channel');
       }
       const workspace = resolveWorkspace(runtime, url);
       const id = await workspace.publish(body.channel, encodeJson(body.payload ?? null));
@@ -141,7 +141,7 @@ export async function startControlPlane(options: ControlPlaneOptions): Promise<C
         timeoutMs?: number;
       };
       if (typeof body.target !== 'string' || typeof body.channel !== 'string') {
-        throw new BridgeError('BAD_REQUEST', 'call requires target and channel');
+        throw new DeadDropError('BAD_REQUEST', 'call requires target and channel');
       }
       const workspace = resolveWorkspace(runtime, url);
       const result = await workspace.call(body.target, body.channel, body.input ?? null, {
@@ -151,7 +151,7 @@ export async function startControlPlane(options: ControlPlaneOptions): Promise<C
       return;
     }
 
-    throw new BridgeError('NOT_FOUND', `no control plane route for ${method} ${path}`);
+    throw new DeadDropError('NOT_FOUND', `no control plane route for ${method} ${path}`);
   }
 
   if (!socketPath.startsWith('\\\\')) {
@@ -176,7 +176,7 @@ export async function startControlPlane(options: ControlPlaneOptions): Promise<C
   };
 }
 
-function resolveWorkspace(runtime: BridgeRuntime, url: URL) {
+function resolveWorkspace(runtime: DeadDropRuntime, url: URL) {
   const name = url.searchParams.get('workspace');
   return name ? runtime.workspace(name) : runtime.defaultWorkspace();
 }
@@ -197,7 +197,7 @@ async function readJson(request: IncomingMessage, limit: number): Promise<unknow
     total += (chunk as Buffer).length;
     if (total > limit) {
       request.destroy();
-      throw new BridgeError('PAYLOAD_TOO_LARGE', `control request exceeds ${limit} bytes`);
+      throw new DeadDropError('PAYLOAD_TOO_LARGE', `control request exceeds ${limit} bytes`);
     }
     chunks.push(chunk as Buffer);
   }
@@ -236,7 +236,7 @@ export class ControlPlaneClient {
             const contentType = response.headers['content-type'] ?? '';
             if (!contentType.includes('json')) {
               if ((response.statusCode ?? 500) >= 400) {
-                reject(new BridgeError('INTERNAL', text.slice(0, 500)));
+                reject(new DeadDropError('INTERNAL', text.slice(0, 500)));
                 return;
               }
               resolve(text as T);
@@ -247,13 +247,15 @@ export class ControlPlaneClient {
               parsed = text.length > 0 ? JSON.parse(text) : {};
             } catch (cause) {
               reject(
-                new BridgeError('DECODE_FAILED', 'control plane returned invalid JSON', { cause }),
+                new DeadDropError('DECODE_FAILED', 'control plane returned invalid JSON', {
+                  cause,
+                }),
               );
               return;
             }
             if ((response.statusCode ?? 500) >= 400) {
               const error = (parsed as { error?: unknown }).error;
-              reject(BridgeError.fromJSON(error));
+              reject(DeadDropError.fromJSON(error));
               return;
             }
             resolve(parsed as T);
@@ -262,13 +264,13 @@ export class ControlPlaneClient {
       );
       clientRequest.on('timeout', () => {
         clientRequest.destroy();
-        reject(new BridgeError('TIMEOUT', `control plane did not answer ${method} ${path}`));
+        reject(new DeadDropError('TIMEOUT', `control plane did not answer ${method} ${path}`));
       });
       clientRequest.on('error', (error) => {
         reject(
-          new BridgeError(
+          new DeadDropError(
             'NO_TRANSPORT_AVAILABLE',
-            `cannot reach the Bridge runtime at ${this.socketPath}. Is "bridge start" running?`,
+            `cannot reach the dead-drop runtime at ${this.socketPath}. Is "ddrop start" running?`,
             { cause: error },
           ),
         );

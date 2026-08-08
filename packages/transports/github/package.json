@@ -1,7 +1,7 @@
 {
   "name": "@fyrlabs/dead-drop-transport-github",
   "version": "0.1.0",
-  "description": "Bridge transport backed by a GitHub repository, using the gh CLI for auth and repo management",
+  "description": "dead-drop transport backed by a GitHub repository, using the gh CLI for auth and repo management",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {

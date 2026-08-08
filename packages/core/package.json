@@ -1,7 +1,7 @@
 {
   "name": "@fyrlabs/dead-drop-core",
   "version": "0.1.0",
-  "description": "Bridge runtime core: transport management, reliability, mailbox engine, observability",
+  "description": "dead-drop runtime core: transport management, reliability, mailbox engine, observability",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {

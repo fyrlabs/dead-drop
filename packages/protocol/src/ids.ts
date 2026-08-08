@@ -89,7 +89,7 @@ export function isValidId(value: string): boolean {
   return ID_PATTERN.test(value);
 }
 
-/** Extracts the creation time from an id, or `undefined` if it is not a Bridge id. */
+/** Extracts the creation time from an id, or `undefined` if it is not a dead-drop id. */
 export function idTime(value: string): number | undefined {
   const raw = value.includes('_') ? value.slice(value.indexOf('_') + 1) : value;
   if (!isValidId(raw)) return undefined;

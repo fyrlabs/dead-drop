@@ -4,7 +4,7 @@
 
 ## Context
 
-The design sketch (`Bridge-Architecture-and-Design.md`, §10) gives every transport this interface:
+The design sketch (`design-sketch.md`, §10) gives every transport this interface:
 
 ```ts
 interface Transport {

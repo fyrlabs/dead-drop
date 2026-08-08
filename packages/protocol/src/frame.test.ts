@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { KeyRing, deriveWorkspaceKey, generateWorkspaceSecret } from './crypto.js';
 import { createEnvelope, type Envelope } from './envelope.js';
-import { BridgeError } from './errors.js';
+import { DeadDropError } from './errors.js';
 import { decodeFrame, encodeFrame, looksLikeFrame } from './frame.js';
 
 const SECRET = generateWorkspaceSecret();
@@ -93,7 +93,7 @@ describe('frame codec', () => {
   it('rejects tampered additional data (the flags byte is authenticated)', async () => {
     const frame = Buffer.from(await encodeFrame(envelope(), { key: KEY }));
     frame[4] ^= 0b0000_0010;
-    await expect(decodeFrame(frame, { keys: KEYS })).rejects.toBeInstanceOf(BridgeError);
+    await expect(decodeFrame(frame, { keys: KEYS })).rejects.toBeInstanceOf(DeadDropError);
   });
 
   it('rejects a frame sealed with a different workspace secret', async () => {
@@ -136,7 +136,7 @@ describe('frame codec', () => {
     });
     const frame = await encodeFrame(envelope(), { key: KEY });
     await expect(decodeFrame(frame.slice(0, 8), { keys: KEYS })).rejects.toBeInstanceOf(
-      BridgeError,
+      DeadDropError,
     );
     await expect(
       decodeFrame(await encodeFrame(envelope({ payload: Buffer.alloc(4096, 1) })), {
@@ -165,7 +165,7 @@ describe('frame codec', () => {
     });
   });
 
-  it('identifies Bridge frames', async () => {
+  it('identifies dead-drop frames', async () => {
     expect(looksLikeFrame(await encodeFrame(envelope()))).toBe(true);
     expect(looksLikeFrame(Buffer.from('README contents'))).toBe(false);
     expect(looksLikeFrame(new Uint8Array(2))).toBe(false);

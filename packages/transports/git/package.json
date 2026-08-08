@@ -1,7 +1,7 @@
 {
   "name": "@fyrlabs/dead-drop-transport-git",
   "version": "0.1.0",
-  "description": "Bridge transport backed by a git repository",
+  "description": "dead-drop transport backed by a git repository",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {

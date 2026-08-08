@@ -1,7 +1,7 @@
 /**
- * HTTP <-> Bridge mapping.
+ * HTTP <-> dead-drop mapping.
  *
- * This is the payload shape used by proxy mode (`bridge expose --target`). The
+ * This is the payload shape used by proxy mode (`ddrop expose --target`). The
  * body travels as raw bytes appended after a JSON head rather than base64
  * inside it, so proxying a 10 MB response does not cost 13 MB on the wire.
  *
@@ -10,9 +10,9 @@
  * ```
  */
 
-import { BridgeError } from './errors.js';
+import { DeadDropError } from './errors.js';
 
-/** Header names Bridge strips: they describe the hop, not the message. */
+/** Header names dead-drop strips: they describe the hop, not the message. */
 const HOP_BY_HOP = new Set([
   'connection',
   'keep-alive',
@@ -47,8 +47,8 @@ export interface HttpResponseMessage extends HttpResponseHead {
   body: Uint8Array;
 }
 
-export const HTTP_REQUEST_CONTENT_TYPE = 'application/vnd.bridge.http-request';
-export const HTTP_RESPONSE_CONTENT_TYPE = 'application/vnd.bridge.http-response';
+export const HTTP_REQUEST_CONTENT_TYPE = 'application/vnd.deaddrop.http-request';
+export const HTTP_RESPONSE_CONTENT_TYPE = 'application/vnd.deaddrop.http-response';
 
 export function encodeHttpRequest(message: HttpRequestMessage): Uint8Array {
   return encodePart(
@@ -60,10 +60,10 @@ export function encodeHttpRequest(message: HttpRequestMessage): Uint8Array {
 export function decodeHttpRequest(payload: Uint8Array): HttpRequestMessage {
   const { head, body } = decodePart(payload);
   if (typeof head.method !== 'string' || !/^[A-Z]{3,20}$/.test(head.method)) {
-    throw new BridgeError('BAD_REQUEST', 'http request method is invalid');
+    throw new DeadDropError('BAD_REQUEST', 'http request method is invalid');
   }
   if (typeof head.path !== 'string' || !head.path.startsWith('/')) {
-    throw new BridgeError('BAD_REQUEST', 'http request path must start with /');
+    throw new DeadDropError('BAD_REQUEST', 'http request path must start with /');
   }
   return { method: head.method, path: head.path, headers: readHeaders(head.headers), body };
 }
@@ -81,7 +81,7 @@ export function decodeHttpResponse(payload: Uint8Array): HttpResponseMessage {
   const { head, body } = decodePart(payload);
   const status = head.status;
   if (typeof status !== 'number' || !Number.isInteger(status) || status < 100 || status > 599) {
-    throw new BridgeError('DECODE_FAILED', 'http response status is out of range');
+    throw new DeadDropError('DECODE_FAILED', 'http response status is out of range');
   }
   const message: HttpResponseMessage = { status, headers: readHeaders(head.headers), body };
   if (typeof head.statusText === 'string') message.statusText = head.statusText;
@@ -113,26 +113,26 @@ function encodePart(head: unknown, body: Uint8Array): Uint8Array {
 
 function decodePart(payload: Uint8Array): { head: Record<string, unknown>; body: Uint8Array } {
   const buf = Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength);
-  if (buf.length < 4) throw new BridgeError('DECODE_FAILED', 'truncated http message');
+  if (buf.length < 4) throw new DeadDropError('DECODE_FAILED', 'truncated http message');
   const headLen = buf.readUInt32BE(0);
   if (headLen > buf.length - 4) {
-    throw new BridgeError('DECODE_FAILED', 'http message head length out of range');
+    throw new DeadDropError('DECODE_FAILED', 'http message head length out of range');
   }
   let head: unknown;
   try {
     head = JSON.parse(buf.subarray(4, 4 + headLen).toString('utf8'));
   } catch (cause) {
-    throw new BridgeError('DECODE_FAILED', 'http message head is not valid JSON', { cause });
+    throw new DeadDropError('DECODE_FAILED', 'http message head is not valid JSON', { cause });
   }
   if (typeof head !== 'object' || head === null || Array.isArray(head)) {
-    throw new BridgeError('DECODE_FAILED', 'http message head is not an object');
+    throw new DeadDropError('DECODE_FAILED', 'http message head is not an object');
   }
   return { head: head as Record<string, unknown>, body: new Uint8Array(buf.subarray(4 + headLen)) };
 }
 
 function readHeaders(value: unknown): Record<string, string | string[]> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new BridgeError('DECODE_FAILED', 'http headers must be an object');
+    throw new DeadDropError('DECODE_FAILED', 'http headers must be an object');
   }
   const out: Record<string, string | string[]> = {};
   for (const [name, raw] of Object.entries(value as Record<string, unknown>)) {
@@ -141,7 +141,7 @@ function readHeaders(value: unknown): Record<string, string | string[]> {
     } else if (Array.isArray(raw) && raw.every((item) => typeof item === 'string')) {
       out[name] = raw as string[];
     } else {
-      throw new BridgeError('DECODE_FAILED', `http header ${name} must be a string or string[]`);
+      throw new DeadDropError('DECODE_FAILED', `http header ${name} must be a string or string[]`);
     }
   }
   return out;

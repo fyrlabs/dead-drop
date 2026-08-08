@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 
 import { TestClock } from '../clock.js';
 import { DEFAULT_RETRY_POLICY, backoffDelay, withRetry, withTimeout } from './retry.js';
@@ -44,7 +44,7 @@ describe('withRetry', () => {
     const promise = withRetry(
       async () => {
         calls += 1;
-        if (calls < 3) throw new BridgeError('TRANSPORT_ERROR', 'flaky');
+        if (calls < 3) throw new DeadDropError('TRANSPORT_ERROR', 'flaky');
         return 'recovered';
       },
       { clock: testClock, policy: { initialDelayMs: 100, jitter: 'none' }, random: () => 0.5 },
@@ -56,7 +56,7 @@ describe('withRetry', () => {
 
   it('does not retry non-retryable errors', async () => {
     const operation = vi.fn(async () => {
-      throw new BridgeError('BAD_REQUEST', 'nope');
+      throw new DeadDropError('BAD_REQUEST', 'nope');
     });
     await expect(withRetry(operation, { clock: clock() })).rejects.toMatchObject({
       code: 'BAD_REQUEST',
@@ -66,7 +66,7 @@ describe('withRetry', () => {
 
   it('never retries a cancellation', async () => {
     const operation = vi.fn(async () => {
-      throw new BridgeError('CANCELLED', 'aborted', { retryable: true });
+      throw new DeadDropError('CANCELLED', 'aborted', { retryable: true });
     });
     await expect(withRetry(operation, { clock: clock() })).rejects.toMatchObject({
       code: 'CANCELLED',
@@ -77,12 +77,12 @@ describe('withRetry', () => {
   it('gives up after maxAttempts and reports how many it made', async () => {
     const testClock = clock();
     const operation = vi.fn(async () => {
-      throw new BridgeError('TIMEOUT', 'slow');
+      throw new DeadDropError('TIMEOUT', 'slow');
     });
     const promise = withRetry(operation, {
       clock: testClock,
       policy: { maxAttempts: 3, initialDelayMs: 10, jitter: 'none' },
-    }).catch((error: unknown) => error as BridgeError);
+    }).catch((error: unknown) => error as DeadDropError);
     await testClock.advance(10_000);
     const error = await promise;
     expect(operation).toHaveBeenCalledTimes(3);
@@ -99,7 +99,7 @@ describe('withRetry', () => {
       async () => {
         calls += 1;
         if (calls === 1) {
-          throw new BridgeError('RATE_LIMITED', 'slow down', { retryAfterMs: 5000 });
+          throw new DeadDropError('RATE_LIMITED', 'slow down', { retryAfterMs: 5000 });
         }
         return 'ok';
       },
@@ -117,7 +117,7 @@ describe('withRetry', () => {
   it('stops early when the elapsed budget would be exceeded', async () => {
     const testClock = clock();
     const operation = vi.fn(async () => {
-      throw new BridgeError('TIMEOUT', 'slow');
+      throw new DeadDropError('TIMEOUT', 'slow');
     });
     const promise = withRetry(operation, {
       clock: testClock,
@@ -133,14 +133,14 @@ describe('withRetry', () => {
     const controller = new AbortController();
     const promise = withRetry(
       async () => {
-        throw new BridgeError('TIMEOUT', 'slow');
+        throw new DeadDropError('TIMEOUT', 'slow');
       },
       {
         clock: testClock,
         signal: controller.signal,
         policy: { maxAttempts: 5, initialDelayMs: 1000, jitter: 'none' },
       },
-    ).catch((error: unknown) => error as BridgeError);
+    ).catch((error: unknown) => error as DeadDropError);
     controller.abort();
     await testClock.advance(5000);
     expect((await promise).code).toBe('CANCELLED');
@@ -158,7 +158,7 @@ describe('withRetry', () => {
     const promise = withRetry(
       async () => {
         calls += 1;
-        if (calls < 2) throw new BridgeError('BAD_REQUEST', 'usually fatal');
+        if (calls < 2) throw new DeadDropError('BAD_REQUEST', 'usually fatal');
         return 'ok';
       },
       { clock: testClock, isRetryable: () => true, policy: { initialDelayMs: 1, jitter: 'none' } },
@@ -177,7 +177,7 @@ describe('withTimeout', () => {
   it('rejects with TIMEOUT once the deadline passes', async () => {
     const testClock = new TestClock(0);
     const promise = withTimeout(new Promise(() => {}), 1000, 'slow op', testClock).catch(
-      (error: unknown) => error as BridgeError,
+      (error: unknown) => error as DeadDropError,
     );
     await testClock.advance(1500);
     const error = await promise;

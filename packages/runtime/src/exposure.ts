@@ -1,7 +1,7 @@
 /**
- * Exposures: making an existing application reachable over Bridge.
+ * Exposures: making an existing application reachable over dead-drop.
  *
- * This is the zero-code path from the blueprint. `bridge expose --target
+ * This is the zero-code path from the blueprint. `ddrop expose --target
  * http://localhost:3000` registers a request handler on the channel
  * `http/<name>`; a remote peer sends an encoded HTTP request there and gets an
  * encoded HTTP response back. The target Express/Next/whatever app is never
@@ -20,7 +20,7 @@ import {
   type HttpRequestMessage,
   type HttpResponseMessage,
 } from '@fyrlabs/dead-drop-protocol';
-import type { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import type { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 import type { Logger } from '@fyrlabs/dead-drop-core';
 
 import type { ExposureConfig } from './config.js';
@@ -136,7 +136,7 @@ function httpProxyHandler(
       });
       return aborted
         ? textResponse(504, `The exposed target did not respond within ${timeoutMs}ms.`)
-        : textResponse(502, 'The exposed target is not reachable from the Bridge runtime.');
+        : textResponse(502, 'The exposed target is not reachable from the dead-drop runtime.');
     }
   };
 }
@@ -260,8 +260,8 @@ function textResponse(status: number, message: string): HttpResponseMessage {
   };
 }
 
-/** Turns a Bridge error into the HTTP status a caller should see. */
-export function statusForError(error: BridgeError): number {
+/** Turns a dead-drop error into the HTTP status a caller should see. */
+export function statusForError(error: DeadDropError): number {
   switch (error.code) {
     case 'BAD_REQUEST':
       return 400;

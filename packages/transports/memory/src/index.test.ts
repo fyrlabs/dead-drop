@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 import { registerConformanceTests } from '@fyrlabs/dead-drop-transport-sdk/testing';
 import type { StoreTransport, TransportContext } from '@fyrlabs/dead-drop-transport-sdk';
 
@@ -73,7 +73,7 @@ describe('memory transport specifics', () => {
     const first = await store.put('inbox/peer-b/1.ddf', new Uint8Array([1]));
     await expect(
       store.put('inbox/peer-b/1.ddf', new Uint8Array([2]), { ifMatch: 'wrong' }),
-    ).rejects.toBeInstanceOf(BridgeError);
+    ).rejects.toBeInstanceOf(DeadDropError);
     await expect(
       store.put('inbox/peer-b/1.ddf', new Uint8Array([2]), { ifMatch: first.etag }),
     ).resolves.toBeDefined();

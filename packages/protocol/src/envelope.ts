@@ -1,12 +1,12 @@
 /**
- * The Bridge envelope: the only thing that ever crosses a transport.
+ * The dead-drop envelope: the only thing that ever crosses a transport.
  *
  * Application semantics live in `payload`; everything a runtime needs to route,
  * correlate, deduplicate and expire a message lives in the header. Transports
  * never inspect either — they move opaque frames (see `frame.ts`).
  */
 
-import { BridgeError } from './errors.js';
+import { DeadDropError } from './errors.js';
 import { createMessageId, isValidId } from './ids.js';
 
 export const PROTOCOL_VERSION = 1;
@@ -127,18 +127,18 @@ export function isValidChannel(value: string): boolean {
  */
 export function assertValidHeader(header: unknown): asserts header is EnvelopeHeader {
   if (typeof header !== 'object' || header === null) {
-    throw new BridgeError('DECODE_FAILED', 'envelope header is not an object');
+    throw new DeadDropError('DECODE_FAILED', 'envelope header is not an object');
   }
   const h = header as Record<string, unknown>;
   const fail = (message: string, details?: Record<string, unknown>): never => {
-    throw new BridgeError('DECODE_FAILED', `invalid envelope: ${message}`, { details });
+    throw new DeadDropError('DECODE_FAILED', `invalid envelope: ${message}`, { details });
   };
 
   if (h.v !== PROTOCOL_VERSION) {
     fail(`unsupported protocol version ${String(h.v)}`, { version: h.v });
   }
   if (typeof h.id !== 'string' || !isValidId(h.id.replace(/^[a-z]+_/, ''))) {
-    fail('id must be a Bridge identifier');
+    fail('id must be a dead-drop identifier');
   }
   if (typeof h.ts !== 'number' || !Number.isFinite(h.ts) || h.ts < 0) {
     fail('ts must be a non-negative finite number');

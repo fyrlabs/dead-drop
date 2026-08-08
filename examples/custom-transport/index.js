@@ -2,14 +2,14 @@
  * A complete third-party transport in about 60 lines.
  *
  * This one stores objects in a Map. Swap the four methods for calls to your
- * backend and you have a working Bridge transport; everything above them —
+ * backend and you have a working dead-drop transport; everything above them —
  * encryption, chunking, acknowledgement, retries, deduplication, failover —
  * is supplied by the runtime.
  *
  *   node examples/custom-transport/index.js
  */
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 import {
   assertValidKey,
   assertValidPrefix,
@@ -35,7 +35,7 @@ export const acmeTransport = defineTransport({
       async put(key, data, options = {}) {
         assertValidKey(key);
         if (options.ifAbsent && objects.has(key)) {
-          throw new BridgeError('TRANSPORT_ERROR', `object already exists: ${key}`, {
+          throw new DeadDropError('TRANSPORT_ERROR', `object already exists: ${key}`, {
             retryable: false,
           });
         }

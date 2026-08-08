@@ -190,10 +190,10 @@ describe('metrics', () => {
     registry.transportLatency.observe(30, { transport: 'a' });
     const text = registry.toPrometheus();
 
-    expect(text).toContain('# TYPE bridge_messages_sent_total counter');
-    expect(text).toContain('bridge_messages_sent_total{kind="event"} 2');
-    expect(text).toContain('bridge_queue_depth 7');
-    expect(text).toContain('bridge_transport_operation_duration_ms_count{transport="a"} 1');
+    expect(text).toContain('# TYPE deaddrop_messages_sent_total counter');
+    expect(text).toContain('deaddrop_messages_sent_total{kind="event"} 2');
+    expect(text).toContain('deaddrop_queue_depth 7');
+    expect(text).toContain('deaddrop_transport_operation_duration_ms_count{transport="a"} 1');
     expect(text).toContain('le="+Inf"');
   });
 
@@ -205,15 +205,15 @@ describe('metrics', () => {
 
   it('returns the same instrument for a repeated name', () => {
     const registry = new MetricsRegistry();
-    expect(registry.counter('bridge_messages_sent_total', 'x')).toBe(registry.messagesSent);
+    expect(registry.counter('deaddrop_messages_sent_total', 'x')).toBe(registry.messagesSent);
   });
 
   it('snapshots every registered metric', () => {
     const registry = new MetricsRegistry();
     registry.messagesSent.inc();
     const names = registry.snapshot().map((metric) => metric.name);
-    expect(names).toContain('bridge_messages_sent_total');
-    expect(names).toContain('bridge_transport_operation_duration_ms');
+    expect(names).toContain('deaddrop_messages_sent_total');
+    expect(names).toContain('deaddrop_transport_operation_duration_ms');
   });
 
   it('maps health status to a gauge value', () => {

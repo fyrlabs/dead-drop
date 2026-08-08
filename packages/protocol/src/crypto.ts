@@ -17,7 +17,7 @@ import { createHash, createSecretKey, hkdfSync, randomBytes, timingSafeEqual } f
 import { createCipheriv, createDecipheriv } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
 
-import { BridgeError } from './errors.js';
+import { DeadDropError } from './errors.js';
 
 export const SECRET_BYTES = 32;
 export const SECRET_PREFIX = 'ddk1_';
@@ -40,16 +40,19 @@ export function generateWorkspaceSecret(): string {
 
 export function parseWorkspaceSecret(secret: string): Buffer {
   if (!secret.startsWith(SECRET_PREFIX)) {
-    throw new BridgeError('CONFIG_INVALID', `workspace secret must start with "${SECRET_PREFIX}"`);
+    throw new DeadDropError(
+      'CONFIG_INVALID',
+      `workspace secret must start with "${SECRET_PREFIX}"`,
+    );
   }
   let raw: Buffer;
   try {
     raw = Buffer.from(secret.slice(SECRET_PREFIX.length), 'base64url');
   } catch (cause) {
-    throw new BridgeError('CONFIG_INVALID', 'workspace secret is not valid base64url', { cause });
+    throw new DeadDropError('CONFIG_INVALID', 'workspace secret is not valid base64url', { cause });
   }
   if (raw.length !== SECRET_BYTES) {
-    throw new BridgeError(
+    throw new DeadDropError(
       'CONFIG_INVALID',
       `workspace secret must decode to ${SECRET_BYTES} bytes, got ${raw.length}`,
     );
@@ -94,10 +97,10 @@ export function open(
   aad: Uint8Array,
 ): Buffer {
   if (iv.length !== IV_BYTES) {
-    throw new BridgeError('DECRYPT_FAILED', `iv must be ${IV_BYTES} bytes`);
+    throw new DeadDropError('DECRYPT_FAILED', `iv must be ${IV_BYTES} bytes`);
   }
   if (tag.length !== TAG_BYTES) {
-    throw new BridgeError('DECRYPT_FAILED', `auth tag must be ${TAG_BYTES} bytes`);
+    throw new DeadDropError('DECRYPT_FAILED', `auth tag must be ${TAG_BYTES} bytes`);
   }
   try {
     const decipher = createDecipheriv(AEAD_ALGORITHM, key.key, iv);
@@ -105,7 +108,7 @@ export function open(
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   } catch (cause) {
-    throw new BridgeError('DECRYPT_FAILED', 'frame failed authenticated decryption', { cause });
+    throw new DeadDropError('DECRYPT_FAILED', 'frame failed authenticated decryption', { cause });
   }
 }
 
@@ -126,7 +129,7 @@ export class KeyRing {
   static fromSecrets(workspace: string, secrets: readonly string[]): KeyRing {
     const [first, ...rest] = secrets;
     if (first === undefined) {
-      throw new BridgeError('CONFIG_INVALID', 'at least one workspace secret is required');
+      throw new DeadDropError('CONFIG_INVALID', 'at least one workspace secret is required');
     }
     return new KeyRing(
       deriveWorkspaceKey(first, workspace),
@@ -137,7 +140,7 @@ export class KeyRing {
   get(id: string): WorkspaceKey {
     const key = this.byId.get(id);
     if (!key) {
-      throw new BridgeError('DECRYPT_FAILED', `no workspace key matches key id ${id}`, {
+      throw new DeadDropError('DECRYPT_FAILED', `no workspace key matches key id ${id}`, {
         details: { keyId: id, known: [...this.byId.keys()] },
       });
     }

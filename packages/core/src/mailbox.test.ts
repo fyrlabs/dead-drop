@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  BridgeError,
+  DeadDropError,
   KeyRing,
   createEnvelope,
   decodeFrame,
@@ -172,7 +172,7 @@ describe('MailboxEngine send', () => {
 
 describe('MailboxEngine tracing', () => {
   // Without propagation every span is its own single-span trace, which makes
-  // `bridge trace` useless. The parent link is the thing worth guarding.
+  // `ddrop trace` useless. The parent link is the thing worth guarding.
   it('keys the send trace to the message id and parents the transport write to it', async () => {
     const tracer = new Tracer();
     const context = await fixture({ tracer });
@@ -265,7 +265,7 @@ describe('MailboxEngine receive', () => {
     const context = await fixture({ peerId: 'peer-b', objects });
     objects.set(
       inboxKey(WORKSPACE, 'peer-b', 'msg_01HZY0000000000000000000AB'),
-      new TextEncoder().encode('this is not a bridge frame'),
+      new TextEncoder().encode('this is not a ddrop frame'),
     );
 
     expect(await context.mailbox.pollOnce()).toBe(0);
@@ -364,7 +364,7 @@ describe('MailboxEngine redelivery and dead letters', () => {
       objects,
       mailbox: { maxDeliveryAttempts: 2, redeliveryPolicy: { initialDelayMs: 10, jitter: 'none' } },
       handler: async () => {
-        throw new BridgeError('SERVICE_ERROR', 'always fails');
+        throw new DeadDropError('SERVICE_ERROR', 'always fails');
       },
     });
     const sender = await fixture({ peerId: 'peer-a', objects });

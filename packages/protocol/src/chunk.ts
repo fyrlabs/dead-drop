@@ -9,7 +9,7 @@
  */
 
 import { createEnvelope, type Envelope } from './envelope.js';
-import { BridgeError } from './errors.js';
+import { DeadDropError } from './errors.js';
 import { createGroupId } from './ids.js';
 
 /** Headroom left for the JSON header and frame preamble inside a transport's object limit. */
@@ -21,10 +21,10 @@ export const CHUNK_HEADER_ALLOWANCE_BYTES = 2048;
  */
 export function chunkEnvelope(envelope: Envelope, maxPayloadBytes: number): Envelope[] {
   if (maxPayloadBytes <= 0) {
-    throw new BridgeError('CONFIG_INVALID', 'maxPayloadBytes must be positive');
+    throw new DeadDropError('CONFIG_INVALID', 'maxPayloadBytes must be positive');
   }
   if (envelope.chunk) {
-    throw new BridgeError('INTERNAL', 'cannot chunk an envelope that is already a chunk');
+    throw new DeadDropError('INTERNAL', 'cannot chunk an envelope that is already a chunk');
   }
   const total = envelope.payload.length;
   if (total <= maxPayloadBytes) return [envelope];
@@ -97,7 +97,7 @@ export class ChunkAssembler {
 
     this.evictExpired();
     if (chunk.totalBytes > this.maxMessageBytes) {
-      throw new BridgeError(
+      throw new DeadDropError(
         'PAYLOAD_TOO_LARGE',
         `chunked message declares ${chunk.totalBytes} bytes, limit is ${this.maxMessageBytes}`,
         { details: { groupId: chunk.groupId } },
@@ -119,7 +119,7 @@ export class ChunkAssembler {
     }
     if (group.parts.length !== chunk.count || group.totalBytes !== chunk.totalBytes) {
       this.groups.delete(chunk.groupId);
-      throw new BridgeError('DECODE_FAILED', 'chunk group metadata is inconsistent', {
+      throw new DeadDropError('DECODE_FAILED', 'chunk group metadata is inconsistent', {
         details: { groupId: chunk.groupId },
       });
     }
@@ -131,13 +131,13 @@ export class ChunkAssembler {
     group.updatedAt = this.now();
     if (group.bytes > this.maxMessageBytes) {
       this.groups.delete(chunk.groupId);
-      throw new BridgeError('PAYLOAD_TOO_LARGE', 'chunk group exceeded the message size limit');
+      throw new DeadDropError('PAYLOAD_TOO_LARGE', 'chunk group exceeded the message size limit');
     }
     if (group.received < chunk.count) return undefined;
 
     this.groups.delete(chunk.groupId);
     if (group.bytes !== group.totalBytes) {
-      throw new BridgeError(
+      throw new DeadDropError(
         'CHUNK_INCOMPLETE',
         `reassembled ${group.bytes} bytes but the group declared ${group.totalBytes}`,
         { details: { groupId: chunk.groupId } },
@@ -146,7 +146,7 @@ export class ChunkAssembler {
     const payload = new Uint8Array(group.totalBytes);
     let offset = 0;
     for (const part of group.parts) {
-      if (!part) throw new BridgeError('CHUNK_INCOMPLETE', 'missing chunk during reassembly');
+      if (!part) throw new DeadDropError('CHUNK_INCOMPLETE', 'missing chunk during reassembly');
       payload.set(part, offset);
       offset += part.length;
     }

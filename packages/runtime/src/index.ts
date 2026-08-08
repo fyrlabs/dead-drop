@@ -3,7 +3,7 @@
  *
  * Owns workspaces, loads transport plugins, exposes local applications and
  * answers the control plane. Applications normally reach it through
- * `@fyrlabs/dead-drop-sdk` or the `bridge` CLI rather than importing it directly, but
+ * `@fyrlabs/dead-drop-sdk` or the `ddrop` CLI rather than importing it directly, but
  * embedding it in a process is supported and is what the examples do.
  */
 

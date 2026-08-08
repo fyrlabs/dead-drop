@@ -1,7 +1,7 @@
 {
   "name": "@fyrlabs/dead-drop-transport-sdk",
   "version": "0.1.0",
-  "description": "Public SDK for authoring Bridge transport adapters",
+  "description": "Public SDK for authoring dead-drop transport adapters",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {

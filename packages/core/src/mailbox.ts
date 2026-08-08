@@ -20,7 +20,7 @@
  */
 
 import {
-  BridgeError,
+  DeadDropError,
   ChunkAssembler,
   chunkEnvelope,
   CHUNK_HEADER_ALLOWANCE_BYTES,
@@ -209,7 +209,7 @@ export class MailboxEngine {
 
     try {
       if (outbound.payload.length > this.maxMessageBytes) {
-        throw new BridgeError(
+        throw new DeadDropError(
           'PAYLOAD_TOO_LARGE',
           `payload is ${outbound.payload.length} bytes, limit is ${this.maxMessageBytes}`,
         );
@@ -291,7 +291,7 @@ export class MailboxEngine {
 
   /** Begins polling. `handler` receives every reassembled, deduplicated message. */
   async start(handler: MessageHandler): Promise<void> {
-    if (this.running) throw new BridgeError('INTERNAL', 'mailbox already started');
+    if (this.running) throw new DeadDropError('INTERNAL', 'mailbox already started');
     this.setHandler(handler);
     this.running = true;
     await this.dedupe.load();
@@ -327,7 +327,7 @@ export class MailboxEngine {
     if (!this.handler) {
       // Silently acknowledging messages with nowhere to deliver them would look
       // like successful delivery and lose the data.
-      throw new BridgeError('INTERNAL', 'mailbox has no message handler; call setHandler first');
+      throw new DeadDropError('INTERNAL', 'mailbox has no message handler; call setHandler first');
     }
     let delivered = 0;
     for (const entry of this.manager.stores()) {
@@ -347,9 +347,9 @@ export class MailboxEngine {
       try {
         delivered = await this.pollOnce();
       } catch (error) {
-        const bridgeError = BridgeError.from(error);
-        if (bridgeError.code !== 'CANCELLED') {
-          this.logger.warn('poll cycle failed', { error: bridgeError.message });
+        const deadDropError = DeadDropError.from(error);
+        if (deadDropError.code !== 'CANCELLED') {
+          this.logger.warn('poll cycle failed', { error: deadDropError.message });
         }
       }
       // Speed up while traffic flows, back off when idle. Polling a rate-limited
@@ -466,12 +466,12 @@ export class MailboxEngine {
         .filter((key) => messageIdFromKey(key) !== undefined)
         .sort();
     } catch (error) {
-      const bridgeError = BridgeError.from(error);
-      if (bridgeError.code !== 'CANCELLED') {
+      const deadDropError = DeadDropError.from(error);
+      if (deadDropError.code !== 'CANCELLED') {
         this.logger.debug('list failed', {
           transport: entry.name,
           prefix,
-          error: bridgeError.message,
+          error: deadDropError.message,
         });
       }
       return [];
@@ -512,7 +512,7 @@ export class MailboxEngine {
         this.logger.warn('discarding undecodable object', {
           key,
           transport: entry.name,
-          error: BridgeError.from(error).message,
+          error: DeadDropError.from(error).message,
         });
         if (acknowledge) await this.remove(store, key);
         return false;
@@ -592,7 +592,7 @@ export class MailboxEngine {
       this.logger.warn('chunk group failed', {
         key,
         groupId: envelope.chunk.groupId,
-        error: BridgeError.from(error).message,
+        error: DeadDropError.from(error).message,
       });
       if (acknowledge) void this.remove(store, key);
       return undefined;
@@ -610,7 +610,7 @@ export class MailboxEngine {
   ): Promise<void> {
     const state = this.delivery.get(key) ?? { attempts: 0, nextAttemptAt: 0 };
     state.attempts += 1;
-    const bridgeError = BridgeError.from(error, 'SERVICE_ERROR');
+    const deadDropError = DeadDropError.from(error, 'SERVICE_ERROR');
 
     if (!acknowledge || state.attempts >= this.maxDeliveryAttempts) {
       // Broadcast messages cannot be retried from the store (the cursor has
@@ -622,10 +622,10 @@ export class MailboxEngine {
         messageId: envelope.id,
         channel: envelope.channel,
         attempts: state.attempts,
-        error: bridgeError.message,
+        error: deadDropError.message,
       });
       if (acknowledge) {
-        await this.deadLetter(store, key, envelope, bridgeError);
+        await this.deadLetter(store, key, envelope, deadDropError);
         await this.remove(store, key);
       }
       this.delivery.delete(key);
@@ -639,7 +639,7 @@ export class MailboxEngine {
       channel: envelope.channel,
       attempt: state.attempts,
       retryInMs: state.nextAttemptAt - this.clock.now(),
-      error: bridgeError.message,
+      error: deadDropError.message,
     });
   }
 
@@ -647,7 +647,7 @@ export class MailboxEngine {
     store: StoreTransport,
     key: string,
     envelope: Envelope,
-    error: BridgeError,
+    error: DeadDropError,
   ): Promise<void> {
     try {
       const raw = await store.get(key);

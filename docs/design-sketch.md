@@ -1,10 +1,10 @@
-# Bridge --- Open-Source Architecture & Design Vision
+# dead-drop --- Open-Source Architecture & Design Vision
 
 **Status:** Vision / Architecture Proposal
 
 ## 1. Vision
 
-Bridge is a local-first runtime and SDK for connecting applications
+dead-drop is a local-first runtime and SDK for connecting applications
 running on different machines through interchangeable transport
 adapters.
 
@@ -16,7 +16,7 @@ custom backend.
 Application
     |
     v
-Bridge Runtime
+dead-drop Runtime
     |
     v
 Transport Adapter(s)
@@ -28,13 +28,13 @@ External Infrastructure
 Transport Adapter(s)
     |
     v
-Bridge Runtime
+dead-drop Runtime
     |
     v
 Application
 ```
 
-The transport is an implementation detail. Bridge provides the
+The transport is an implementation detail. dead-drop provides the
 abstraction between an application and whatever infrastructure is
 available to carry its data.
 
@@ -59,12 +59,12 @@ Traditional approaches require some combination of hosting, networking,
 VPNs, public endpoints, brokers, firewall configuration, or
 infrastructure management.
 
-Bridge explores a different model:
+dead-drop explores a different model:
 
 ``` text
 Existing Application
         +
-Bridge Runtime
+dead-drop Runtime
         +
 Existing External Infrastructure
 ```
@@ -79,7 +79,7 @@ Application code must never depend directly on GitHub, GitLab,
 Bitbucket, or another transport.
 
 ``` ts
-await bridge.request(...)
+await ddrop.request(...)
 ```
 
 not:
@@ -93,7 +93,7 @@ github.createIssue(...)
 Existing applications should work with little or no modification.
 
 ``` bash
-bridge expose --target http://localhost:3000
+ddrop expose --target http://localhost:3000
 ```
 
 ### Everything is pluggable
@@ -126,7 +126,7 @@ A runtime may use multiple transports for:
 ``` text
                  +--> GitHub
                  |
-Bridge ----------+--> GitLab
+dead-drop ----------+--> GitLab
                  |
                  +--> Custom
 ```
@@ -161,7 +161,7 @@ Every transport operation can automatically produce:
                               |
                               v
 +----------------------------------------------------------+
-|                    Bridge Runtime                        |
+|                    dead-drop Runtime                        |
 |                                                          |
 | +----------------+  +----------------+  +--------------+ |
 | | Request Router |  | Event Engine   |  | Local Cache  | |
@@ -190,12 +190,12 @@ Every transport operation can automatically produce:
 
 # 5. Runtime Model
 
-Bridge uses a one-runtime-per-machine model by default.
+dead-drop uses a one-runtime-per-machine model by default.
 
 A runtime can host multiple isolated workspaces:
 
 ``` text
-Bridge Runtime
+dead-drop Runtime
 |
 +-- Workspace: project-a
 |   +-- service: api
@@ -230,7 +230,7 @@ localhost:3000
 Run:
 
 ``` bash
-bridge expose   --name my-api   --target http://localhost:3000
+ddrop expose   --name my-api   --target http://localhost:3000
 ```
 
 The flow becomes:
@@ -238,23 +238,23 @@ The flow becomes:
 ``` text
 Viewer
   |
-Bridge Runtime
+dead-drop Runtime
   |
 Transport
   |
-Bridge Runtime
+dead-drop Runtime
   |
 http://localhost:3000
   |
 Express
 ```
 
-Express does not need Bridge-specific code.
+Express does not need dead-drop-specific code.
 
 Static sites can work similarly:
 
 ``` bash
-bridge expose ./dist --name my-site
+ddrop expose ./dist --name my-site
 ```
 
 Dynamic applications such as Next.js can be exposed by targeting their
@@ -264,15 +264,15 @@ local server.
 
 # 7. Native SDK Mode
 
-Applications that want Bridge-native features can optionally use the
+Applications that want dead-drop-native features can optionally use the
 SDK.
 
 ``` ts
-const bridge = createClient({
+const ddrop = createClient({
   workspace: "my-project"
 });
 
-await bridge.publish("events", {
+await ddrop.publish("events", {
   type: "user.created",
   payload: user
 });
@@ -281,7 +281,7 @@ await bridge.publish("events", {
 RPC:
 
 ``` ts
-const result = await bridge.call("math.add", {
+const result = await ddrop.call("math.add", {
   a: 10,
   b: 20
 });
@@ -290,7 +290,7 @@ const result = await bridge.call("math.add", {
 Service registration:
 
 ``` ts
-bridge.service("math", {
+ddrop.service("math", {
   add({ a, b }) {
     return a + b;
   }
@@ -305,7 +305,7 @@ be exposed.
 # 8. Request Sequence
 
 ``` text
-Client        Bridge A       Transport       Bridge B       Target
+Client        dead-drop A       Transport       dead-drop B       Target
   |              |               |              |             |
   | request      |               |              |             |
   |------------->|               |              |             |
@@ -329,7 +329,7 @@ handling, and telemetry.
 # 9. Failover Sequence
 
 ``` text
-Bridge
+dead-drop
   |
   | select Transport A
   v
@@ -345,7 +345,7 @@ Transport Manager
 Transport B
   |
   v
-Remote Bridge
+Remote dead-drop
 ```
 
 The application should not need to know that failover occurred.
@@ -424,7 +424,7 @@ Transport B:
 A project may configure multiple adapters:
 
 ``` ts
-createBridge({
+createDeadDrop({
   transports: [
     githubTransport(...),
     gitlabTransport(...),
@@ -469,13 +469,13 @@ transportPolicy({
 This is a fundamental requirement.
 
 **Users must be able to create transports without modifying, forking, or
-merging code into the Bridge repository.**
+merging code into the dead-drop repository.**
 
 A transport is a normal independently distributed package:
 
 ``` bash
-npm install @bridge/transport-github
-npm install @my-company/bridge-transport-foo
+npm install @ddrop/transport-github
+npm install @my-company/deaddrop-transport-foo
 ```
 
 It can also come from:
@@ -488,17 +488,17 @@ It can also come from:
 Example:
 
 ``` ts
-import { createBridge } from "@bridge/core";
-import { myTransport } from "@company/bridge-transport-foo";
+import { createDeadDrop } from "@fyrlabs/dead-drop-core";
+import { myTransport } from "@company/deaddrop-transport-foo";
 
-createBridge({
+createDeadDrop({
   transports: [
     myTransport(...)
   ]
 });
 ```
 
-No Bridge repository change is required.
+No dead-drop repository change is required.
 
 ------------------------------------------------------------------------
 
@@ -507,7 +507,7 @@ No Bridge repository change is required.
 Third-party authors implement the public Transport SDK:
 
 ``` ts
-import { defineTransport } from "@bridge/transport-sdk";
+import { defineTransport } from "@ddrop/transport-sdk";
 
 export default defineTransport({
   id: "company-foo",
@@ -547,8 +547,8 @@ export default defineTransport({
 });
 ```
 
-Bridge owns the runtime lifecycle and observability around the adapter.
-The adapter primarily translates between Bridge messages and its
+dead-drop owns the runtime lifecycle and observability around the adapter.
+The adapter primarily translates between dead-drop messages and its
 external system.
 
 ------------------------------------------------------------------------
@@ -556,7 +556,7 @@ external system.
 # 15. Plugin Architecture
 
 ``` text
-                    Bridge Runtime
+                    dead-drop Runtime
                          |
               +----------+----------+
               |                     |
@@ -574,23 +574,23 @@ GitHub       GitLab    Custom
 Possible package ecosystem:
 
 ``` text
-@bridge/core
-@bridge/runtime
-@bridge/sdk
-@bridge/transport-sdk
+@fyrlabs/dead-drop-core
+@ddrop/runtime
+@ddrop/sdk
+@ddrop/transport-sdk
 
-@bridge/transport-github
-@bridge/transport-gitlab
-@bridge/transport-bitbucket
+@ddrop/transport-github
+@ddrop/transport-gitlab
+@ddrop/transport-bitbucket
 
-@bridge/adapter-express
-@bridge/adapter-static
+@ddrop/adapter-express
+@ddrop/adapter-static
 
-@company/bridge-transport-internal
-@company/bridge-auth-custom
+@company/deaddrop-transport-internal
+@company/deaddrop-auth-custom
 ```
 
-Third-party packages live independently from the Bridge repository.
+Third-party packages live independently from the dead-drop repository.
 
 ------------------------------------------------------------------------
 
@@ -602,7 +602,7 @@ Observability belongs at the runtime / transport boundary.
 Application Request
        |
        v
-Bridge Runtime
+dead-drop Runtime
        |
        +--> Logger
        |
@@ -682,7 +682,7 @@ latency: 2.4s
 The application still sees:
 
 ``` ts
-await bridge.call(...)
+await ddrop.call(...)
 ```
 
 ------------------------------------------------------------------------
@@ -709,7 +709,7 @@ Application
      |
      | local API
      v
-Bridge Runtime
+dead-drop Runtime
      |
      | credentials
      v
@@ -751,10 +751,10 @@ A project should not automatically see another project's:
 
 # 20. Discovery
 
-Bridge can expose transport-independent discovery:
+dead-drop can expose transport-independent discovery:
 
 ``` bash
-bridge discover
+ddrop discover
 ```
 
 Conceptual result:
@@ -796,7 +796,7 @@ Application
     |
     | Local IPC
     v
-Bridge Runtime
+dead-drop Runtime
 ```
 
 This keeps transport credentials and transport logic outside application
@@ -809,23 +809,23 @@ processes.
 The CLI is a primary interface.
 
 ``` bash
-bridge start
-bridge expose --target http://localhost:3000 --name api
-bridge expose ./dist --name website
-bridge list
-bridge status
-bridge transport list
-bridge transport health
-bridge logs
-bridge metrics
-bridge connect api
+ddrop start
+ddrop expose --target http://localhost:3000 --name api
+ddrop expose ./dist --name website
+ddrop list
+ddrop status
+ddrop transport list
+ddrop transport health
+ddrop logs
+ddrop metrics
+ddrop connect api
 ```
 
 ------------------------------------------------------------------------
 
 # 23. Reliability Model
 
-Bridge assumes transports are unreliable.
+dead-drop assumes transports are unreliable.
 
 Possible failures:
 
@@ -862,7 +862,7 @@ protocol genuinely supports it.
 
 # 24. Performance Strategy
 
-Bridge should optimize within the constraints of each transport.
+dead-drop should optimize within the constraints of each transport.
 
 Potential techniques:
 
@@ -924,7 +924,7 @@ The most important architectural boundary is:
 Application semantics
         |
         v
-Bridge protocol
+dead-drop protocol
         |
         v
 Transport semantics
@@ -936,7 +936,7 @@ For example:
 HTTP GET /users
 ```
 
-becomes a Bridge request envelope:
+becomes a dead-drop request envelope:
 
 ``` json
 {
@@ -964,7 +964,7 @@ Owns:
 -   domain behavior
 -   UI
 
-## Bridge Runtime
+## dead-drop Runtime
 
 Owns:
 
@@ -987,7 +987,7 @@ Owns:
 
 Owns:
 
-> How do I move a Bridge message through this external system?
+> How do I move a dead-drop message through this external system?
 
 It should not own application routing, application semantics, or
 business logic.
@@ -996,10 +996,10 @@ business logic.
 
 # 28. Project Structure
 
-Possible Bridge monorepo:
+Possible dead-drop monorepo:
 
 ``` text
-bridge/
+ddrop/
 |
 +-- packages/
 |   +-- core/
@@ -1070,7 +1070,7 @@ The goal is to validate the abstraction, not to maximize adapter count.
 Implement:
 
 ``` bash
-bridge expose --target http://localhost:3000
+ddrop expose --target http://localhost:3000
 ```
 
 Support HTTP and static files.
@@ -1094,7 +1094,7 @@ defineTransport(...)
 
 Publish the Transport SDK.
 
-Third-party developers can now create adapters without modifying Bridge.
+Third-party developers can now create adapters without modifying dead-drop.
 
 ## Phase 6 --- Native SDK
 
@@ -1114,13 +1114,13 @@ A developer with an existing application should be able to:
 
 ``` bash
 npm start
-bridge expose --target http://localhost:3000
+ddrop expose --target http://localhost:3000
 ```
 
 Another developer should be able to:
 
 ``` bash
-bridge connect my-api
+ddrop connect my-api
 ```
 
 Neither developer needs to understand the underlying transport.
@@ -1128,17 +1128,17 @@ Neither developer needs to understand the underlying transport.
 A developer building a custom transport should be able to:
 
 ``` bash
-npm install @my-company/bridge-transport-foo
+npm install @my-company/deaddrop-transport-foo
 ```
 
-and configure it without changing Bridge source code.
+and configure it without changing dead-drop source code.
 
-A developer building a Bridge-native application should be able to:
+A developer building a dead-drop-native application should be able to:
 
 ``` ts
-await bridge.publish(...)
-await bridge.call(...)
-bridge.subscribe(...)
+await ddrop.publish(...)
+await ddrop.call(...)
+ddrop.subscribe(...)
 ```
 
 without knowing how the message travels.
@@ -1152,7 +1152,7 @@ without knowing how the message travels.
                          |
                          v
                  +---------------+
-                 | Bridge Runtime |
+                 | dead-drop Runtime |
                  +---------------+
                          |
                  +-------+-------+
@@ -1172,17 +1172,17 @@ without knowing how the message travels.
 
 Applications define **what they want to communicate**.
 
-Bridge defines **how that communication is routed**.
+dead-drop defines **how that communication is routed**.
 
 Transport adapters define **how an external system carries it**.
 
-That separation is the foundation of Bridge.
+That separation is the foundation of dead-drop.
 
 ------------------------------------------------------------------------
 
 # 32. Guiding Principle
 
-> **Build the application. Bring the transport. Bridge connects them.**
+> **Build the application. Bring the transport. dead-drop connects them.**
 
 The transport is replaceable.
 
@@ -1191,5 +1191,5 @@ The application is independent.
 The runtime handles the complexity between them.
 
 And the ecosystem remains open: anyone can build and distribute a
-transport adapter without modifying or merging code into the Bridge
+transport adapter without modifying or merging code into the dead-drop
 repository.

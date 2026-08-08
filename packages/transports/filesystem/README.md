@@ -1,8 +1,8 @@
 # @fyrlabs/dead-drop-transport-filesystem
 
-The reference transport. Point two machines at one directory — a network mount, an SMB share, a synced Dropbox/OneDrive/Drive folder — and Bridge works. Atomic writes, a filesystem watcher with a polling fallback for network mounts, and a health probe that actually writes so a stale mount reports unavailable.
+The reference transport. Point two machines at one directory — a network mount, an SMB share, a synced Dropbox/OneDrive/Drive folder — and dead-drop works. Atomic writes, a filesystem watcher with a polling fallback for network mounts, and a health probe that actually writes so a stale mount reports unavailable.
 
-Part of [Bridge](https://github.com/) — a transport-agnostic runtime for distributed applications. See the repository README for the full picture, and `docs/` for the architecture, security model and delivery guarantees.
+Part of [dead-drop](https://github.com/fyrlabs/dead-drop) — a transport-agnostic runtime for distributed applications. See the repository README for the full picture, and `docs/` for the architecture, security model and delivery guarantees.
 
 ## Install
 

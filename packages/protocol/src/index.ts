@@ -1,5 +1,5 @@
 /**
- * `@fyrlabs/dead-drop-protocol` — the Bridge wire contract.
+ * `@fyrlabs/dead-drop-protocol` — the dead-drop wire contract.
  *
  * This package is the boundary every other package agrees on. It has no runtime
  * dependencies and knows nothing about transports, workspaces or applications:

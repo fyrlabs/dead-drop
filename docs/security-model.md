@@ -1,6 +1,6 @@
 # Security model
 
-Read this before deciding Bridge fits your situation. It states what is protected, what is not, and where the sharp edges are.
+Read this before deciding dead-drop fits your situation. It states what is protected, what is not, and where the sharp edges are.
 
 ## Identity is a shared secret
 
@@ -12,7 +12,7 @@ This is a deliberate simplification, and it is the single most important thing t
 - Any workspace member can read every message in the workspace, including ones addressed to other peers.
 - Removing a peer means rotating the secret. Nothing else revokes access.
 
-If you need peers that can send but not read, or an audit trail that survives a malicious member, Bridge as it stands is the wrong tool. That would need per-peer keypairs and signed envelopes, which is a protocol change, not a configuration change.
+If you need peers that can send but not read, or an audit trail that survives a malicious member, dead-drop as it stands is the wrong tool. That would need per-peer keypairs and signed envelopes, which is a protocol change, not a configuration change.
 
 ## What the transport sees
 
@@ -41,7 +41,7 @@ Keys are readable on purpose. When the transport is a git repository or a folder
 
 Frames name the key they were sealed with, so old and new keys can be accepted at once.
 
-1. `bridge keygen` produces the new secret.
+1. `ddrop keygen` produces the new secret.
 2. Add it to **every** peer's config as the *second* entry: `"secrets": ["<old>", "<new>"]`. Restart. Peers now accept both, still encrypt with the old.
 3. Once every peer is updated, swap the order: `"secrets": ["<new>", "<old>"]`. Restart. Peers now encrypt with the new and still accept the old.
 4. After the longest plausible in-flight message TTL, drop the old secret entirely.
@@ -50,7 +50,7 @@ Skipping step 2 breaks every peer that has not been updated yet.
 
 ## Where secrets live
 
-- **Not in the config file.** `bridge init` writes `"${env:BRIDGE_SECRET}"`, and the config parser expands `${env:NAME}` at load time. Put the real value in a secret manager or your shell environment.
+- **Not in the config file.** `ddrop init` writes `"${env:DEADDROP_SECRET}"`, and the config parser expands `${env:NAME}` at load time. Put the real value in a secret manager or your shell environment.
 - **Not in application processes.** Applications talk to the runtime over a local socket. Transport credentials and workspace secrets stay in the runtime.
 - **Not in logs.** The logger redacts values by field name (`token`, `secret`, `authorization`, …) and by pattern (`ddk1_…`, `ghp_…`, `glpat-…`, AWS key ids, Slack tokens), including inside the message text and nested objects.
 - **Not in git remote urls we print.** Inline credentials in a remote url are stripped before any error reaches a log.
@@ -63,7 +63,7 @@ This matters more than it looks. A localhost TCP port is reachable by every proc
 
 ## Exposures
 
-`bridge expose --target http://localhost:3000` makes that server reachable by every peer in the workspace. There is no per-request authentication beyond workspace membership.
+`ddrop expose --target http://localhost:3000` makes that server reachable by every peer in the workspace. There is no per-request authentication beyond workspace membership.
 
 - Use `allowPeers` on an exposure to restrict it to named peers. Remember that peer names are self-asserted, so this is an organisational control, not a security boundary.
 - Static exposures resolve every path inside the configured root and reject traversal; percent-encoded `..`, absolute paths and null bytes are all handled.
@@ -71,7 +71,7 @@ This matters more than it looks. A localhost TCP port is reachable by every proc
 
 ## Denial of service
 
-Bridge bounds what it will accept, because the transport is shared and a peer can be malicious or broken:
+dead-drop bounds what it will accept, because the transport is shared and a peer can be malicious or broken:
 
 | Limit | Default | Setting |
 | --- | --- | --- |
@@ -88,7 +88,7 @@ A gzip bomb fails as `PAYLOAD_TOO_LARGE` rather than exhausting memory. An undec
 
 Message ids are unique and the deduplication store persists across restarts, so a replayed frame is dropped rather than redelivered. Messages carry a TTL and expire; requests are stamped with a TTL equal to their timeout, so a captured request cannot be usefully replayed after it expires.
 
-A workspace member can still replay their own traffic within the TTL window. Given that a member can also simply send the message again, this is not a boundary Bridge tries to defend.
+A workspace member can still replay their own traffic within the TTL window. Given that a member can also simply send the message again, this is not a boundary dead-drop tries to defend.
 
 ## Reporting
 

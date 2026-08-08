@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Entry point for the `bridge` binary. Keeps `cli.ts` importable by tests. */
+/** Entry point for the `ddrop` binary. Keeps `cli.ts` importable by tests. */
 
 import { run } from './cli.js';
 

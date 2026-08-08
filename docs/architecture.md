@@ -6,7 +6,7 @@
               local socket │ or nothing at all in proxy mode
                           ▼
   ┌──────────────────────────────────────────────────┐
-  │                  Bridge Runtime                  │
+  │                  dead-drop Runtime                  │
   │                                                  │
   │  Workspace ──── request/response, pub/sub, RPC   │
   │      │                                           │
@@ -76,17 +76,17 @@ Policy modes: `score` (default, healthiest wins), `failover` (the operator's dec
 
 The runtime owns correlation. A request registers a pending promise keyed by its message id, sets a TTL equal to its timeout so it cannot outlive the caller's patience, and sends. The remote peer's handler produces a `response` envelope carrying `correlationId`, which resolves the promise. A late response to a timed-out request is logged at debug and dropped, because that is normal, not an error.
 
-Handler failures are marshalled into the response as a structured error, so `NOT_FOUND` for a missing channel and `SERVICE_ERROR` for a handler that threw arrive as distinguishable `BridgeError`s rather than strings to match on.
+Handler failures are marshalled into the response as a structured error, so `NOT_FOUND` for a missing channel and `SERVICE_ERROR` for a handler that threw arrive as distinguishable `DeadDropError`s rather than strings to match on.
 
 ## Proxy mode
 
-`bridge expose --target http://localhost:3000 --name my-api` registers a handler on the channel `http/my-api`. `bridge connect peer/my-api` starts a local HTTP server that packs each request into an envelope, waits for the response, and unpacks it.
+`ddrop expose --target http://localhost:3000 --name my-api` registers a handler on the channel `http/my-api`. `ddrop connect peer/my-api` starts a local HTTP server that packs each request into an envelope, waits for the response, and unpacks it.
 
 HTTP bodies travel as raw bytes after a length-prefixed JSON head rather than base64 inside it, so proxying a 10 MB response costs 10 MB, not 13 MB.
 
 ## Observability
 
-Structured JSON logs with credential redaction by field name and by value pattern. Counters, gauges and histograms with Prometheus text output and no client-library dependency. Spans in a bounded ring buffer so `bridge` can answer "which hop was slow" without an external collector.
+Structured JSON logs with credential redaction by field name and by value pattern. Counters, gauges and histograms with Prometheus text output and no client-library dependency. Spans in a bounded ring buffer so `ddrop` can answer "which hop was slow" without an external collector.
 
 All of it is at the runtime/transport boundary, so an application gets transport latency, retries, failovers and payload sizes without instrumenting anything.
 

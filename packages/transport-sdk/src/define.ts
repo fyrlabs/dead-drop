@@ -12,11 +12,11 @@
  * });
  * ```
  *
- * Users then pass `acmeTransport({ ... })` into their Bridge configuration. No
- * change to the Bridge repository is required, which is the whole point.
+ * Users then pass `acmeTransport({ ... })` into their dead-drop configuration. No
+ * change to the dead-drop repository is required, which is the whole point.
  */
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 
 import type { TransportDefinition, TransportFactory, TransportRegistration } from './types.js';
 
@@ -32,7 +32,7 @@ export function defineTransport<Config>(
     const registration: TransportRegistration<Config> = { definition, config: parsed };
     if (options?.name !== undefined) {
       if (!ID_PATTERN.test(options.name)) {
-        throw new BridgeError(
+        throw new DeadDropError(
           'CONFIG_INVALID',
           `transport instance name "${options.name}" must match ${ID_PATTERN}`,
         );
@@ -48,17 +48,17 @@ export function defineTransport<Config>(
 
 function assertValidDefinition(definition: TransportDefinition<unknown>): void {
   if (!ID_PATTERN.test(definition.id)) {
-    throw new BridgeError(
+    throw new DeadDropError(
       'CONFIG_INVALID',
       `transport id "${definition.id}" must be lower-case, 2-32 chars, matching ${ID_PATTERN}`,
     );
   }
   const caps = definition.capabilities;
   if (caps.kind !== 'store' && caps.kind !== 'native') {
-    throw new BridgeError('CONFIG_INVALID', `transport ${definition.id}: unknown kind`);
+    throw new DeadDropError('CONFIG_INVALID', `transport ${definition.id}: unknown kind`);
   }
   if (caps.maxPayloadBytes !== undefined && caps.maxPayloadBytes < 1024) {
-    throw new BridgeError(
+    throw new DeadDropError(
       'CONFIG_INVALID',
       `transport ${definition.id}: maxPayloadBytes must be at least 1024`,
     );
@@ -66,13 +66,13 @@ function assertValidDefinition(definition: TransportDefinition<unknown>): void {
   if (caps.kind === 'store' && !caps.delete) {
     // Without delete there is no way to acknowledge and retire a message, and
     // the mailbox would grow without bound. Better to reject it up front.
-    throw new BridgeError(
+    throw new DeadDropError(
       'UNSUPPORTED',
       `transport ${definition.id}: store transports must support delete`,
     );
   }
   if (typeof definition.create !== 'function') {
-    throw new BridgeError(
+    throw new DeadDropError(
       'CONFIG_INVALID',
       `transport ${definition.id}: create must be a function`,
     );

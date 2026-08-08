@@ -11,7 +11,7 @@
 import { hostname } from 'node:os';
 
 import {
-  BridgeError,
+  DeadDropError,
   KeyRing,
   createEnvelope,
   decodeFrame,
@@ -93,7 +93,7 @@ export interface WorkspaceOptions {
 
 interface Pending {
   resolve(envelope: Envelope): void;
-  reject(error: BridgeError): void;
+  reject(error: DeadDropError): void;
   cancelTimeout(): void;
 }
 
@@ -200,7 +200,7 @@ export class Workspace {
     this.stopPresence = undefined;
     for (const [, pending] of this.pending) {
       pending.cancelTimeout();
-      pending.reject(new BridgeError('CANCELLED', 'workspace is shutting down'));
+      pending.reject(new DeadDropError('CANCELLED', 'workspace is shutting down'));
     }
     this.pending.clear();
     await this.withdraw().catch(() => undefined);
@@ -313,7 +313,7 @@ export class Workspace {
       ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
     });
 
-    // Keyed by the envelope id so `bridge trace <requestId>` works with the id
+    // Keyed by the envelope id so `ddrop trace <requestId>` works with the id
     // a timeout error already hands the caller in `details.requestId`.
     const span = this.tracer?.startSpan('workspace.request', {
       traceId: envelope.id,
@@ -326,7 +326,7 @@ export class Workspace {
       const cancelTimeout = this.clock.setTimeout(timeoutMs, () => {
         this.pending.delete(envelope.id);
         reject(
-          new BridgeError('TIMEOUT', `request to ${target} on ${channel} timed out`, {
+          new DeadDropError('TIMEOUT', `request to ${target} on ${channel} timed out`, {
             details: { channel, target, timeoutMs, requestId: envelope.id },
           }),
         );
@@ -334,7 +334,7 @@ export class Workspace {
       const onAbort = (): void => {
         cancelTimeout();
         this.pending.delete(envelope.id);
-        reject(new BridgeError('CANCELLED', 'request aborted by caller'));
+        reject(new DeadDropError('CANCELLED', 'request aborted by caller'));
       };
       options.signal?.addEventListener('abort', onAbort, { once: true });
       this.pending.set(envelope.id, {
@@ -362,13 +362,13 @@ export class Workspace {
       span?.end('ok');
       return result;
     } catch (error) {
-      const bridgeError = BridgeError.from(error);
+      const deadDropError = DeadDropError.from(error);
       this.pending.get(envelope.id)?.cancelTimeout();
       this.pending.delete(envelope.id);
-      this.metrics.requestsTotal.inc({ channel, outcome: bridgeError.code });
-      span?.setAttribute('error', bridgeError.message);
-      span?.end(bridgeError.code === 'CANCELLED' ? 'cancelled' : 'error');
-      throw bridgeError;
+      this.metrics.requestsTotal.inc({ channel, outcome: deadDropError.code });
+      span?.setAttribute('error', deadDropError.message);
+      span?.end(deadDropError.code === 'CANCELLED' ? 'cancelled' : 'error');
+      throw deadDropError;
     } finally {
       this.metrics.inflightRequests.add(-1, { workspace: this.name });
     }
@@ -383,7 +383,7 @@ export class Workspace {
   ): Promise<T> {
     const response = await this.request(target, channel, encodeJson(input), options);
     const decoded = decodeJson(response.payload);
-    if (isErrorPayload(decoded)) throw BridgeError.fromJSON(decoded.error);
+    if (isErrorPayload(decoded)) throw DeadDropError.fromJSON(decoded.error);
     return decoded as T;
   }
 
@@ -484,7 +484,10 @@ export class Workspace {
     let contentType = JSON_CONTENT_TYPE;
     if (!handler) {
       payload = encodeJson({
-        error: new BridgeError('NOT_FOUND', `no handler for channel ${envelope.channel}`).toJSON(),
+        error: new DeadDropError(
+          'NOT_FOUND',
+          `no handler for channel ${envelope.channel}`,
+        ).toJSON(),
       });
     } else {
       try {
@@ -492,13 +495,13 @@ export class Workspace {
         payload = result ?? new Uint8Array(0);
         contentType = envelope.headers?.['accept'] ?? JSON_CONTENT_TYPE;
       } catch (error) {
-        const bridgeError = BridgeError.from(error, 'SERVICE_ERROR');
+        const deadDropError = DeadDropError.from(error, 'SERVICE_ERROR');
         this.logger.warn('request handler failed', {
           channel: envelope.channel,
           from: envelope.from,
-          error: bridgeError.message,
+          error: deadDropError.message,
         });
-        payload = encodeJson({ error: bridgeError.toJSON() });
+        payload = encodeJson({ error: deadDropError.toJSON() });
       }
     }
 
@@ -600,7 +603,7 @@ export class Workspace {
  * and a random one on every start would strand undelivered messages.
  */
 function defaultPeerId(): string {
-  return process.env.BRIDGE_PEER_ID ?? sanitise(hostname());
+  return process.env.DEADDROP_PEER_ID ?? sanitise(hostname());
 }
 
 function sanitise(value: string): string {

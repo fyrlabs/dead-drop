@@ -1,7 +1,7 @@
 {
   "name": "@fyrlabs/dead-drop-transport-filesystem",
   "version": "0.1.0",
-  "description": "Bridge filesystem transport adapter",
+  "description": "dead-drop filesystem transport adapter",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {

@@ -1,7 +1,7 @@
 /**
  * Delivery deduplication.
  *
- * Bridge promises at-least-once delivery, which means duplicates are normal:
+ * dead-drop promises at-least-once delivery, which means duplicates are normal:
  * a crash between "handler succeeded" and "message deleted" replays the
  * message, and so does any transport that briefly resurrects a deleted object.
  * This turns at-least-once into effectively-once for handlers that are not

@@ -8,7 +8,7 @@
  * than "fail".
  */
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 
 import type { Clock } from '../clock.js';
 import { systemClock } from '../clock.js';
@@ -110,7 +110,7 @@ export class CircuitBreaker {
   /** Runs `operation` under the breaker, rejecting fast while it is open. */
   async execute<T>(operation: () => Promise<T>): Promise<T> {
     if (!this.canAttempt()) {
-      throw new BridgeError('TRANSPORT_ERROR', `circuit breaker "${this.name}" is open`, {
+      throw new DeadDropError('TRANSPORT_ERROR', `circuit breaker "${this.name}" is open`, {
         retryable: true,
         retryAfterMs: this.retryAfterMs,
         details: { breaker: this.name, state: 'open' },
@@ -122,13 +122,13 @@ export class CircuitBreaker {
       return result;
     } catch (error) {
       // A cancelled call says nothing about backend health.
-      if (BridgeError.is(error) && error.code === 'CANCELLED') throw error;
+      if (DeadDropError.is(error) && error.code === 'CANCELLED') throw error;
       this.recordFailure();
       throw error;
     }
   }
 
-  /** Forces the breaker closed. Used by operators via `bridge transport reset`. */
+  /** Forces the breaker closed. Used by operators via `ddrop transport reset`. */
   reset(): void {
     this.consecutiveFailures = 0;
     this.consecutiveSuccesses = 0;

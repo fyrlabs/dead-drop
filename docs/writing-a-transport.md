@@ -1,6 +1,6 @@
 # Writing a transport
 
-A Bridge transport is an ordinary npm package. You do not fork Bridge, you do not send a pull request here, and you do not need anything merged. Publish it, `npm install` it, name it in a config file.
+A dead-drop transport is an ordinary npm package. You do not fork dead-drop, you do not send a pull request here, and you do not need anything merged. Publish it, `npm install` it, name it in a config file.
 
 ## The short version
 
@@ -28,7 +28,7 @@ export const acmeTransport = defineTransport<AcmeConfig>({
   },
 
   parseConfig(raw) {
-    // Throw BridgeError('CONFIG_INVALID', …) on anything you cannot use.
+    // Throw DeadDropError('CONFIG_INVALID', …) on anything you cannot use.
     // This runs at start-up, so a typo fails immediately rather than at 3am.
     return raw as AcmeConfig;
   },
@@ -39,7 +39,7 @@ export const acmeTransport = defineTransport<AcmeConfig>({
 });
 ```
 
-Bridge supplies everything above the store: framing, encryption, chunking for your `maxPayloadBytes`, acknowledgement, retries with jitter, deduplication, dead-lettering, health-based routing, failover, metrics and tracing. You supply four methods.
+dead-drop supplies everything above the store: framing, encryption, chunking for your `maxPayloadBytes`, acknowledgement, retries with jitter, deduplication, dead-lettering, health-based routing, failover, metrics and tracing. You supply four methods.
 
 ## The contract
 
@@ -88,12 +88,12 @@ Probe something that would actually fail. A `stat` on a disconnected network mou
 
 ## Errors
 
-Throw `BridgeError` from `@fyrlabs/dead-drop-protocol`. The code decides what happens next:
+Throw `DeadDropError` from `@fyrlabs/dead-drop-protocol`. The code decides what happens next:
 
 | Code | Effect |
 | --- | --- |
 | `TRANSPORT_ERROR` | Retried, then failed over. Set `retryable: false` for permanent failures. |
-| `RATE_LIMITED` | Retried; set `retryAfterMs` and Bridge waits exactly that long instead of guessing. |
+| `RATE_LIMITED` | Retried; set `retryAfterMs` and dead-drop waits exactly that long instead of guessing. |
 | `TIMEOUT` | Retried, then failed over. |
 | `UNAUTHORIZED`, `BAD_REQUEST`, `PAYLOAD_TOO_LARGE`, `UNSUPPORTED` | Not failed over: they fail the same way on every backend. |
 | `CANCELLED` | Not retried, not counted against the circuit breaker. |
@@ -122,16 +122,16 @@ The suite adapts to what you declare: claiming `orderedList` adds an ordering te
 
 ## Native transports
 
-If your backend already has delivery semantics — AMQP, MQTT, a websocket relay — use `kind: 'native'` and implement `send`/`subscribe` instead. Bridge stays out of the way and does not synthesise acknowledgements.
+If your backend already has delivery semantics — AMQP, MQTT, a websocket relay — use `kind: 'native'` and implement `send`/`subscribe` instead. dead-drop stays out of the way and does not synthesise acknowledgements.
 
 Most people do not want this. If your backend is storage, `store` is both less work and more correct.
 
 ## Publishing
 
-Name it `<scope>/bridge-transport-<name>` by convention. Users reference it by package specifier:
+Name it `<scope>/deaddrop-transport-<name>` by convention. Users reference it by package specifier:
 
 ```json
-{ "use": "@acme/bridge-transport-foo", "config": { "endpoint": "…" } }
+{ "use": "@acme/deaddrop-transport-foo", "config": { "endpoint": "…" } }
 ```
 
 Local paths work too, which is the fastest way to develop one:

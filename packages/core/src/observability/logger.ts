@@ -1,7 +1,7 @@
 /**
  * Structured logging.
  *
- * Bridge sits between an application and a credentialed transport, so the log
+ * dead-drop sits between an application and a credentialed transport, so the log
  * is the main way an operator finds out what happened. Two rules follow from
  * that: records are JSON with stable field names (greppable, ingestible), and
  * anything that smells like a credential is redacted before it is written.
@@ -62,7 +62,7 @@ const SECRET_KEYS = [
 
 /** Value patterns that are secrets wherever they appear. */
 const SECRET_VALUE_PATTERNS = [
-  /\bddk1_[A-Za-z0-9_-]{20,}/g, // Bridge workspace secret
+  /\bddk1_[A-Za-z0-9_-]{20,}/g, // dead-drop workspace secret
   /\bgh[pousr]_[A-Za-z0-9]{20,}/g, // GitHub tokens
   /\bglpat-[A-Za-z0-9_-]{16,}/g, // GitLab PAT
   /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, // AWS access key id
@@ -224,7 +224,7 @@ export function prettySink(write: (line: string) => void = defaultWrite): LogSin
   };
 }
 
-/** Captures records in memory. Used by `bridge logs` and by tests. */
+/** Captures records in memory. Used by `ddrop logs` and by tests. */
 export class MemoryLogSink {
   readonly records: LogRecord[] = [];
   constructor(private readonly limit = 1000) {}

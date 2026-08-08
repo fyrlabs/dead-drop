@@ -14,7 +14,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 
 const execFileAsync = promisify(execFile);
 
@@ -83,7 +83,7 @@ export class GhCli implements GhClient {
         code?: number | string;
       };
       if (failure.code === 'ENOENT') {
-        throw new BridgeError(
+        throw new DeadDropError(
           'CONFIG_INVALID',
           `the github transport needs the GitHub CLI ("${this.ghPath}") on PATH. ` +
             'Install it from https://cli.github.com and run "gh auth login".',
@@ -115,9 +115,13 @@ export class GhCli implements GhClient {
     ]);
     if (result.code !== 0) {
       if (/could not resolve|not found|404/i.test(result.stderr)) return undefined;
-      throw new BridgeError('TRANSPORT_ERROR', `gh repo view failed: ${firstLine(result.stderr)}`, {
-        retryable: true,
-      });
+      throw new DeadDropError(
+        'TRANSPORT_ERROR',
+        `gh repo view failed: ${firstLine(result.stderr)}`,
+        {
+          retryable: true,
+        },
+      );
     }
     return parseRepoJson(result.stdout);
   }
@@ -130,14 +134,14 @@ export class GhCli implements GhClient {
     if (options.description) args.push('--description', options.description);
     const result = await this.run(args);
     if (result.code !== 0) {
-      throw new BridgeError(
+      throw new DeadDropError(
         'TRANSPORT_ERROR',
         `gh repo create failed: ${firstLine(result.stderr)}`,
       );
     }
     const created = await this.repoInfo(repo);
     if (!created) {
-      throw new BridgeError('TRANSPORT_ERROR', `created ${repo} but it is still not visible`);
+      throw new DeadDropError('TRANSPORT_ERROR', `created ${repo} but it is still not visible`);
     }
     return created;
   }

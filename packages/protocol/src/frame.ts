@@ -27,7 +27,7 @@ import {
   type Envelope,
   type EnvelopeHeader,
 } from './envelope.js';
-import { BridgeError } from './errors.js';
+import { DeadDropError } from './errors.js';
 import { IV_BYTES, TAG_BYTES, open, seal, type KeyRing, type WorkspaceKey } from './crypto.js';
 
 const gzipAsync = promisify(gzip);
@@ -95,7 +95,7 @@ export async function encodeFrame(
 function buildAad(flags: number, keyId: string): Buffer {
   const keyIdBytes = Buffer.from(keyId, 'ascii');
   if (keyIdBytes.length > 255) {
-    throw new BridgeError('INTERNAL', 'key id longer than 255 bytes');
+    throw new DeadDropError('INTERNAL', 'key id longer than 255 bytes');
   }
   return Buffer.concat([FRAME_MAGIC, Buffer.from([flags, keyIdBytes.length]), keyIdBytes]);
 }
@@ -118,26 +118,29 @@ export async function decodeFrame(
   const maxBytes = options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
 
   if (buf.length < 6 || !buf.subarray(0, 4).equals(FRAME_MAGIC)) {
-    throw new BridgeError('DECODE_FAILED', 'not a Bridge frame (bad magic)');
+    throw new DeadDropError('DECODE_FAILED', 'not a dead-drop frame (bad magic)');
   }
   const flags = buf.readUInt8(4);
   if ((flags & ~KNOWN_FLAGS) !== 0) {
-    throw new BridgeError('DECODE_FAILED', `frame sets unknown flags 0x${flags.toString(16)}`);
+    throw new DeadDropError('DECODE_FAILED', `frame sets unknown flags 0x${flags.toString(16)}`);
   }
   const encrypted = (flags & FLAG_ENCRYPTED) !== 0;
   const compressed = (flags & FLAG_GZIP) !== 0;
   const keyIdLen = buf.readUInt8(5);
   const keyIdEnd = 6 + keyIdLen;
-  if (buf.length < keyIdEnd) throw new BridgeError('DECODE_FAILED', 'truncated frame key id');
+  if (buf.length < keyIdEnd) throw new DeadDropError('DECODE_FAILED', 'truncated frame key id');
   const keyId = buf.subarray(6, keyIdEnd).toString('ascii');
 
   let body: Buffer;
   if (encrypted) {
     if (!options.keys) {
-      throw new BridgeError('DECRYPT_FAILED', 'frame is encrypted but no workspace keys supplied');
+      throw new DeadDropError(
+        'DECRYPT_FAILED',
+        'frame is encrypted but no workspace keys supplied',
+      );
     }
     const ivEnd = keyIdEnd + IV_BYTES;
-    if (buf.length < ivEnd + TAG_BYTES) throw new BridgeError('DECODE_FAILED', 'truncated frame');
+    if (buf.length < ivEnd + TAG_BYTES) throw new DeadDropError('DECODE_FAILED', 'truncated frame');
     const aad = buf.subarray(0, keyIdEnd);
     const iv = buf.subarray(keyIdEnd, ivEnd);
     const ciphertext = buf.subarray(ivEnd, buf.length - TAG_BYTES);
@@ -146,7 +149,10 @@ export async function decodeFrame(
   } else {
     const allowPlaintext = options.allowPlaintext ?? options.keys === undefined;
     if (!allowPlaintext) {
-      throw new BridgeError('UNAUTHORIZED', 'refusing unencrypted frame on an encrypted workspace');
+      throw new DeadDropError(
+        'UNAUTHORIZED',
+        'refusing unencrypted frame on an encrypted workspace',
+      );
     }
     body = buf.subarray(keyIdEnd);
   }
@@ -156,29 +162,29 @@ export async function decodeFrame(
         // zlib signals the output cap with ERR_BUFFER_TOO_LARGE. That is a size
         // problem, not a corruption problem, and callers act on it differently.
         if ((cause as NodeJS.ErrnoException | undefined)?.code === 'ERR_BUFFER_TOO_LARGE') {
-          throw new BridgeError(
+          throw new DeadDropError(
             'PAYLOAD_TOO_LARGE',
             `frame exceeds ${maxBytes} bytes after decompression`,
             { cause },
           );
         }
-        throw new BridgeError('DECODE_FAILED', 'frame body failed to decompress', { cause });
+        throw new DeadDropError('DECODE_FAILED', 'frame body failed to decompress', { cause });
       })
     : body;
 
   if (plaintext.length > maxBytes) {
-    throw new BridgeError('PAYLOAD_TOO_LARGE', `frame exceeds ${maxBytes} bytes after decoding`);
+    throw new DeadDropError('PAYLOAD_TOO_LARGE', `frame exceeds ${maxBytes} bytes after decoding`);
   }
-  if (plaintext.length < 4) throw new BridgeError('DECODE_FAILED', 'truncated envelope');
+  if (plaintext.length < 4) throw new DeadDropError('DECODE_FAILED', 'truncated envelope');
   const headerLen = plaintext.readUInt32BE(0);
   if (headerLen > plaintext.length - 4) {
-    throw new BridgeError('DECODE_FAILED', 'envelope header length out of range');
+    throw new DeadDropError('DECODE_FAILED', 'envelope header length out of range');
   }
   let header: unknown;
   try {
     header = JSON.parse(plaintext.subarray(4, 4 + headerLen).toString('utf8'));
   } catch (cause) {
-    throw new BridgeError('DECODE_FAILED', 'envelope header is not valid JSON', { cause });
+    throw new DeadDropError('DECODE_FAILED', 'envelope header is not valid JSON', { cause });
   }
   assertValidHeader(header);
   // Copy rather than subarray: a view would pin the whole decoded buffer.
@@ -194,7 +200,7 @@ export async function decodeFrame(
   return result;
 }
 
-/** Cheap check used by stores that may contain files Bridge did not write. */
+/** Cheap check used by stores that may contain files dead-drop did not write. */
 export function looksLikeFrame(bytes: Uint8Array): boolean {
   return bytes.length >= 6 && Buffer.from(bytes.subarray(0, 4)).equals(FRAME_MAGIC);
 }

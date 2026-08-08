@@ -5,7 +5,7 @@
  * code, and shipping it would invite production use of `FaultyStore`.
  */
 
-import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { DeadDropError } from '@fyrlabs/dead-drop-protocol';
 import {
   defineTransport,
   type StoreTransport,
@@ -77,14 +77,14 @@ export class FaultyStore implements StoreTransport {
     this.calls.push(operation);
     if (this.failOperations.has(operation) && this.remainingFailures > 0) {
       this.remainingFailures -= 1;
-      throw new BridgeError('TRANSPORT_ERROR', `scripted ${operation} failure`);
+      throw new DeadDropError('TRANSPORT_ERROR', `scripted ${operation} failure`);
     }
   }
 
   async put(key: string, data: Uint8Array): Promise<{ key: string }> {
     this.guard('put');
     if (this.config.maxPayloadBytes !== undefined && data.length > this.config.maxPayloadBytes) {
-      throw new BridgeError('PAYLOAD_TOO_LARGE', `object exceeds ${this.config.maxPayloadBytes}`);
+      throw new DeadDropError('PAYLOAD_TOO_LARGE', `object exceeds ${this.config.maxPayloadBytes}`);
     }
     this.objects.set(key, Uint8Array.from(data));
     return { key };

@@ -1,7 +1,7 @@
 {
   "name": "@fyrlabs/dead-drop-sdk",
   "version": "0.1.0",
-  "description": "Bridge client SDK for applications that want publish/subscribe, RPC and services",
+  "description": "dead-drop client SDK for applications that want publish/subscribe, RPC and services",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {

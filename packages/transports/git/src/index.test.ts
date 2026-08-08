@@ -31,7 +31,7 @@ async function temp(prefix: string): Promise<string> {
 
 /** Creates a bare repository to act as the shared remote. */
 async function bareRemote(): Promise<string> {
-  const dir = await temp('bridge-git-remote-');
+  const dir = await temp('deaddrop-git-remote-');
   await execFileAsync('git', ['init', '--bare', '--quiet', '--initial-branch=main', dir]);
   return dir;
 }
@@ -55,7 +55,7 @@ async function store(
   return gitTransport.definition.create(
     {
       remote,
-      workDir: await temp('bridge-git-work-'),
+      workDir: await temp('deaddrop-git-work-'),
       // Batching is the point in production but makes tests slower to reason
       // about, so collapse the window.
       batchWindowMs: 0,
@@ -86,7 +86,7 @@ describe('git transport specifics', () => {
     await transport.put('inbox/peer-b/1.ddf', bytes('hello'));
 
     const branches = await execFileAsync('git', ['branch', '--list'], { cwd: remote });
-    expect(branches.stdout).toContain('bridge-data');
+    expect(branches.stdout).toContain('deaddrop-data');
     // The repository's own main branch is untouched.
     expect(branches.stdout).not.toContain('* main');
   }, 60_000);
@@ -166,7 +166,7 @@ describe('git transport specifics', () => {
 
   it('reuses an existing clone and repoints a changed remote', async () => {
     const remote = await bareRemote();
-    const workDir = await temp('bridge-git-reuse-');
+    const workDir = await temp('deaddrop-git-reuse-');
     const first = (await gitTransport.definition.create(
       { remote, workDir, batchWindowMs: 0, freshnessMs: 0 },
       context(),
@@ -208,11 +208,11 @@ describe('git transport specifics', () => {
 
   it('writes objects the operator can actually find in the repository', async () => {
     const remote = await bareRemote();
-    const transport = await store(remote, { workDir: await temp('bridge-git-inspect-') });
+    const transport = await store(remote, { workDir: await temp('deaddrop-git-inspect-') });
     await transport.put('inbox/peer-b/1.ddf', bytes('x'));
 
-    const inspect = await temp('bridge-git-clone-');
-    await execFileAsync('git', ['clone', '--quiet', '--branch', 'bridge-data', remote, inspect]);
+    const inspect = await temp('deaddrop-git-clone-');
+    await execFileAsync('git', ['clone', '--quiet', '--branch', 'deaddrop-data', remote, inspect]);
     const entries = await readdir(join(inspect, 'inbox', 'peer-b'));
     expect(entries).toContain('1.ddf');
   }, 60_000);
@@ -253,7 +253,7 @@ describe('git helpers', () => {
 });
 
 async function commitCount(remote: string): Promise<number> {
-  const result = await execFileAsync('git', ['rev-list', '--count', 'bridge-data'], {
+  const result = await execFileAsync('git', ['rev-list', '--count', 'deaddrop-data'], {
     cwd: remote,
   }).catch(() => ({ stdout: '0' }));
   return Number(result.stdout.trim());

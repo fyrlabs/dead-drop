@@ -37,7 +37,7 @@ function workspaceConfig(extra: Record<string, unknown>): Record<string, unknown
 }
 
 async function temp(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'bridge-cli-'));
+  const dir = await mkdtemp(join(tmpdir(), 'deaddrop-cli-'));
   dirs.push(dir);
   return dir;
 }
@@ -46,11 +46,11 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-describe('bridge cli argument handling', () => {
+describe('ddrop cli argument handling', () => {
   it('prints usage with no arguments and exits non-zero', async () => {
     const io = capture();
     expect(await run([], io)).toBe(2);
-    expect(io.stdout.join('\n')).toContain('bridge expose');
+    expect(io.stdout.join('\n')).toContain('ddrop expose');
   });
 
   it('prints usage for --help and exits zero', async () => {
@@ -76,7 +76,7 @@ describe('bridge cli argument handling', () => {
   });
 });
 
-describe('bridge keygen', () => {
+describe('ddrop keygen', () => {
   it('prints a usable workspace secret with a warning on stderr', async () => {
     const io = capture();
     expect(await run(['keygen'], io)).toBe(0);
@@ -93,10 +93,10 @@ describe('bridge keygen', () => {
   });
 });
 
-describe('bridge init', () => {
+describe('ddrop init', () => {
   it('writes a starter config that references the secret from the environment', async () => {
     const dir = await temp();
-    const path = join(dir, 'bridge.config.json');
+    const path = join(dir, 'deaddrop.config.json');
     const io = capture();
     expect(await run(['init', '--config', path, '--name', 'my-project'], io)).toBe(0);
 
@@ -106,12 +106,12 @@ describe('bridge init', () => {
     expect(written.workspaces[0]?.name).toBe('my-project');
     // A literal secret in a config file that people commit is the failure mode
     // this template exists to avoid.
-    expect(written.workspaces[0]?.secrets).toEqual(['${env:BRIDGE_SECRET}']);
+    expect(written.workspaces[0]?.secrets).toEqual(['${env:DEADDROP_SECRET}']);
   });
 
   it('refuses to overwrite an existing config', async () => {
     const dir = await temp();
-    const path = join(dir, 'bridge.config.json');
+    const path = join(dir, 'deaddrop.config.json');
     await writeFile(path, '{}');
     const io = capture();
     expect(await run(['init', '--config', path], io)).toBe(1);
@@ -119,12 +119,12 @@ describe('bridge init', () => {
   });
 });
 
-describe('bridge commands that need a runtime', () => {
+describe('ddrop commands that need a runtime', () => {
   it('explains that the runtime is not running rather than failing obscurely', async () => {
     const io = capture();
     const socket = join(await temp(), 'absent.sock');
     expect(await run(['status', '--socket', socket], io)).toBe(1);
-    expect(io.stderr.join('\n')).toMatch(/Is "bridge start" running/);
+    expect(io.stderr.join('\n')).toMatch(/Is "ddrop start" running/);
   });
 
   it('reports the same failure as structured json when asked', async () => {
@@ -161,12 +161,12 @@ describe('bridge commands that need a runtime', () => {
     expect(badTransport.stderr.join('\n')).toContain('list');
   });
 
-  // `bridge init` writes a project-local dataDir, so a client that always
-  // assumed ~/.bridge would never find a runtime started from that config.
+  // `ddrop init` writes a project-local dataDir, so a client that always
+  // assumed ~/.deaddrop would never find a runtime started from that config.
   it('looks for the socket under the config data dir, not the default one', async () => {
     const dir = await temp();
     const dataDir = join(dir, 'state');
-    const config = join(dir, 'bridge.config.json');
+    const config = join(dir, 'deaddrop.config.json');
     await writeFile(config, JSON.stringify(workspaceConfig({ dataDir })));
 
     const io = capture();
@@ -177,7 +177,7 @@ describe('bridge commands that need a runtime', () => {
   it('lets an explicit controlSocket in the config win over the data dir', async () => {
     const dir = await temp();
     const controlSocket = join(dir, 'custom.sock');
-    const config = join(dir, 'bridge.config.json');
+    const config = join(dir, 'deaddrop.config.json');
     await writeFile(
       config,
       JSON.stringify(workspaceConfig({ dataDir: join(dir, 'state'), controlSocket })),

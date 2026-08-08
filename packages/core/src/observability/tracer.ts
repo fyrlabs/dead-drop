@@ -1,10 +1,10 @@
 /**
  * Tracing.
  *
- * A Bridge request crosses at least four boundaries (local IPC, transport
+ * A dead-drop request crosses at least four boundaries (local IPC, transport
  * write, remote poll, target application), and when it is slow the only useful
  * question is "which hop?". Spans are kept in a bounded in-memory ring so
- * `bridge trace <requestId>` can answer that without an external collector,
+ * `ddrop trace <requestId>` can answer that without an external collector,
  * and an `onSpanEnd` hook lets embedders forward them to OpenTelemetry.
  */
 
