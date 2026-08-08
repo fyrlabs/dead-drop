@@ -2,6 +2,8 @@
 
 ## Configuration
 
+This section is the shape of a real config. For every field, its type and its default, see the [configuration reference](configuration.md).
+
 `deaddrop.config.json`, found in this order: `--config <path>`, `./deaddrop.config.json`, `~/.deaddrop/config.json`.
 
 Relative paths in the config resolve against the config file's directory, not the working directory, and a leading `~` expands to your home directory.

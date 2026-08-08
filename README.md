@@ -215,13 +215,14 @@ What is *not* protected: message sizes, timing, and the object keys the mailbox 
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — how the pieces fit and why
-- [Security model](docs/security-model.md) — threat model, key rotation, what is exposed
-- [Delivery guarantees](docs/guarantees.md) — at-least-once, ordering, duplicates
+- [Architecture](docs/architecture.md): how the pieces fit and why
+- [Configuration reference](docs/configuration.md): every field, its type and its default
+- [Security model](docs/security-model.md): threat model, key rotation, what is exposed
+- [Delivery guarantees](docs/guarantees.md): at-least-once, ordering, duplicates
 - [Writing a transport](docs/writing-a-transport.md)
-- [Operations](docs/operations.md) — configuration, metrics, troubleshooting
-- [Testing](docs/testing.md) — what is covered automatically and what needs a human
-- [Decision records](docs/adr/) — the choices that deviate from the original design sketch
+- [Operations](docs/operations.md): running it, metrics, troubleshooting
+- [Testing](docs/testing.md): what is covered automatically, and a walkthrough for what needs a human
+- [Decision records](docs/adr/): the choices that deviate from the original design sketch
 
 ## Development
 
