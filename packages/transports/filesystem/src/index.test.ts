@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { registerConformanceTests } from '@dead-drop/transport-sdk/testing';
-import type { StoreTransport, TransportContext } from '@dead-drop/transport-sdk';
+import { registerConformanceTests } from '@fyrlabs/dead-drop-transport-sdk/testing';
+import type { StoreTransport, TransportContext } from '@fyrlabs/dead-drop-transport-sdk';
 
 import { directoryExists, filesystemTransport } from './index.js';
 

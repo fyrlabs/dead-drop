@@ -4,7 +4,7 @@
  * This is the layer the transport SDK deliberately does not make adapters
  * implement. Given only put/get/list/delete it provides:
  *
- *   - framing and encryption (via `@dead-drop/protocol`)
+ *   - framing and encryption (via `@fyrlabs/dead-drop-protocol`)
  *   - chunking for transports with object size limits, and reassembly
  *   - delivery: poll the inbox, hand the envelope to a handler, delete on
  *     success (delete *is* the acknowledgement)
@@ -31,8 +31,8 @@ import {
   isExpired,
   type Envelope,
   type KeyRing,
-} from '@dead-drop/protocol';
-import type { ListOptions, StoreTransport } from '@dead-drop/transport-sdk';
+} from '@fyrlabs/dead-drop-protocol';
+import type { ListOptions, StoreTransport } from '@fyrlabs/dead-drop-transport-sdk';
 
 import type { Clock } from './clock.js';
 import { systemClock } from './clock.js';

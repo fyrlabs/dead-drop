@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { BridgeError } from '@dead-drop/protocol';
-import { registerConformanceTests } from '@dead-drop/transport-sdk/testing';
-import type { StoreTransport, TransportContext } from '@dead-drop/transport-sdk';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import { registerConformanceTests } from '@fyrlabs/dead-drop-transport-sdk/testing';
+import type { StoreTransport, TransportContext } from '@fyrlabs/dead-drop-transport-sdk';
 
 import { memoryTransport, resetMemoryTransports } from './index.js';
 

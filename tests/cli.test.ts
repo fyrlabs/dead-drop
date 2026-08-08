@@ -13,9 +13,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { generateWorkspaceSecret } from '@dead-drop/protocol';
-import { defaultSocketPath } from '@dead-drop/runtime';
-import { run, type CliIo } from '@dead-drop/cli';
+import { generateWorkspaceSecret } from '@fyrlabs/dead-drop-protocol';
+import { defaultSocketPath } from '@fyrlabs/dead-drop-runtime';
+import { run, type CliIo } from '@fyrlabs/dead-drop';
 
 const dirs: string[] = [];
 const shutdowns: Array<() => void> = [];

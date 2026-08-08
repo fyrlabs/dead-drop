@@ -21,7 +21,7 @@ import {
   isErrorPayload,
   JSON_CONTENT_TYPE,
   type Envelope,
-} from '@dead-drop/protocol';
+} from '@fyrlabs/dead-drop-protocol';
 import {
   DedupeStore,
   MailboxEngine,
@@ -35,9 +35,9 @@ import {
   type MetricsRegistry,
   type Tracer,
   type TransportInfo,
-} from '@dead-drop/core';
-import { MetricsRegistry as Metrics } from '@dead-drop/core';
-import type { StoreTransport, TransportRegistration } from '@dead-drop/transport-sdk';
+} from '@fyrlabs/dead-drop-core';
+import { MetricsRegistry as Metrics } from '@fyrlabs/dead-drop-core';
+import type { StoreTransport, TransportRegistration } from '@fyrlabs/dead-drop-transport-sdk';
 
 import type { WorkspaceConfig } from './config.js';
 

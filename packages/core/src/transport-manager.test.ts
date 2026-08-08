@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { BridgeError } from '@dead-drop/protocol';
-import type { StoreTransport, TransportRegistration } from '@dead-drop/transport-sdk';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import type { StoreTransport, TransportRegistration } from '@fyrlabs/dead-drop-transport-sdk';
 
 import { harness } from './testing.js';
 import { faultyTransport } from './testing.js';

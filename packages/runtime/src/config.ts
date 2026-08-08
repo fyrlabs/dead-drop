@@ -14,9 +14,9 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 
-import { BridgeError, isValidName } from '@dead-drop/protocol';
-import type { LogLevel } from '@dead-drop/core';
-import { isLogLevel } from '@dead-drop/core';
+import { BridgeError, isValidName } from '@fyrlabs/dead-drop-protocol';
+import type { LogLevel } from '@fyrlabs/dead-drop-core';
+import { isLogLevel } from '@fyrlabs/dead-drop-core';
 
 export interface TransportConfigEntry {
   /**

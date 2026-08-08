@@ -1,5 +1,5 @@
 /**
- * `@dead-drop/transport-filesystem` — a store transport backed by a directory.
+ * `@fyrlabs/dead-drop-transport-filesystem` — a store transport backed by a directory.
  *
  * This is the reference transport. Point two machines at the same directory and
  * Bridge works: a shared network mount, a Dropbox/OneDrive/Drive folder, an
@@ -27,7 +27,7 @@ import { watch, type FSWatcher } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-import { BridgeError } from '@dead-drop/protocol';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
 import {
   assertValidKey,
   assertValidPrefix,
@@ -40,7 +40,7 @@ import {
   type StoreTransport,
   type TransportContext,
   type TransportHealth,
-} from '@dead-drop/transport-sdk';
+} from '@fyrlabs/dead-drop-transport-sdk';
 
 export interface FilesystemTransportConfig {
   /** Directory that holds the workspace's objects. Created if missing. */

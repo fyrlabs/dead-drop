@@ -8,15 +8,15 @@
  * records what happened. Nothing above it names a transport.
  */
 
-import { BridgeError } from '@dead-drop/protocol';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
 import type {
   Transport,
   TransportCapabilities,
   TransportContext,
   TransportHealth,
   TransportRegistration,
-} from '@dead-drop/transport-sdk';
-import { registrationName } from '@dead-drop/transport-sdk';
+} from '@fyrlabs/dead-drop-transport-sdk';
+import { registrationName } from '@fyrlabs/dead-drop-transport-sdk';
 
 import type { Clock } from './clock.js';
 import { systemClock } from './clock.js';

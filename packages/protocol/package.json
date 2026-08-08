@@ -1,5 +1,5 @@
 {
-  "name": "@dead-drop/protocol",
+  "name": "@fyrlabs/dead-drop-protocol",
   "version": "0.1.0",
   "description": "Bridge wire protocol: envelopes, framing, chunking, cryptography",
   "type": "module",

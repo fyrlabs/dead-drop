@@ -1,5 +1,5 @@
 {
-  "name": "@dead-drop/transport-memory",
+  "name": "@fyrlabs/dead-drop-transport-memory",
   "version": "0.1.0",
   "description": "Bridge memory transport adapter",
   "type": "module",
@@ -28,8 +28,8 @@
     "node": ">=20.11"
   },
   "dependencies": {
-    "@dead-drop/protocol": "0.1.0",
-    "@dead-drop/transport-sdk": "0.1.0"
+    "@fyrlabs/dead-drop-protocol": "0.1.0",
+    "@fyrlabs/dead-drop-transport-sdk": "0.1.0"
   },
   "scripts": {
     "build": "tsc --build"

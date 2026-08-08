@@ -19,9 +19,9 @@ import {
   sanitiseHeaders,
   type HttpRequestMessage,
   type HttpResponseMessage,
-} from '@dead-drop/protocol';
-import type { BridgeError } from '@dead-drop/protocol';
-import type { Logger } from '@dead-drop/core';
+} from '@fyrlabs/dead-drop-protocol';
+import type { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import type { Logger } from '@fyrlabs/dead-drop-core';
 
 import type { ExposureConfig } from './config.js';
 import type { RequestContext, Workspace } from './workspace.js';

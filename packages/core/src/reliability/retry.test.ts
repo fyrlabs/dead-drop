@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { BridgeError } from '@dead-drop/protocol';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
 
 import { TestClock } from '../clock.js';
 import { DEFAULT_RETRY_POLICY, backoffDelay, withRetry, withTimeout } from './retry.js';

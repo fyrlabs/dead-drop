@@ -1,7 +1,7 @@
 /**
  * Wire shapes returned by the control plane.
  *
- * Declared structurally rather than re-exported from `@dead-drop/runtime` so an
+ * Declared structurally rather than re-exported from `@fyrlabs/dead-drop-runtime` so an
  * application can depend on the SDK alone: these values arrive as JSON over a
  * socket, and pulling the whole runtime in just for its types would defeat the
  * point of keeping applications thin.

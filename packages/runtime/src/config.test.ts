@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_DATA_DIR, expandEnv, loadRuntimeConfig, parseRuntimeConfig } from './config.js';
 import { extractDefinition, loadTransport, resolveSpecifier } from './plugins.js';
 import { resolveWithinRoot, statusForError } from './exposure.js';
-import { memoryTransport } from '@dead-drop/transport-memory';
-import { BridgeError } from '@dead-drop/protocol';
+import { memoryTransport } from '@fyrlabs/dead-drop-transport-memory';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -222,9 +222,9 @@ describe('loadRuntimeConfig', () => {
 
 describe('plugin loading', () => {
   it('maps built-in short names to packages and leaves others alone', () => {
-    expect(resolveSpecifier('memory')).toBe('@dead-drop/transport-memory');
-    expect(resolveSpecifier('fs')).toBe('@dead-drop/transport-filesystem');
-    expect(resolveSpecifier('github')).toBe('@dead-drop/transport-github');
+    expect(resolveSpecifier('memory')).toBe('@fyrlabs/dead-drop-transport-memory');
+    expect(resolveSpecifier('fs')).toBe('@fyrlabs/dead-drop-transport-filesystem');
+    expect(resolveSpecifier('github')).toBe('@fyrlabs/dead-drop-transport-github');
     expect(resolveSpecifier('@acme/bridge-transport-foo')).toBe('@acme/bridge-transport-foo');
     expect(resolveSpecifier('./local.js', '/srv')).toMatch(/^file:\/\/\/srv\/local\.js$/);
   });

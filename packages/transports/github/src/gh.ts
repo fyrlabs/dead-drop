@@ -14,7 +14,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { BridgeError } from '@dead-drop/protocol';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
 
 const execFileAsync = promisify(execFile);
 

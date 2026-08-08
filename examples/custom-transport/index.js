@@ -9,9 +9,13 @@
  *   node examples/custom-transport/index.js
  */
 
-import { BridgeError } from '@dead-drop/protocol';
-import { assertValidKey, assertValidPrefix, defineTransport } from '@dead-drop/transport-sdk';
-import { transportConformanceCases } from '@dead-drop/transport-sdk/testing';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import {
+  assertValidKey,
+  assertValidPrefix,
+  defineTransport,
+} from '@fyrlabs/dead-drop-transport-sdk';
+import { transportConformanceCases } from '@fyrlabs/dead-drop-transport-sdk/testing';
 
 export const acmeTransport = defineTransport({
   id: 'acme',

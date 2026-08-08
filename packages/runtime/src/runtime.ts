@@ -11,7 +11,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { BridgeError } from '@dead-drop/protocol';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
 import {
   MetricsRegistry,
   Tracer,
@@ -23,7 +23,7 @@ import {
   type Clock,
   type LogRecord,
   type Logger,
-} from '@dead-drop/core';
+} from '@fyrlabs/dead-drop-core';
 
 import type { RuntimeConfig, WorkspaceConfig } from './config.js';
 import { registerExposure, type ExposureHandle } from './exposure.js';

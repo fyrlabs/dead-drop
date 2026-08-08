@@ -1,4 +1,4 @@
-# @dead-drop/transport-filesystem
+# @fyrlabs/dead-drop-transport-filesystem
 
 The reference transport. Point two machines at one directory — a network mount, an SMB share, a synced Dropbox/OneDrive/Drive folder — and Bridge works. Atomic writes, a filesystem watcher with a polling fallback for network mounts, and a health probe that actually writes so a stale mount reports unavailable.
 
@@ -7,7 +7,7 @@ Part of [Bridge](https://github.com/) — a transport-agnostic runtime for distr
 ## Install
 
 ```bash
-npm install @dead-drop/transport-filesystem
+npm install @fyrlabs/dead-drop-transport-filesystem
 ```
 
 Requires Node.js 20.11 or newer.

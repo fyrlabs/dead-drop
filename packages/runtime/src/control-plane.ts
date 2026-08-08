@@ -15,8 +15,8 @@ import { chmod, mkdir, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { platform } from 'node:os';
 
-import { BridgeError, decodeJson, encodeJson } from '@dead-drop/protocol';
-import type { Logger } from '@dead-drop/core';
+import { BridgeError, decodeJson, encodeJson } from '@fyrlabs/dead-drop-protocol';
+import type { Logger } from '@fyrlabs/dead-drop-core';
 
 import { closeServer } from './connect.js';
 import { statusForError } from './exposure.js';

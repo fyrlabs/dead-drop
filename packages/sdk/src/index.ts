@@ -1,5 +1,5 @@
 /**
- * `@dead-drop/sdk` — the optional application-facing client.
+ * `@fyrlabs/dead-drop-sdk` — the optional application-facing client.
  *
  * Optional is the point: an existing application is exposed with
  * `bridge expose` and never imports this. The SDK is for applications that want
@@ -10,8 +10,12 @@
  * application memory.
  */
 
-import { BridgeError } from '@dead-drop/protocol';
-import { ControlPlaneClient, defaultSocketPath, DEFAULT_DATA_DIR } from '@dead-drop/runtime';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import {
+  ControlPlaneClient,
+  defaultSocketPath,
+  DEFAULT_DATA_DIR,
+} from '@fyrlabs/dead-drop-runtime';
 import type { PeerRecord, RuntimeStatus, TransportInfoLike } from './types.js';
 
 export type { PeerRecord, RuntimeStatus, TransportInfoLike };

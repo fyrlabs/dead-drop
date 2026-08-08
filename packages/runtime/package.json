@@ -1,5 +1,5 @@
 {
-  "name": "@dead-drop/runtime",
+  "name": "@fyrlabs/dead-drop-runtime",
   "version": "0.1.0",
   "description": "Bridge runtime: workspaces, exposures, discovery and the local control plane",
   "type": "module",
@@ -28,9 +28,9 @@
     "node": ">=20.11"
   },
   "dependencies": {
-    "@dead-drop/core": "0.1.0",
-    "@dead-drop/protocol": "0.1.0",
-    "@dead-drop/transport-sdk": "0.1.0"
+    "@fyrlabs/dead-drop-core": "0.1.0",
+    "@fyrlabs/dead-drop-protocol": "0.1.0",
+    "@fyrlabs/dead-drop-transport-sdk": "0.1.0"
   },
   "scripts": {
     "build": "tsc --build"

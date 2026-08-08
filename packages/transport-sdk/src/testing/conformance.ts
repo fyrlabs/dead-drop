@@ -9,7 +9,7 @@
  * the caller already has.
  */
 
-import { BridgeError } from '@dead-drop/protocol';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
 
 import type {
   NativeTransport,

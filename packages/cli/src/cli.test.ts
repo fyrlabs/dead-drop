@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { generateWorkspaceSecret, parseWorkspaceSecret } from '@dead-drop/protocol';
-import { defaultSocketPath } from '@dead-drop/runtime';
+import { generateWorkspaceSecret, parseWorkspaceSecret } from '@fyrlabs/dead-drop-protocol';
+import { defaultSocketPath } from '@fyrlabs/dead-drop-runtime';
 
 import { VERSION, run, type CliIo } from './cli.js';
 

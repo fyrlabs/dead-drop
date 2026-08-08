@@ -29,7 +29,7 @@ Delivery is **at-least-once**. Ordering is best-effort per recipient. Both are s
 Requires Node.js 20.11 or newer.
 
 ```bash
-npm install -g @dead-drop/cli
+npm install -g @fyrlabs/dead-drop
 ```
 
 ## Quick start: two machines, a shared folder
@@ -95,7 +95,7 @@ Bridge writes to a `bridge-data` orphan branch, so your repository's real histor
 For applications that want Bridge-native interactions rather than HTTP proxying:
 
 ```ts
-import { createClient } from '@dead-drop/sdk';
+import { createClient } from '@fyrlabs/dead-drop-sdk';
 
 // dataDir must match the running runtime's; it defaults to ~/.bridge.
 const bridge = createClient({ workspace: 'demo', dataDir: '.bridge' });
@@ -119,7 +119,7 @@ The SDK is optional. Proxy mode needs none of it.
 A transport is an ordinary npm package. Nothing in this repository changes, and nothing needs to be merged.
 
 ```ts
-import { defineTransport } from '@dead-drop/transport-sdk';
+import { defineTransport } from '@fyrlabs/dead-drop-transport-sdk';
 
 export const acmeTransport = defineTransport({
   id: 'acme',
@@ -170,16 +170,16 @@ bridge keygen | init
 
 | Package | Purpose |
 | --- | --- |
-| `@dead-drop/protocol` | Envelope, framing, encryption, chunking. No dependencies. |
-| `@dead-drop/transport-sdk` | `defineTransport` and the conformance suite. |
-| `@dead-drop/core` | Transport manager, reliability, mailbox engine, observability. |
-| `@dead-drop/runtime` | Workspaces, exposures, discovery, control plane. |
-| `@dead-drop/sdk` | Application client. |
-| `@dead-drop/cli` | The `bridge` command. |
-| `@dead-drop/transport-filesystem` | Reference transport: any directory. |
-| `@dead-drop/transport-git` | Any git remote. |
-| `@dead-drop/transport-github` | GitHub, via `gh` for auth and repo management. |
-| `@dead-drop/transport-memory` | In-process, for tests and examples. |
+| `@fyrlabs/dead-drop-protocol` | Envelope, framing, encryption, chunking. No dependencies. |
+| `@fyrlabs/dead-drop-transport-sdk` | `defineTransport` and the conformance suite. |
+| `@fyrlabs/dead-drop-core` | Transport manager, reliability, mailbox engine, observability. |
+| `@fyrlabs/dead-drop-runtime` | Workspaces, exposures, discovery, control plane. |
+| `@fyrlabs/dead-drop-sdk` | Application client. |
+| `@fyrlabs/dead-drop` | The `bridge` command. |
+| `@fyrlabs/dead-drop-transport-filesystem` | Reference transport: any directory. |
+| `@fyrlabs/dead-drop-transport-git` | Any git remote. |
+| `@fyrlabs/dead-drop-transport-github` | GitHub, via `gh` for auth and repo management. |
+| `@fyrlabs/dead-drop-transport-memory` | In-process, for tests and examples. |
 
 ## Security
 

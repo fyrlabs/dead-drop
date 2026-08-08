@@ -13,18 +13,18 @@
 import { pathToFileURL } from 'node:url';
 import { isAbsolute, resolve } from 'node:path';
 
-import { BridgeError } from '@dead-drop/protocol';
-import type { TransportDefinition, TransportRegistration } from '@dead-drop/transport-sdk';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
+import type { TransportDefinition, TransportRegistration } from '@fyrlabs/dead-drop-transport-sdk';
 
 import type { TransportConfigEntry } from './config.js';
 
 /** Short names that map to the transports shipped in this repository. */
 const BUILT_IN: Record<string, string> = {
-  memory: '@dead-drop/transport-memory',
-  filesystem: '@dead-drop/transport-filesystem',
-  fs: '@dead-drop/transport-filesystem',
-  git: '@dead-drop/transport-git',
-  github: '@dead-drop/transport-github',
+  memory: '@fyrlabs/dead-drop-transport-memory',
+  filesystem: '@fyrlabs/dead-drop-transport-filesystem',
+  fs: '@fyrlabs/dead-drop-transport-filesystem',
+  git: '@fyrlabs/dead-drop-transport-git',
+  github: '@fyrlabs/dead-drop-transport-github',
 };
 
 export type ModuleLoader = (specifier: string) => Promise<unknown>;

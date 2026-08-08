@@ -7,7 +7,7 @@
  * computed delay) is the default because it spreads retries widest.
  */
 
-import { BridgeError } from '@dead-drop/protocol';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
 
 import type { Clock } from '../clock.js';
 import { systemClock } from '../clock.js';

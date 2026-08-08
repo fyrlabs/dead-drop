@@ -1,5 +1,5 @@
 {
-  "name": "@dead-drop/example-sdk-rpc",
+  "name": "@fyrlabs/dead-drop-example-sdk-rpc",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,8 +7,8 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "@dead-drop/protocol": "0.1.0",
-    "@dead-drop/runtime": "0.1.0",
-    "@dead-drop/transport-sdk": "0.1.0"
+    "@fyrlabs/dead-drop-protocol": "0.1.0",
+    "@fyrlabs/dead-drop-runtime": "0.1.0",
+    "@fyrlabs/dead-drop-transport-sdk": "0.1.0"
   }
 }

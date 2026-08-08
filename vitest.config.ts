@@ -11,19 +11,19 @@ const resolvePackage = (path: string): string =>
 export default defineConfig({
   resolve: {
     alias: {
-      '@dead-drop/protocol': resolvePackage('protocol'),
-      '@dead-drop/transport-sdk/testing': fileURLToPath(
+      '@fyrlabs/dead-drop-protocol': resolvePackage('protocol'),
+      '@fyrlabs/dead-drop-transport-sdk/testing': fileURLToPath(
         new URL('./packages/transport-sdk/src/testing/index.ts', import.meta.url),
       ),
-      '@dead-drop/transport-sdk': resolvePackage('transport-sdk'),
-      '@dead-drop/core': resolvePackage('core'),
-      '@dead-drop/runtime': resolvePackage('runtime'),
-      '@dead-drop/sdk': resolvePackage('sdk'),
-      '@dead-drop/cli': resolvePackage('cli'),
-      '@dead-drop/transport-memory': resolvePackage('transports/memory'),
-      '@dead-drop/transport-filesystem': resolvePackage('transports/filesystem'),
-      '@dead-drop/transport-git': resolvePackage('transports/git'),
-      '@dead-drop/transport-github': resolvePackage('transports/github'),
+      '@fyrlabs/dead-drop-transport-sdk': resolvePackage('transport-sdk'),
+      '@fyrlabs/dead-drop-core': resolvePackage('core'),
+      '@fyrlabs/dead-drop-runtime': resolvePackage('runtime'),
+      '@fyrlabs/dead-drop-sdk': resolvePackage('sdk'),
+      '@fyrlabs/dead-drop': resolvePackage('cli'),
+      '@fyrlabs/dead-drop-transport-memory': resolvePackage('transports/memory'),
+      '@fyrlabs/dead-drop-transport-filesystem': resolvePackage('transports/filesystem'),
+      '@fyrlabs/dead-drop-transport-git': resolvePackage('transports/git'),
+      '@fyrlabs/dead-drop-transport-github': resolvePackage('transports/github'),
     },
   },
   test: {

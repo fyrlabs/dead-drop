@@ -2,7 +2,7 @@
  * `defineTransport` — the entry point a third-party adapter package exports.
  *
  * ```ts
- * import { defineTransport } from '@dead-drop/transport-sdk';
+ * import { defineTransport } from '@fyrlabs/dead-drop-transport-sdk';
  *
  * export const acmeTransport = defineTransport({
  *   id: 'acme',
@@ -16,7 +16,7 @@
  * change to the Bridge repository is required, which is the whole point.
  */
 
-import { BridgeError } from '@dead-drop/protocol';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
 
 import type { TransportDefinition, TransportFactory, TransportRegistration } from './types.js';
 

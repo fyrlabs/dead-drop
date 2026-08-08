@@ -16,8 +16,8 @@ import {
   decodeHttpResponse,
   encodeHttpRequest,
   sanitiseHeaders,
-} from '@dead-drop/protocol';
-import type { Logger } from '@dead-drop/core';
+} from '@fyrlabs/dead-drop-protocol';
+import type { Logger } from '@fyrlabs/dead-drop-core';
 
 import { httpChannel, statusForError } from './exposure.js';
 import type { Workspace } from './workspace.js';

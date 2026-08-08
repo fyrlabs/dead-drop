@@ -14,8 +14,8 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { registerConformanceTests } from '@dead-drop/transport-sdk/testing';
-import type { StoreTransport, TransportContext } from '@dead-drop/transport-sdk';
+import { registerConformanceTests } from '@fyrlabs/dead-drop-transport-sdk/testing';
+import type { StoreTransport, TransportContext } from '@fyrlabs/dead-drop-transport-sdk';
 
 import { gitTransport } from './index.js';
 import { isNonFastForward, isRetryableGitError, redactUrl } from './git.js';

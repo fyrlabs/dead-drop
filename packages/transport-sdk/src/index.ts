@@ -1,9 +1,9 @@
 /**
- * `@dead-drop/transport-sdk` — everything a transport author needs and nothing
+ * `@fyrlabs/dead-drop-transport-sdk` — everything a transport author needs and nothing
  * else. This package is intentionally small and stable: adapters compile
  * against it, and third-party packages must keep working across Bridge releases.
  *
- * The conformance suite lives at `@dead-drop/transport-sdk/testing`.
+ * The conformance suite lives at `@fyrlabs/dead-drop-transport-sdk/testing`.
  */
 
 export * from './define.js';

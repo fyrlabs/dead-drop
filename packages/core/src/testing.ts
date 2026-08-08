@@ -5,13 +5,13 @@
  * code, and shipping it would invite production use of `FaultyStore`.
  */
 
-import { BridgeError } from '@dead-drop/protocol';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
 import {
   defineTransport,
   type StoreTransport,
   type TransportHealth,
-} from '@dead-drop/transport-sdk';
-import type { TransportContext, TransportRegistration } from '@dead-drop/transport-sdk';
+} from '@fyrlabs/dead-drop-transport-sdk';
+import type { TransportContext, TransportRegistration } from '@fyrlabs/dead-drop-transport-sdk';
 
 import { TestClock } from './clock.js';
 import { MemoryLogSink, createLogger, type Logger } from './observability/logger.js';

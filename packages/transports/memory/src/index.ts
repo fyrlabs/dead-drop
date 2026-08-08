@@ -1,5 +1,5 @@
 /**
- * `@dead-drop/transport-memory` — an in-process object store.
+ * `@fyrlabs/dead-drop-transport-memory` — an in-process object store.
  *
  * Two jobs: it is the transport the test suite and examples use to run a full
  * Bridge without touching a network or a disk, and it is the smallest possible
@@ -12,7 +12,7 @@
 
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { BridgeError } from '@dead-drop/protocol';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
 import {
   assertValidKey,
   assertValidPrefix,
@@ -25,7 +25,7 @@ import {
   type StoreTransport,
   type TransportContext,
   type TransportHealth,
-} from '@dead-drop/transport-sdk';
+} from '@fyrlabs/dead-drop-transport-sdk';
 
 export interface MemoryTransportConfig {
   /**

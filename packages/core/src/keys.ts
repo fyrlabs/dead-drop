@@ -18,7 +18,7 @@
  * why frame contents are encrypted and this is called out in the security docs.
  */
 
-import { joinKey } from '@dead-drop/transport-sdk';
+import { joinKey } from '@fyrlabs/dead-drop-transport-sdk';
 
 export const FRAME_EXTENSION = '.ddf';
 const ROOT = 'ws';

@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { generateWorkspaceSecret } from '@dead-drop/protocol';
+import { generateWorkspaceSecret } from '@fyrlabs/dead-drop-protocol';
 import {
   BridgeRuntime,
   ControlPlaneClient,
@@ -24,9 +24,9 @@ import {
   parseRuntimeConfig,
   startControlPlane,
   type ConnectHandle,
-} from '@dead-drop/runtime';
-import { filesystemTransport } from '@dead-drop/transport-filesystem';
-import { memoryTransport, resetMemoryTransports } from '@dead-drop/transport-memory';
+} from '@fyrlabs/dead-drop-runtime';
+import { filesystemTransport } from '@fyrlabs/dead-drop-transport-filesystem';
+import { memoryTransport, resetMemoryTransports } from '@fyrlabs/dead-drop-transport-memory';
 
 const SECRET = generateWorkspaceSecret();
 

@@ -1,5 +1,5 @@
 /**
- * `@dead-drop/core` — the machinery between an application and a transport.
+ * `@fyrlabs/dead-drop-core` — the machinery between an application and a transport.
  *
  * Everything here is policy: which transport carries a message, when to retry,
  * when to give up, what to record. The protocol package decides what a message

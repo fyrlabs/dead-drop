@@ -1,4 +1,4 @@
-# @dead-drop/transport-github
+# @fyrlabs/dead-drop-transport-github
 
 GitHub as a Bridge transport. Data moves over git; `gh` supplies authentication, repository resolution and creation, and API rate-limit reporting that feeds transport scoring. No token is ever passed to or stored by Bridge.
 
@@ -7,7 +7,7 @@ Part of [Bridge](https://github.com/) — a transport-agnostic runtime for distr
 ## Install
 
 ```bash
-npm install @dead-drop/transport-github
+npm install @fyrlabs/dead-drop-transport-github
 ```
 
 Requires Node.js 20.11 or newer.

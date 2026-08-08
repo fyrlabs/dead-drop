@@ -19,11 +19,11 @@ npm run verify
 
 ## Changing the protocol
 
-`@dead-drop/protocol` is a wire contract between machines that may run different versions. Any change to the envelope, the frame layout or the error codes is a compatibility question first and a code question second. Bump `PROTOCOL_VERSION` and say how mixed-version peers behave.
+`@fyrlabs/dead-drop-protocol` is a wire contract between machines that may run different versions. Any change to the envelope, the frame layout or the error codes is a compatibility question first and a code question second. Bump `PROTOCOL_VERSION` and say how mixed-version peers behave.
 
 ## Changing the transport SDK
 
-`@dead-drop/transport-sdk` is compiled against by packages outside this repository. Additive changes only, unless there is a version bump and a migration note. If you add a capability, the conformance suite must gate its tests on it so existing adapters keep passing.
+`@fyrlabs/dead-drop-transport-sdk` is compiled against by packages outside this repository. Additive changes only, unless there is a version bump and a migration note. If you add a capability, the conformance suite must gate its tests on it so existing adapters keep passing.
 
 ## Commits
 

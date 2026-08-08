@@ -39,7 +39,7 @@ capabilities.kind === 'store'   // put / get / list / delete, optional watch
 capabilities.kind === 'native'  // send / subscribe
 ```
 
-The mailbox engine in `@dead-drop/core` implements messaging once, over the store primitives: framing, encryption, chunking and reassembly, delete-as-acknowledgement, redelivery with backoff, dead letters, deduplication, broadcast topics with a resume cursor, adaptive polling.
+The mailbox engine in `@fyrlabs/dead-drop-core` implements messaging once, over the store primitives: framing, encryption, chunking and reassembly, delete-as-acknowledgement, redelivery with backoff, dead letters, deduplication, broadcast topics with a resume cursor, adaptive polling.
 
 `native` remains for backends that genuinely are message systems, where synthesising acknowledgements on top would be wrong.
 

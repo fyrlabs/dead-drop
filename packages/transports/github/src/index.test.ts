@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { StoreTransport, TransportContext } from '@dead-drop/transport-sdk';
+import type { StoreTransport, TransportContext } from '@fyrlabs/dead-drop-transport-sdk';
 
 import { githubTransport } from './index.js';
 import { isValidRepo, parseRepoJson, type GhClient, type GhRepoInfo } from './gh.js';

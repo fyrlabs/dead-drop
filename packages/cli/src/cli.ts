@@ -15,8 +15,8 @@ import { parseArgs } from 'node:util';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-import { BridgeError, generateWorkspaceSecret } from '@dead-drop/protocol';
-import { createLogger, prettySink, type LogRecord } from '@dead-drop/core';
+import { BridgeError, generateWorkspaceSecret } from '@fyrlabs/dead-drop-protocol';
+import { createLogger, prettySink, type LogRecord } from '@fyrlabs/dead-drop-core';
 import {
   BridgeRuntime,
   ControlPlaneClient,
@@ -26,7 +26,7 @@ import {
   loadRuntimeConfig,
   startControlPlane,
   type RuntimeConfig,
-} from '@dead-drop/runtime';
+} from '@fyrlabs/dead-drop-runtime';
 
 export interface CliIo {
   out(line: string): void;

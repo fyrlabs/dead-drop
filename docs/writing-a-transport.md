@@ -7,7 +7,7 @@ A Bridge transport is an ordinary npm package. You do not fork Bridge, you do no
 Most backends are object stores: put bytes at a key, get them back, list a prefix, delete. That is the whole contract.
 
 ```ts
-import { defineTransport } from '@dead-drop/transport-sdk';
+import { defineTransport } from '@fyrlabs/dead-drop-transport-sdk';
 
 export interface AcmeConfig {
   endpoint: string;
@@ -88,7 +88,7 @@ Probe something that would actually fail. A `stat` on a disconnected network mou
 
 ## Errors
 
-Throw `BridgeError` from `@dead-drop/protocol`. The code decides what happens next:
+Throw `BridgeError` from `@fyrlabs/dead-drop-protocol`. The code decides what happens next:
 
 | Code | Effect |
 | --- | --- |
@@ -104,7 +104,7 @@ This is the part people skip and should not. The suite is framework-agnostic —
 
 ```ts
 import { describe, it } from 'vitest';
-import { registerConformanceTests } from '@dead-drop/transport-sdk/testing';
+import { registerConformanceTests } from '@fyrlabs/dead-drop-transport-sdk/testing';
 import { acmeTransport } from './index.js';
 
 registerConformanceTests({ describe, it }, 'acme', {

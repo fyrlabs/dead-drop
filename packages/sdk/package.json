@@ -1,5 +1,5 @@
 {
-  "name": "@dead-drop/sdk",
+  "name": "@fyrlabs/dead-drop-sdk",
   "version": "0.1.0",
   "description": "Bridge client SDK for applications that want publish/subscribe, RPC and services",
   "type": "module",
@@ -28,8 +28,8 @@
     "node": ">=20.11"
   },
   "dependencies": {
-    "@dead-drop/protocol": "0.1.0",
-    "@dead-drop/runtime": "0.1.0"
+    "@fyrlabs/dead-drop-protocol": "0.1.0",
+    "@fyrlabs/dead-drop-runtime": "0.1.0"
   },
   "scripts": {
     "build": "tsc --build"

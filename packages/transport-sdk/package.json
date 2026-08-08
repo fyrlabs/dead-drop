@@ -1,5 +1,5 @@
 {
-  "name": "@dead-drop/transport-sdk",
+  "name": "@fyrlabs/dead-drop-transport-sdk",
   "version": "0.1.0",
   "description": "Public SDK for authoring Bridge transport adapters",
   "type": "module",
@@ -32,7 +32,7 @@
     "node": ">=20.11"
   },
   "dependencies": {
-    "@dead-drop/protocol": "0.1.0"
+    "@fyrlabs/dead-drop-protocol": "0.1.0"
   },
   "scripts": {
     "build": "tsc --build"

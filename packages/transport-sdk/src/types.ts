@@ -21,7 +21,7 @@
  * Most authors want `store`.
  */
 
-import type { BridgeError } from '@dead-drop/protocol';
+import type { BridgeError } from '@fyrlabs/dead-drop-protocol';
 
 export type TransportKind = 'store' | 'native';
 

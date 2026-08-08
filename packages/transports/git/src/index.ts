@@ -1,5 +1,5 @@
 /**
- * `@dead-drop/transport-git` — a store transport backed by a git repository.
+ * `@fyrlabs/dead-drop-transport-git` — a store transport backed by a git repository.
  *
  * Objects are files on a dedicated branch of a repository the peers share.
  * Writing is commit-and-push; reading is fetch-and-read. Any git host works:
@@ -23,7 +23,7 @@ import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 
-import { BridgeError } from '@dead-drop/protocol';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
 import {
   assertValidKey,
   assertValidPrefix,
@@ -36,7 +36,7 @@ import {
   type StoreTransport,
   type TransportContext,
   type TransportHealth,
-} from '@dead-drop/transport-sdk';
+} from '@fyrlabs/dead-drop-transport-sdk';
 
 import { Git, isNonFastForward, redactUrl } from './git.js';
 

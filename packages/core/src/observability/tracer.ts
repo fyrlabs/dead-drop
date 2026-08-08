@@ -8,7 +8,7 @@
  * and an `onSpanEnd` hook lets embedders forward them to OpenTelemetry.
  */
 
-import { createId } from '@dead-drop/protocol';
+import { createId } from '@fyrlabs/dead-drop-protocol';
 
 import type { Clock } from '../clock.js';
 import { systemClock } from '../clock.js';

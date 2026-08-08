@@ -7,7 +7,7 @@ import {
   decodeFrame,
   generateWorkspaceSecret,
   type Envelope,
-} from '@dead-drop/protocol';
+} from '@fyrlabs/dead-drop-protocol';
 
 import type { TestClock } from './clock.js';
 import { deadLetterPrefix, inboxKey, inboxPrefix, messageIdFromKey, topicPrefix } from './keys.js';

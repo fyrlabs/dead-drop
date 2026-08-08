@@ -1,7 +1,7 @@
 /**
- * `@dead-drop/transport-github` — GitHub as a Bridge transport.
+ * `@fyrlabs/dead-drop-transport-github` — GitHub as a Bridge transport.
  *
- * Deliberately thin. All data movement is `@dead-drop/transport-git`: peers
+ * Deliberately thin. All data movement is `@fyrlabs/dead-drop-transport-git`: peers
  * push and pull a dedicated branch of a repository. This package adds only the
  * things that are specific to GitHub:
  *
@@ -17,7 +17,7 @@
  * later without changing anything above this file.
  */
 
-import { BridgeError } from '@dead-drop/protocol';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
 import {
   defineTransport,
   type ListOptions,
@@ -27,8 +27,8 @@ import {
   type StoreTransport,
   type TransportContext,
   type TransportHealth,
-} from '@dead-drop/transport-sdk';
-import { gitTransport, type GitTransportConfig } from '@dead-drop/transport-git';
+} from '@fyrlabs/dead-drop-transport-sdk';
+import { gitTransport, type GitTransportConfig } from '@fyrlabs/dead-drop-transport-git';
 
 import { GhCli, isValidRepo, type GhClient } from './gh.js';
 

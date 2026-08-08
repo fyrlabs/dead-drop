@@ -12,8 +12,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { generateWorkspaceSecret } from '@dead-drop/protocol';
-import { BridgeRuntime, connect, parseRuntimeConfig } from '@dead-drop/runtime';
+import { generateWorkspaceSecret } from '@fyrlabs/dead-drop-protocol';
+import { BridgeRuntime, connect, parseRuntimeConfig } from '@fyrlabs/dead-drop-runtime';
 
 const shared = await mkdtemp(join(tmpdir(), 'bridge-example-'));
 const secret = generateWorkspaceSecret();

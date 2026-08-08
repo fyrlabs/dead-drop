@@ -7,7 +7,7 @@
  * bug, and store transports get a ready-made guard.
  */
 
-import { BridgeError } from '@dead-drop/protocol';
+import { BridgeError } from '@fyrlabs/dead-drop-protocol';
 
 export const MAX_KEY_LENGTH = 512;
 const SEGMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
