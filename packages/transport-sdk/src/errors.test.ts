@@ -49,6 +49,31 @@ describe('DeadDropError', () => {
     expect(DeadDropError.from(abort).code).toBe('CANCELLED');
   });
 
+  it('recognises an error from a duplicate install of this package', () => {
+    // Reproduces two copies of transport-sdk in one dependency tree: a separate
+    // class, so `instanceof` is false, but the same registry-symbol brand.
+    // Before the brand, `from` re-wrapped this as INTERNAL, which is retryable,
+    // silently turning a permanent UNAUTHORIZED into an infinite retry loop.
+    class ForeignDeadDropError extends Error {
+      readonly [Symbol.for('@fyrlabs/dead-drop.DeadDropError')] = true;
+      readonly code = 'UNAUTHORIZED';
+      readonly retryable = false;
+    }
+    const foreign = new ForeignDeadDropError('bad credentials');
+
+    expect(foreign instanceof DeadDropError).toBe(false);
+    expect(DeadDropError.is(foreign)).toBe(true);
+    expect(DeadDropError.from(foreign)).toBe(foreign);
+    expect(DeadDropError.from(foreign).retryable).toBe(false);
+  });
+
+  it('does not brand unrelated throwables', () => {
+    expect(DeadDropError.is(new Error('plain'))).toBe(false);
+    expect(DeadDropError.is({ code: 'TIMEOUT' })).toBe(false);
+    expect(DeadDropError.is(null)).toBe(false);
+    expect(DeadDropError.is('TIMEOUT')).toBe(false);
+  });
+
   it('recognises its own codes', () => {
     expect(isDeadDropErrorCode('TIMEOUT')).toBe(true);
     expect(isDeadDropErrorCode('NOPE')).toBe(false);

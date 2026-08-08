@@ -4,7 +4,7 @@ Instructions for coding agents. Humans should read [CONTRIBUTING.md](CONTRIBUTIN
 
 ## What this is
 
-A transport-agnostic runtime that lets applications on different machines talk through infrastructure they already share: a git repository, a synced folder, object storage. Ten packages in an npm workspace, TypeScript throughout, zero runtime dependencies outside the workspace itself.
+A transport-agnostic runtime that lets applications on different machines talk through infrastructure they already share: a git repository, a synced folder, object storage. Two packages in an npm workspace, TypeScript throughout, zero runtime dependencies outside the workspace itself.
 
 Read [docs/architecture.md](docs/architecture.md) before changing anything structural. It explains the layering and, more usefully, what each layer is forbidden to know.
 
@@ -26,17 +26,21 @@ The git and github transport tests need a `git` binary. Nothing needs network ac
 
 ## Layout
 
+Two published packages. `packages/transport-sdk` is the contract; `packages/dead-drop` is everything else, split into layers that are directories, not packages.
+
 | Path | What lives there |
 | --- | --- |
-| `packages/protocol` | What a message is: envelope, framing, encryption, chunking, errors. Zero deps, zero policy. |
-| `packages/transport-sdk` | The contract third parties compile against, plus the conformance suite. |
-| `packages/core` | All policy: mailbox engine, transport manager, retry, breaker, dedupe, observability. |
-| `packages/runtime` | Workspaces, exposures, discovery, plugin loading, control plane. |
-| `packages/sdk` | Client over the control socket. |
-| `packages/cli` | The `ddrop` command. |
-| `packages/transports/*` | filesystem, git, github, memory. |
+| `packages/transport-sdk` | The contract third parties compile against, plus the conformance suite. Versioned independently. |
+| `packages/dead-drop/src/protocol` | What a message is: envelope, framing, encryption, chunking, errors. Zero policy. |
+| `packages/dead-drop/src/core` | All policy: mailbox engine, transport manager, retry, breaker, dedupe, observability. |
+| `packages/dead-drop/src/runtime` | Workspaces, exposures, discovery, plugin loading, control plane. |
+| `packages/dead-drop/src/sdk` | Client over the control socket. |
+| `packages/dead-drop/src/cli` | The `ddrop` command. |
+| `packages/dead-drop/src/transports/*` | filesystem, git, github, memory. |
 | `tests/` | Cross-package end-to-end and CLI tests. |
 | `docs/adr/` | Decision records for anything that deviates from the original design. |
+
+Each layer is a subpath export of `@fyrlabs/dead-drop` (`./core`, `./runtime`, and so on). Layering is enforced by `no-restricted-imports` in `eslint.config.js`, not by package boundaries, in the direction protocol <- core <- runtime <- {sdk, cli}. Two documented exceptions: `runtime/plugins.ts` owns the transport table, and the github transport delegates to git. Test files are exempt.
 
 ## Invariants. Breaking one of these is a bug even if tests pass
 
@@ -49,6 +53,7 @@ The git and github transport tests need a `git` binary. Nothing needs network ac
 7. **`@fyrlabs/dead-drop-transport-sdk` is the only stable public contract.** It is the one thing outside this repository that must keep working across releases. Changing it is a breaking change.
 8. **Never reintroduce the old name.** The project was called Bridge and the binary was `bridge`, which collided with iproute2's `bridge(8)` on Linux. Check with `rg -ci bridge`, excluding `node_modules`, `dist` and `package-lock.json`. This file is the only one that may match. A hit anywhere else is a regression.
 9. **The transport is hostile storage.** Everything on it is ciphertext including the envelope header. Do not add a field that leaks a channel, peer or workspace name in clear text.
+10. **`DeadDropError` identity is a registry symbol, never `instanceof`.** `DeadDropError.is` brand-checks `Symbol.for('@fyrlabs/dead-drop.DeadDropError')` so it still holds when two copies of transport-sdk end up in one dependency tree. Reverting it to `instanceof` is silent and bad: a third-party adapter's non-retryable error would be re-wrapped by `DeadDropError.from` as `INTERNAL`, which is retryable, and the retry loop would hammer a permanent failure. The same reasoning forbids an exact-version pin on transport-sdk.
 
 ## Conventions
 
@@ -73,4 +78,8 @@ The git and github transport tests need a `git` binary. Nothing needs network ac
 
 ## Releasing
 
-All ten packages share one version and publish together from a `v*` tag. The checklist and the notes body are in [.github/RELEASE_TEMPLATE.md](.github/RELEASE_TEMPLATE.md). Do not tag without running the live GitHub walkthrough in [docs/testing.md](docs/testing.md); everything GitHub-specific is otherwise tested only against a scripted fake `gh`.
+Both packages publish from a `v*` tag, but they **do not share a version**. `@fyrlabs/dead-drop-transport-sdk` is the stable contract and moves on its own, rarely; `@fyrlabs/dead-drop` depends on it by caret range and churns freely. The release workflow skips whichever package is already on the registry at its manifest version, so a release that only moves one of them works. The tag name tracks `@fyrlabs/dead-drop`.
+
+Never pin the transport-sdk dependency to an exact version. `DeadDropError` identity depends on one copy of transport-sdk being installed, and an exact pin forces a second copy into any tree that also holds a third-party adapter. See invariant 10.
+
+The checklist and the notes body are in [.github/RELEASE_TEMPLATE.md](.github/RELEASE_TEMPLATE.md). Do not tag without running the live GitHub walkthrough in [docs/testing.md](docs/testing.md); everything GitHub-specific is otherwise tested only against a scripted fake `gh`.

@@ -48,7 +48,22 @@ export interface DeadDropErrorOptions {
   retryAfterMs?: number;
 }
 
+/**
+ * Cross-copy brand for {@link DeadDropError.is}.
+ *
+ * Two installs of this package define two distinct `DeadDropError` classes, so
+ * `instanceof` returns false between them. That is reachable in practice: a
+ * third-party adapter resolving a different version than the runtime would have
+ * its errors re-wrapped by {@link DeadDropError.from} under the `INTERNAL`
+ * fallback, and `INTERNAL` is retryable, so a permanent `UNAUTHORIZED` would be
+ * retried forever. `Symbol.for` reads from the cross-realm registry, so every
+ * copy agrees on this key.
+ */
+const BRAND: unique symbol = Symbol.for('@fyrlabs/dead-drop.DeadDropError');
+
 export class DeadDropError extends Error {
+  /** @internal Identity marker. Symbol-keyed, so it never reaches JSON. */
+  readonly [BRAND] = true;
   readonly code: DeadDropErrorCode;
   readonly details: Record<string, unknown> | undefined;
   readonly retryable: boolean;
@@ -82,8 +97,9 @@ export class DeadDropError extends Error {
     };
   }
 
+  /** Brand check, not `instanceof`: holds across duplicate installs. See {@link BRAND}. */
   static is(value: unknown): value is DeadDropError {
-    return value instanceof DeadDropError;
+    return typeof value === 'object' && value !== null && BRAND in value;
   }
 
   /** Rebuilds a DeadDropError from its wire form, tolerating unknown codes. */

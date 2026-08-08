@@ -2,7 +2,7 @@
 
 Notable changes to dead-drop. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-All packages in this repository share one version number and are released together.
+Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is the stable transport contract and versions independently; its changes are called out explicitly.
 
 ## [Unreleased]
 
@@ -10,11 +10,15 @@ All packages in this repository share one version number and are released togeth
 
 ### Changed
 
+- `@fyrlabs/dead-drop-transport-sdk` is now **1.0.0** and no longer shares a version with `@fyrlabs/dead-drop`, which depends on it by caret range. The contract is settled and should stay put while the runtime keeps moving, so an adapter written today keeps working across dead-drop majors.
+
 - **Breaking.** dead-drop now ships as two packages instead of ten. Everything except the transport contract lives in `@fyrlabs/dead-drop`, reachable by subpath: `/sdk`, `/runtime`, `/core`, `/protocol`, `/cli` and `/transports/<name>`. `@fyrlabs/dead-drop-transport-sdk` stays separate so a third-party adapter does not depend on the whole runtime. The eight other packages are gone.
 - **Breaking.** The error model (`DeadDropError` and its codes) moved into `@fyrlabs/dead-drop-transport-sdk`, which is where it belongs: a transport adapter has to throw it, and the transport manager reads its `retryable` flag. `@fyrlabs/dead-drop/protocol` re-exports it, so importing it from the protocol layer still works.
 
 ### Fixed
 
+- `DeadDropError.is` brand-checks a `Symbol.for` registry key instead of using `instanceof`, so it still recognises errors thrown across two copies of transport-sdk in one dependency tree. Previously such an error was re-wrapped as `INTERNAL`, which is retryable, so a permanent failure like `UNAUTHORIZED` would be retried indefinitely.
+- The release workflow skips a package already published at its manifest version, instead of aborting the whole job before the package that did change gets published.
 - Built-in transports load through static `import()` thunks rather than a specifier string. A dynamic `import(variable)` cannot be resolved relative to the importing module by bundlers or test runners, so the previous form worked under plain Node and failed everywhere else.
 
 ### Internal

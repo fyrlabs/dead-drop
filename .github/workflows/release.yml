@@ -22,11 +22,23 @@ jobs:
       - run: npm run lint && npm run build && npm test
       # transport-sdk first: dead-drop depends on it, and a package cannot
       # publish before the packages it depends on exist at the published version.
+      #
+      # The two packages version independently, so a release usually moves only
+      # one of them. Skip whichever is already on the registry: npm rejects a
+      # republish of an existing version, and under `set -e` that would abort
+      # the job before the package that actually changed gets published.
       - name: Publish packages in dependency order
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
           for pkg in packages/transport-sdk packages/dead-drop; do
+            name=$(node -p "require('./$pkg/package.json').name")
+            version=$(node -p "require('./$pkg/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already published, skipping"
+              continue
+            fi
+            echo "publishing $name@$version"
             npm publish --workspace "$pkg" --access public --provenance
           done

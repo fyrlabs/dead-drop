@@ -8,6 +8,6 @@
   },
   "dependencies": {
     "@fyrlabs/dead-drop": "0.2.0",
-    "@fyrlabs/dead-drop-transport-sdk": "0.2.0"
+    "@fyrlabs/dead-drop-transport-sdk": "^1.0.0"
   }
 }
