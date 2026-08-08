@@ -1,26 +1,25 @@
 # Architecture
 
-```text
-     Application (Express, Next.js, a CLI, a script)
-                          │
-              local socket │ or nothing at all in proxy mode
-                          ▼
-  ┌──────────────────────────────────────────────────┐
-  │                  dead-drop Runtime                  │
-  │                                                  │
-  │  Workspace ──── request/response, pub/sub, RPC   │
-  │      │                                           │
-  │  Mailbox engine ── framing, chunking, ack,       │
-  │      │             dedupe, redelivery, polling   │
-  │      │                                           │
-  │  Transport manager ── scoring, retry, breaker,   │
-  │      │                failover, health           │
-  └──────┼───────────────────────────────────────────┘
-         ▼
-   filesystem │ git │ github │ memory │ your adapter
-         ▼
-   ── the same, on another machine ──
+```mermaid
+flowchart TB
+    app["<b>Application</b><br/>Express, Next.js, a CLI, a script"]
+
+    subgraph rt ["dead-drop runtime, one per machine"]
+        direction TB
+        ws["<b>Workspace</b><br/>request/response, pub/sub, RPC"]
+        mb["<b>Mailbox engine</b><br/>framing, chunking, ack,<br/>dedupe, redelivery, polling"]
+        tm["<b>Transport manager</b><br/>scoring, retry, circuit breaker,<br/>failover, health"]
+        ws --> mb --> tm
+    end
+
+    adapters["filesystem &nbsp;│&nbsp; git &nbsp;│&nbsp; github &nbsp;│&nbsp; memory &nbsp;│&nbsp; your adapter"]
+    peer["The same stack, on another machine"]
+
+    app -- "local socket, or nothing at all in proxy mode" --> ws
+    tm --> adapters --> peer
 ```
+
+Each layer only knows about the one below it. The application never names a transport, and the transport never sees plaintext.
 
 ## Layers, and what each one is not allowed to know
 

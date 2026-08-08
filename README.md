@@ -4,6 +4,31 @@
 
 dead-drop is a local-first runtime that lets applications on different machines talk to each other through infrastructure you already have: a git repository, a shared or synced folder, object storage, or an adapter you write yourself. There is nothing to deploy, no public endpoint, no broker, and the application does not need to know how its bytes move.
 
+Neither machine listens on a public port. Both write and read encrypted objects in a place they can already both reach, which is why this works from behind NAT, from a CI runner, or from a locked-down corporate network.
+
+```mermaid
+flowchart LR
+    subgraph A ["Machine A, behind NAT"]
+        app["Your app<br/>localhost:3000<br/><i>unmodified</i>"]
+        ra["dead-drop runtime"]
+        app --- ra
+    end
+
+    store[("Shared storage<br/>git repo, folder, S3<br/><b>sees only ciphertext</b>")]
+
+    subgraph B ["Machine B, elsewhere"]
+        rb["dead-drop runtime"]
+        port["localhost:53219"]
+        rb --- port
+    end
+
+    ra -- "writes encrypted objects" --> store
+    store -- "polled, then decrypted" --> rb
+    rb -. "response travels back the same way" .-> store
+```
+
+`ddrop connect` gives you an ordinary local URL. Whatever you point at it, curl or a browser or a client library, talks to the app on the other machine without knowing any of the above happened.
+
 ```bash
 # machine A — an ordinary Express app on :3000, unmodified
 ddrop start &                                             # the runtime, reading ./deaddrop.config.json
