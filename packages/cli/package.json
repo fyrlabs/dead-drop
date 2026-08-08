@@ -12,8 +12,8 @@
   "homepage": "https://github.com/fyrlabs/dead-drop#readme",
   "bugs": "https://github.com/fyrlabs/dead-drop/issues",
   "bin": {
-    "ddrop": "./dist/bin.js",
-    "dead-drop": "./dist/bin.js"
+    "ddrop": "dist/bin.js",
+    "dead-drop": "dist/bin.js"
   },
   "exports": {
     ".": {
