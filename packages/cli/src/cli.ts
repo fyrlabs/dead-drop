@@ -380,9 +380,21 @@ async function connectCommand(args: string[], values: Values, io: CliIo): Promis
   const exposure = spec.slice(separator + 1);
 
   // Connecting needs a live workspace in this process: the local HTTP server
-  // has to translate requests, and doing that through the control plane would
+  // has to translate requests, and routing them through the control plane would
   // mean base64-ing every request body through a second JSON hop.
-  const config = await resolveConfig(values);
+  //
+  // That means this process is a second peer, so it must not claim the peer id
+  // of an already-running `bridge start`: two runtimes polling one inbox would
+  // race for the same messages and lose responses. It gets its own ephemeral
+  // identity, and withdraws its presence beacon on exit.
+  const base = await resolveConfig(values);
+  const config: RuntimeConfig = {
+    ...base,
+    workspaces: base.workspaces.map((workspace) => ({
+      ...workspace,
+      peerId: `${workspace.peerId ?? 'peer'}-c${process.pid.toString(16)}`,
+    })),
+  };
   const runtime = new BridgeRuntime({ config, logFormat: 'pretty', version: VERSION });
   await runtime.start();
   const workspace =

@@ -31,7 +31,9 @@ describe('expandEnv', () => {
   });
 
   it('fails loudly on an unset variable rather than silently emptying it', () => {
-    expect(() => expandEnv('${env:MISSING}', {})).toThrowError(/unset environment variable MISSING/);
+    expect(() => expandEnv('${env:MISSING}', {})).toThrowError(
+      /unset environment variable MISSING/,
+    );
   });
 });
 
@@ -246,7 +248,9 @@ describe('plugin loading', () => {
 describe('exposure helpers', () => {
   it('keeps resolved static paths inside the root', () => {
     expect(resolveWithinRoot('/srv/site', '/index.html')).toBe(resolve('/srv/site/index.html'));
-    expect(resolveWithinRoot('/srv/site', 'assets/app.js')).toBe(resolve('/srv/site/assets/app.js'));
+    expect(resolveWithinRoot('/srv/site', 'assets/app.js')).toBe(
+      resolve('/srv/site/assets/app.js'),
+    );
     expect(resolveWithinRoot('/srv/site', '../secrets')).toBeUndefined();
     expect(resolveWithinRoot('/srv/site', 'a/../../b')).toBeUndefined();
     // A rooted path with leading `..` normalises against `/` and is then

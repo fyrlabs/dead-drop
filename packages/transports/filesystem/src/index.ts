@@ -182,7 +182,6 @@ class FilesystemStore implements StoreTransport {
     await mkdir(target, { recursive: true });
 
     let watcher: FSWatcher | undefined;
-    let timer: NodeJS.Timeout | undefined;
     let stopped = false;
 
     const fire = (): void => {
@@ -193,22 +192,22 @@ class FilesystemStore implements StoreTransport {
       try {
         watcher = watch(target, { recursive: true }, () => fire());
         watcher.on('error', () => {
-          // Native watching failed mid-flight (common on network mounts).
-          // Fall back to polling rather than going silent.
           watcher?.close();
           watcher = undefined;
-          if (!stopped && !timer) {
-            void this.startPolling(target, fire).then((started) => {
-              if (stopped) clearInterval(started);
-              else timer = started;
-            });
-          }
         });
       } catch {
         watcher = undefined;
       }
     }
-    if (!watcher) timer = await this.startPolling(target, fire);
+
+    // Polling runs *alongside* fs.watch, not only as a replacement for it.
+    // Native watching is unreliable in ways that are silent: recursive watches
+    // miss events for files created in freshly-created subdirectories on some
+    // platforms, network mounts report nothing at all, and a watcher that has
+    // quietly died looks exactly like an idle directory. A watcher that never
+    // fires would not lose messages — the mailbox polls too — but it would turn
+    // sub-second delivery into a multi-second wait with no clue why.
+    const timer = await this.startPolling(target, fire);
 
     const stop = async (): Promise<void> => {
       stopped = true;

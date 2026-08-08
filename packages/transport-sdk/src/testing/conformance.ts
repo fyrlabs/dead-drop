@@ -324,13 +324,15 @@ function storeCases(harness: ConformanceHarness): ConformanceCase[] {
           fired += 1;
         });
         await t.put('inbox/peer-a/watched.ddf', bytes('ping'));
-        for (let i = 0; i < 50 && fired === 0; i++) await sleep(20);
-        assert(fired > 0, 'watch handler was never called');
+        // Generous: a transport may legitimately notify through a poll rather
+        // than a push, and this suite runs on loaded CI machines.
+        for (let i = 0; i < 120 && fired === 0; i++) await sleep(50);
+        assert(fired > 0, 'watch handler was never called within 6s');
 
         await stop();
         const after = fired;
         await t.put('inbox/peer-a/watched2.ddf', bytes('ping'));
-        await sleep(100);
+        await sleep(300);
         assert(fired === after, 'watch handler fired after unsubscribe');
       }),
     });
