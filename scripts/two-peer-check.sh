@@ -45,8 +45,14 @@ sha256_of() {
   else sha256sum "$1" | cut -d' ' -f1; fi
 }
 
+# SIGTERM alone left runtimes behind, holding ports and a data directory into
+# the next run. The runtime does honour it; a kill aimed at a process that is
+# still starting up is what slipped through. Follow up with SIGKILL.
 cleanup() {
-  for pid in "$CURL_PID" "$CONNECT_PID" "$EXPOSE_PID" "$A_PID" "$B_PID"; do [ -n "$pid" ] && kill "$pid" 2>/dev/null; done
+  local pids="$CURL_PID $CONNECT_PID $EXPOSE_PID $A_PID $B_PID"
+  for pid in $pids; do kill "$pid" 2>/dev/null; done
+  sleep 2
+  for pid in $pids; do kill -9 "$pid" 2>/dev/null; done
   sleep 1
   rm -rf "$WORK"
 }

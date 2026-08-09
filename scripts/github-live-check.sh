@@ -55,8 +55,13 @@ json_get() { # $1 = expression over the parsed document, reads stdin
   node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s);const v=($1);console.log(v===undefined||v===null?'':v)}catch{console.log('')}})"
 }
 
+# SIGTERM alone leaves runtimes behind when the kill lands while one is still
+# starting up, so follow up with SIGKILL before removing anything.
 cleanup() {
-  for pid in "$CONNECT_PID" "$NOAUTH_PID" "$A_PID" "$B_PID"; do [ -n "$pid" ] && kill "$pid" 2>/dev/null; done
+  local pids="$CONNECT_PID $NOAUTH_PID $A_PID $B_PID"
+  for pid in $pids; do kill "$pid" 2>/dev/null; done
+  sleep 2
+  for pid in $pids; do kill -9 "$pid" 2>/dev/null; done
   # The runtimes are still committing into their clones when the kill lands, so
   # a single rm loses a race with git and reports "Directory not empty".
   for _ in 1 2 3; do
