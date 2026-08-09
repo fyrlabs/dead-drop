@@ -13,7 +13,7 @@ Two packages, and they do not share a version. `@fyrlabs/dead-drop-transport-sdk
 
 ### Breaking changes
 
-<!-- What breaks and what to do about it. Delete the section if there are none. -->
+<!-- What breaks and what to do about it. Write N/A if there are none; do not delete the section. -->
 
 ### Added
 
