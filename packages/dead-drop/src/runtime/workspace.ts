@@ -351,6 +351,16 @@ export class Workspace {
       });
     });
 
+    // Nothing awaits `response` until the send below returns, and the timeout
+    // does not wait for that: a transport that is retrying behind an open
+    // breaker keeps `mailbox.send` pending for far longer than the caller's
+    // deadline. The rejection then lands with no handler attached, and an
+    // unhandled rejection in Node terminates the process — a `ddrop connect`
+    // proxy died outright the first time a request timed out during a transport
+    // outage. Claiming the rejection here costs nothing: `await response` below
+    // still receives it, and the caller still gets its TIMEOUT.
+    response.catch(() => undefined);
+
     try {
       const trace = traceContext(span);
       await this.mailbox.send(envelope, {

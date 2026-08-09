@@ -225,6 +225,24 @@ describe('two runtimes over a shared directory', () => {
     expect(method.status).toBe(405);
   }, 30_000);
 
+  it('survives a request that times out before its transport send finishes', async () => {
+    // The response promise is created before `mailbox.send` is awaited, so a
+    // deadline shorter than the send leaves the rejection with no handler
+    // attached. Node treats an unhandled rejection as fatal, and a `ddrop
+    // connect` proxy died outright the first time a request timed out while a
+    // transport was retrying behind an open breaker. A 1ms deadline reproduces
+    // it without needing a broken transport: any real send outlives it.
+    //
+    // Vitest fails the run on an unhandled rejection, so the assertion that
+    // matters here is the absence of one, not the error this awaits.
+    const runtime = await makeRuntime({ peerId: 'impatient-peer', store: sharedDir });
+    await expect(
+      runtime.defaultWorkspace().call('nobody', 'whatever', {}, { timeoutMs: 1 }),
+    ).rejects.toMatchObject({ code: 'TIMEOUT' });
+    // Long enough for an unclaimed rejection to be reported before teardown.
+    await new Promise((settle) => setTimeout(settle, 250));
+  }, 15_000);
+
   it('carries an RPC call and a service error', async () => {
     const server = await makeRuntime({ peerId: 'rpc-server', store: sharedDir });
     server.defaultWorkspace().service('math', {
