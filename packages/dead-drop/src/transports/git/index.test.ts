@@ -132,45 +132,54 @@ describe('git transport specifics', () => {
     ]);
   }, 90_000);
 
-  it('does not report a push as published when the commit never left the clone', async () => {
-    // Two runtimes sharing one working directory is not hypothetical: `ddrop
-    // connect` starts a second runtime from the same config file, so its clone
-    // is the running peer's clone. When the other process runs `reset --hard
-    // origin/<branch>` between our commit and our push, git answers the push
-    // with "Everything up-to-date" and exit 0. Treating that as success
-    // resolved the write and dropped the message with no error anywhere; a
-    // live GitHub run lost 10 of 50 requests exactly this way.
-    const remote = await bareRemote();
-    const workDir = await temp('deaddrop-git-shared-');
-    const armed = join(workDir, '..', 'reset-armed');
+  // Reproducing this needs a fake `git` on PATH that interferes between the
+  // commit and the push, and a fake `git` has to be an executable script.
+  // Windows cannot spawn one: `execFile` refuses a shell script, and it refuses
+  // `.cmd` without a shell. The defect and the fix are platform-independent, so
+  // the two Linux jobs carry this one.
+  it.skipIf(process.platform === 'win32')(
+    'does not report a push as published when the commit never left the clone',
+    async () => {
+      // Two runtimes sharing one working directory is not hypothetical: `ddrop
+      // connect` starts a second runtime from the same config file, so its clone
+      // is the running peer's clone. When the other process runs `reset --hard
+      // origin/<branch>` between our commit and our push, git answers the push
+      // with "Everything up-to-date" and exit 0. Treating that as success
+      // resolved the write and dropped the message with no error anywhere; a
+      // live GitHub run lost 10 of 50 requests exactly this way.
+      const remote = await bareRemote();
+      const workDir = await temp('deaddrop-git-shared-');
+      const armed = join(workDir, '..', 'reset-armed');
 
-    // Stands in for the other process: it discards the pending commit once,
-    // the first time a push is attempted while armed.
-    const shim = join(await temp('deaddrop-git-shim-'), 'git-shim.sh');
-    await writeFile(
-      shim,
-      '#!/bin/sh\n' +
-        'for arg in "$@"; do\n' +
-        `  if [ "$arg" = "push" ] && [ -f "${armed}" ]; then\n` +
-        `    rm -f "${armed}"\n` +
-        '    git reset --quiet --hard origin/deaddrop-data\n' +
-        '    break\n' +
-        '  fi\n' +
-        'done\n' +
-        'exec git "$@"\n',
-      { mode: 0o755 },
-    );
+      // Stands in for the other process: it discards the pending commit once,
+      // the first time a push is attempted while armed.
+      const shim = join(await temp('deaddrop-git-shim-'), 'git-shim.sh');
+      await writeFile(
+        shim,
+        '#!/bin/sh\n' +
+          'for arg in "$@"; do\n' +
+          `  if [ "$arg" = "push" ] && [ -f "${armed}" ]; then\n` +
+          `    rm -f "${armed}"\n` +
+          '    git reset --quiet --hard origin/deaddrop-data\n' +
+          '    break\n' +
+          '  fi\n' +
+          'done\n' +
+          'exec git "$@"\n',
+        { mode: 0o755 },
+      );
 
-    const transport = await store(remote, { workDir, gitPath: shim });
-    await transport.put('inbox/peer-b/warm.ddf', bytes('warm up'));
+      const transport = await store(remote, { workDir, gitPath: shim });
+      await transport.put('inbox/peer-b/warm.ddf', bytes('warm up'));
 
-    await writeFile(armed, '');
-    await transport.put('inbox/peer-b/must-survive.ddf', bytes('must survive'));
+      await writeFile(armed, '');
+      await transport.put('inbox/peer-b/must-survive.ddf', bytes('must survive'));
 
-    const observer = await store(remote);
-    const read = await observer.get('inbox/peer-b/must-survive.ddf');
-    expect(read && Buffer.from(read).toString()).toBe('must survive');
-  }, 90_000);
+      const observer = await store(remote);
+      const read = await observer.get('inbox/peer-b/must-survive.ddf');
+      expect(read && Buffer.from(read).toString()).toBe('must survive');
+    },
+    90_000,
+  );
 
   it('batches concurrent writes into a single commit', async () => {
     const remote = await bareRemote();
