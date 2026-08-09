@@ -39,14 +39,17 @@ The two packages **do not share a version**. `@fyrlabs/dead-drop` churns; `@fyrl
 - [ ] `NPM_TOKEN` is present in the repository secrets and is **read-write** for the `@fyrlabs` scope. (The first 0.1.0 attempt died with `E404 PUT`, which is what npm returns for an unauthorised publish, not a missing package.)
 - [ ] Tag name and GitHub release title are both `vX.Y.Z`. No `dead-drop` prefix.
 
+Publishing the GitHub release is what publishes to npm; the tag on its own does nothing. Push the tag whenever a version is worth marking, and come back for the second half when it has earned a release.
+
 ```bash
 git tag -a vX.Y.Z -m "vX.Y.Z"
-git push origin vX.Y.Z
+git push origin vX.Y.Z                                    # a candidate, nothing is published yet
+
+gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <notes>   # this publishes
 gh run watch $(gh run list --workflow=release.yml --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status
-gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <notes>
 ```
 
-The workflow publishes in dependency order and skips whichever package is already on the registry at its manifest version, so a release moving only one package works.
+The workflow publishes in dependency order and skips whichever package is already on the registry at its manifest version, so a release moving only one package works. If the release exists but its run failed, re-run it with `gh workflow run release.yml -f ref=vX.Y.Z` instead of re-tagging.
 
 ## 6. Verify the published artifact, not the green check
 

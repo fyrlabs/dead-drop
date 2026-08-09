@@ -82,7 +82,7 @@ Each layer is a subpath export of `@fyrlabs/dead-drop` (`./core`, `./runtime`, a
 
 ## Releasing
 
-Both packages publish from a `v*` tag, but they **do not share a version**. `@fyrlabs/dead-drop-transport-sdk` is the stable contract and moves on its own, rarely; `@fyrlabs/dead-drop` depends on it by caret range and churns freely. The release workflow skips whichever package is already on the registry at its manifest version, so a release that only moves one of them works. The tag name tracks `@fyrlabs/dead-drop`.
+Both packages publish from a published GitHub release on a `v*` tag, but they **do not share a version**. `@fyrlabs/dead-drop-transport-sdk` is the stable contract and moves on its own, rarely; `@fyrlabs/dead-drop` depends on it by caret range and churns freely. The release workflow skips whichever package is already on the registry at its manifest version, so a release that only moves one of them works. The tag name tracks `@fyrlabs/dead-drop`.
 
 Never pin the transport-sdk dependency to an exact version. `DeadDropError` identity depends on one copy of transport-sdk being installed, and an exact pin forces a second copy into any tree that also holds a third-party adapter. See invariant 10.
 
@@ -90,6 +90,6 @@ The checklist and the notes body are in [.github/RELEASE_TEMPLATE.md](.github/RE
 
 **Releasing does not need permission. Releasing something broken is the only thing to avoid.** When a change is an improvement and [.github/RELEASE_CHECKLIST.md](.github/RELEASE_CHECKLIST.md) passes end to end, publish it and say so afterwards. Do not leave verified work sitting unreleased waiting to be asked about, and do not stop to confirm a routine patch. Version numbers are cheap; a broken artifact on the registry is not, because a published version can never be reused.
 
-**Pushing a `v*` tag is the publish**, since that is what `release.yml` triggers on. There is no held state on the remote. When a version is worth cutting but not yet worth shipping, make the tag locally and leave it unpushed: `git push origin vX.Y.Z` releases it later, `git tag -d vX.Y.Z` drops it if the following changes turn out badly. A held tag only exists on the machine that made it, so record it in the handoff notes or it is invisible to everyone else.
+**A tag is not a release.** `release.yml` publishes when a GitHub release is published, so tags are cheap and reversible: cut and push as many as are useful, and publish only the ones that earn it. Pushing `vX.Y.Z` marks a candidate and does nothing else; `gh release create vX.Y.Z` is what puts it on npm. A candidate that the following changes prove bad is simply never released, and the tag can be dropped with `git push origin :refs/tags/vX.Y.Z`. If a release exists but its publish run failed, re-run the workflow with `gh workflow run release.yml -f ref=vX.Y.Z` rather than re-tagging.
 
 **Throwaway GitHub repositories for testing are fine to create without asking**, and fine to leave behind. Make them private (`gh repo create <owner>/<name> --private`), reuse one across sessions where that is simpler, and do not interrupt anyone to request cleanup; deleting them needs a `delete_repo` scope that is deliberately not granted. `scripts/github-live-check.sh` takes the repository as its argument for this reason.

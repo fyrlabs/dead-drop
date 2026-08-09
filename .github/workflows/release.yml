@@ -1,8 +1,21 @@
 name: Release
 
+# Publishing happens when a GitHub release is published, not when a tag is
+# pushed. A tag is then a cheap, reversible marker: cut as many as are useful,
+# push them, and publish only the ones that earn it. Triggering on the tag made
+# the two the same act, so there was no way to hold a candidate anywhere except
+# on the machine that tagged it.
+#
+# `workflow_dispatch` covers the case where a release exists but its run failed,
+# which is otherwise awkward to retry.
 on:
-  push:
-    tags: ['v*']
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag to publish from
+        required: true
 
 permissions:
   contents: read
@@ -12,7 +25,11 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      # A release event checks out the tag it was created from; a manual run has
+      # to be told which tag, or it would publish whatever main happens to hold.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
