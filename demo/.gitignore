@@ -1,3 +1,7 @@
 # Everything the demo creates while it runs.
+.secret
 shared/
+shared-repo.git/
 */.deaddrop/
+# Written by `demo/use` from one of the deaddrop.<transport>.json variants.
+*/deaddrop.config.json

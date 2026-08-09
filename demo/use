@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Picks which transport both demo peers use.
+#
+#     demo/use filesystem | git | github
+#
+# Copies the chosen variant over each peer's `deaddrop.config.json`, which is
+# the file every `ddrop` command looks for by default. Switching this way rather
+# than passing `--config` everywhere keeps the commands in the README identical
+# whichever transport is underneath, which is the point of the exercise.
+
+set -euo pipefail
+
+kind="${1:-}"
+case "$kind" in
+  filesystem | git | github) ;;
+  *)
+    echo "usage: demo/use <filesystem|git|github>" >&2
+    exit 2
+    ;;
+esac
+
+cd "$(dirname "$0")"
+
+for peer in peer-a peer-b; do
+  src="$peer/deaddrop.$kind.json"
+  if [ ! -f "$src" ]; then
+    echo "demo/use: missing $src" >&2
+    exit 1
+  fi
+  cp "$src" "$peer/deaddrop.config.json"
+done
+
+if [ "$kind" = git ] && [ ! -d shared-repo.git ]; then
+  git init --bare --quiet shared-repo.git
+  echo "demo/use: created demo/shared-repo.git to act as the remote"
+fi
+
+if [ "$kind" = github ] && grep -q CHANGE-ME peer-a/deaddrop.config.json; then
+  echo "demo/use: set \"repo\" in peer-a/deaddrop.github.json and peer-b/deaddrop.github.json," >&2
+  echo "          then run this again. You also need 'gh auth login && gh auth setup-git'." >&2
+  exit 1
+fi
+
+echo "demo/use: both peers now talk over the $kind transport"

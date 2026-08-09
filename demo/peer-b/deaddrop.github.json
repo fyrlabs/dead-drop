@@ -1,0 +1,22 @@
+{
+  "dataDir": ".deaddrop",
+  "workspaces": [
+    {
+      "name": "demo",
+      "peerId": "peer-b",
+      "secrets": ["${env:DEADDROP_SECRET}"],
+      "transports": [
+        {
+          "use": "github",
+          "config": {
+            "repo": "CHANGE-ME/your-private-repo",
+            "workDir": ".deaddrop/github-work",
+            "createIfMissing": true
+          }
+        }
+      ],
+      "polling": { "minIntervalMs": 3000, "maxIntervalMs": 15000 },
+      "exposures": []
+    }
+  ]
+}

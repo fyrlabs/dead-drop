@@ -1,0 +1,21 @@
+{
+  "dataDir": ".deaddrop",
+  "workspaces": [
+    {
+      "name": "demo",
+      "peerId": "peer-a",
+      "secrets": ["${env:DEADDROP_SECRET}"],
+      "transports": [
+        {
+          "use": "git",
+          "config": {
+            "remote": "../shared-repo.git",
+            "workDir": ".deaddrop/git-work",
+            "freshnessMs": 1000
+          }
+        }
+      ],
+      "exposures": [{ "name": "site", "type": "static", "directory": "../site" }]
+    }
+  ]
+}
