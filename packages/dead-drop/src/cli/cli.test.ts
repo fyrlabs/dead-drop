@@ -118,6 +118,11 @@ describe('ddrop init', () => {
     expect(written.workspaces[0]?.name).toBe('my-project');
     // A literal secret in a config file that people commit is the failure mode
     // this template exists to avoid.
+    //
+    // The forward slash is the assertion, not an accident of the platform this
+    // runs on: a config is copied to the second machine, and `path.join` writes
+    // `.deaddrop\secret` on Windows, which reads as one filename containing a
+    // backslash everywhere else. Caught by the Windows CI job, not by review.
     expect(written.workspaces[0]?.secrets).toEqual(['${file:.deaddrop/secret}']);
     // Explicit, because the old default was the hostname and two runtimes on one
     // machine then collided on a mailbox address with an unexplained DECODE_FAILED.

@@ -15,7 +15,7 @@ import { parseArgs } from 'node:util';
 import { hostname } from 'node:os';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { VERSION } from '../version.js';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
 import { DeadDropError, generateWorkspaceSecret } from '../protocol/index.js';
 import { createLogger, prettySink, type LogRecord, type Span } from '../core/index.js';
@@ -218,7 +218,13 @@ async function init(values: Values, io: CliIo): Promise<number> {
   const path = resolve(typeof values.config === 'string' ? values.config : 'deaddrop.config.json');
   const dir = dirname(path);
   const dataDir = '.deaddrop';
-  const secretFile = join(dataDir, 'secret');
+  // A forward slash even on Windows, and never `join`. This string goes into the
+  // config file, and a config is copied between machines -- the README says to
+  // copy one to the second peer. `join` writes `.deaddrop\secret` on Windows,
+  // which reads as a single filename containing a backslash anywhere else.
+  // `path.resolve` accepts forward slashes on every platform, so one spelling
+  // works for both.
+  const secretFile = `${dataDir}/secret`;
   const peerId = typeof values.peer === 'string' ? values.peer : defaultPeerId();
   const root =
     typeof values.root === 'string'
