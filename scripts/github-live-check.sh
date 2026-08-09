@@ -25,7 +25,6 @@
 # and a 30 MiB object through git.
 
 set -uo pipefail
-export PATH="$HOME/.nvm/versions/node/v26.7.0/bin:$PATH"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="${1:-}"
@@ -103,8 +102,9 @@ STATIC="$WORK/site"; mkdir -p "$STATIC"
 echo "hello-over-github" > "$STATIC/index.txt"
 
 # Same trap as the filesystem check: peerId defaults to the hostname, so two
-# runtimes on one machine would share a mailbox address. The workDirs must
-# differ too, or the two peers fight over one local clone.
+# runtimes on one machine would share a mailbox address. Separate workDirs are
+# given here for clarity; the transport would otherwise sort it out itself by
+# cloning the second runtime into `<workDir>.peers/`.
 write_config() { # $1 = peer dir, $2 = peer id, $3 = exposures body
   mkdir -p "$1"
   cat > "$1/deaddrop.config.json" <<JSON

@@ -22,7 +22,6 @@
 #   scripts/two-peer-check.sh 0.2.2        # against that version from npm
 
 set -uo pipefail
-export PATH="$HOME/.nvm/versions/node/v26.7.0/bin:$PATH"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FROM_NPM="${1:-}"
