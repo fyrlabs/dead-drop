@@ -86,6 +86,14 @@ export interface PeerRecord {
   version: string;
 }
 
+export interface PeerReport {
+  peers: PeerRecord[];
+  /** Store transports that could not be listed. Peers they hold are missing. */
+  unreadable: Array<{ transport: string; message: string }>;
+  /** Store transports the peers were read from. Zero means the report says nothing. */
+  read: number;
+}
+
 /** What is waiting in one peer's inbox, counted without decrypting anything. */
 export interface QueueDepth {
   peerId: string;
@@ -495,11 +503,21 @@ export class Workspace {
 
   // -------------------------------------------------------------- discovery
 
-  /** Peers that have published a beacon recently. */
-  async discover(options: { includeStale?: boolean } = {}): Promise<PeerRecord[]> {
+  /**
+   * Peers that have published a beacon recently, with which stores answered.
+   *
+   * `read` exists for the same reason it does on `queues()`: an empty `peers`
+   * means "nobody has announced" only when at least one store could be listed.
+   * When every store fails this used to return an empty array and log the
+   * reason at debug, so `ddrop discover` printed "No peers have announced
+   * themselves yet" and exited 0 while the truth was that it could not look.
+   */
+  async discoverPeers(options: { includeStale?: boolean } = {}): Promise<PeerReport> {
     const stores = this.manager.stores();
     const seen = new Map<string, PeerRecord>();
     const cutoff = this.clock.now() - this.presenceTtlMs;
+    const unreadable: PeerReport['unreadable'] = [];
+    let read = 0;
 
     for (const entry of stores) {
       const store = entry.transport as StoreTransport;
@@ -507,9 +525,17 @@ export class Workspace {
       try {
         listed = await store.list(peersPrefix(this.name), { limit: 500 });
       } catch (error) {
-        this.logger.debug('peer listing failed', { transport: entry.name, error: String(error) });
+        const failure = DeadDropError.from(error);
+        // Warn, not debug: this is the reason discovery looks empty, and it
+        // reached no default log configuration where it was.
+        this.logger.warn('peer listing failed', {
+          transport: entry.name,
+          error: failure.message,
+        });
+        unreadable.push({ transport: entry.name, message: failure.message });
         continue;
       }
+      read += 1;
       for (const item of listed.entries) {
         const raw = await store.get(item.key).catch(() => undefined);
         if (!raw) continue;
@@ -520,7 +546,17 @@ export class Workspace {
         if (!existing || existing.announcedAt < record.announcedAt) seen.set(record.peerId, record);
       }
     }
-    return [...seen.values()].sort((a, b) => (a.peerId < b.peerId ? -1 : 1));
+    return {
+      peers: [...seen.values()].sort((a, b) => (a.peerId < b.peerId ? -1 : 1)),
+      unreadable,
+      read,
+    };
+  }
+
+  /** Peers that have published a beacon recently. Use `discoverPeers` to tell an
+   * empty workspace from one that could not be read. */
+  async discover(options: { includeStale?: boolean } = {}): Promise<PeerRecord[]> {
+    return (await this.discoverPeers(options)).peers;
   }
 
   /**

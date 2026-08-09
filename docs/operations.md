@@ -107,7 +107,7 @@ The buffer holds the most recent 500 finished spans and is memory-only, so it is
 
 **`cannot reach the dead-drop runtime … Is "ddrop start" running?`**: the CLI could not open the control socket. The path it tried is in the message. Client commands derive it from the config they discover, so a command run from a directory without `deaddrop.config.json` falls back to `~/.deaddrop/deaddrop.sock` and misses a project-local runtime; pass `--config` or `--socket` in that case.
 
-**`ddrop discover` shows nothing.** Peers announce every 30 seconds and a beacon is stale after 90. Confirm both peers use the same workspace *name* and the same secret. The name is an HKDF salt, so `demo` and `Demo` produce unrelated keys and neither can read the other. `ddrop discover --stale` shows expired beacons.
+**`ddrop discover` shows nothing.** First check the exit code: `ddrop discover` exits 1 and names the transport when it could not list any store, which is a different problem from an empty workspace. If it exits 0, peers announce every 30 seconds and a beacon is stale after 90. Confirm both peers use the same workspace *name* and the same secret. The name is an HKDF salt, so `demo` and `Demo` produce unrelated keys and neither can read the other. `ddrop discover --stale` shows expired beacons.
 
 **Requests time out.** `ddrop transport health` first. On a git transport a round trip is a push plus a poll interval, so a 30-second default timeout can be genuinely too short; raise `requestTimeoutMs`. Check the target peer is running and its `peerId` is what you are addressing.
 

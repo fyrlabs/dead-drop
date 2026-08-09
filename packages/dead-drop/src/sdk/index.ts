@@ -53,9 +53,27 @@ export class DeadDropClient {
     return this.control.request('GET', '/status');
   }
 
+  /**
+   * Peers that have announced themselves recently.
+   *
+   * Throws rather than returning `[]` when no store transport could be listed:
+   * the return type has nowhere to put "I could not look", and an empty array
+   * that means "the workspace is unreachable" is the more dangerous answer.
+   */
   async peers(options: { includeStale?: boolean } = {}): Promise<PeerRecord[]> {
     const query = this.query({ ...(options.includeStale ? { stale: 'true' } : {}) });
-    const body = await this.control.request<{ peers: PeerRecord[] }>('GET', `/peers${query}`);
+    const body = await this.control.request<{
+      peers: PeerRecord[];
+      unreadable?: Array<{ transport: string; message: string }>;
+      read?: number;
+    }>('GET', `/peers${query}`);
+    if (body.read === 0) {
+      const detail = (body.unreadable ?? []).map((item) => item.transport).join(', ');
+      throw new DeadDropError(
+        'NO_TRANSPORT_AVAILABLE',
+        `no store transport could be listed${detail ? ` (${detail})` : ''}, so no peer can be seen`,
+      );
+    }
     return body.peers;
   }
 

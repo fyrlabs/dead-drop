@@ -10,9 +10,13 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 - `ddrop queues` shows how many messages are waiting in each peer's inbox and how old the oldest one is, so you can see a peer that has stopped keeping up without waiting for a request to time out. It reads object keys only: nothing is decrypted, and nothing is consumed. Also available as `client.queues()`.
 
+### Fixed
+
+- `ddrop discover` said "No peers have announced themselves yet" when it could not reach any transport at all, and exited 0. It now names the transport that failed and exits 1, so an unreachable workspace no longer looks like an empty one. `client.peers()` throws in the same case instead of returning an empty list.
+
 ### Changed
 
-- `@fyrlabs/dead-drop-transport-sdk`: the conformance suite now checks that listing a prefix returns keys nested below it, not just its direct children. Every built-in transport already did this; a third-party adapter that did not would have reported every queue as empty.
+- `@fyrlabs/dead-drop-transport-sdk` 1.1.0: the conformance suite now checks that listing a prefix returns keys nested below it, not just its direct children. Every built-in transport already did this; a third-party adapter that did not would have reported every queue as empty.
 
 ## [0.5.0]
 

@@ -328,6 +328,38 @@ describe('queued depth', () => {
   });
 });
 
+describe('discovery', () => {
+  it('reports read=0 when no store could be listed, rather than no peers', async () => {
+    // The shipped bug: every store failing produced an empty peer list and a
+    // debug log, so `ddrop discover` printed "No peers have announced
+    // themselves yet" and exited 0 in the one situation where that sentence is
+    // most misleading -- the command people run first when something is wrong.
+    const store = new ListingStore([]);
+    store.failListWith = new DeadDropError('UNAUTHORIZED', 'store is unreachable');
+    const ws = workspace(store, new TestClock());
+    await ws.start();
+
+    const report = await ws.discoverPeers();
+    expect(report.read).toBe(0);
+    expect(report.peers).toEqual([]);
+    expect(report.unreadable).toEqual([{ transport: 'hanging', message: 'store is unreachable' }]);
+
+    await ws.stop();
+  });
+
+  it('counts a store that answered with no peers as read', async () => {
+    const ws = workspace(new ListingStore([]), new TestClock());
+    await ws.start();
+
+    const report = await ws.discoverPeers();
+    expect(report.read).toBe(1);
+    expect(report.peers).toEqual([]);
+    expect(report.unreadable).toEqual([]);
+
+    await ws.stop();
+  });
+});
+
 describe('delivery concurrency', () => {
   it('reaches the mailbox from the workspace config', () => {
     // The engine has always had this option and nothing ever set it, so the

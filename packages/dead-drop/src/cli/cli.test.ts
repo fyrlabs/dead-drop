@@ -292,6 +292,27 @@ describe('ddrop commands that need a runtime', () => {
     expect(io.stderr.join('\n')).toMatch(/lower bound/);
   });
 
+  it('fails ddrop discover when no transport could be listed', async () => {
+    const socket = await fakeControlPlane({
+      peers: [],
+      unreadable: [{ transport: 'filesystem', message: 'store is unreachable' }],
+      read: 0,
+    });
+
+    const io = capture();
+    expect(await run(['discover', '--socket', socket], io)).toBe(1);
+    expect(io.stderr.join('\n')).toContain('store is unreachable');
+    expect(io.stdout.join('\n')).not.toMatch(/No peers have announced/);
+  });
+
+  it('still reports an empty workspace as empty when a store answered', async () => {
+    const socket = await fakeControlPlane({ peers: [], unreadable: [], read: 1 });
+
+    const io = capture();
+    expect(await run(['discover', '--socket', socket], io)).toBe(0);
+    expect(io.stdout.join('\n')).toContain('No peers have announced');
+  });
+
   it('marks the runtime own queue, which is the one it will drain itself', async () => {
     const socket = await fakeControlPlane({
       workspace: 'demo',

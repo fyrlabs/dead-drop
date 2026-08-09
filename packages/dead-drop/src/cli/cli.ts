@@ -368,11 +368,23 @@ async function discover(values: Values, io: CliIo): Promise<number> {
     await client(values)
   ).request<{
     peers: Array<{ peerId: string; services: string[]; exposures: string[]; announcedAt: number }>;
+    unreadable: Array<{ transport: string; message: string }>;
+    read: number;
   }>('GET', `/peers${query}`);
-  if (values.json) {
-    io.out(JSON.stringify(body, null, 2));
-    return 0;
+  if (values.json) io.out(JSON.stringify(body, null, 2));
+
+  for (const problem of body.unreadable) {
+    io.err(`ddrop: could not list ${problem.transport}: ${problem.message}`);
   }
+  // Same rule as `queues`: an empty list means "nobody has announced" only if
+  // something could be read. Otherwise this printed a reassuring line and
+  // exited 0 while the reason sat in a debug log nobody had enabled.
+  if (body.read === 0) {
+    io.err('ddrop: no store transport could be listed, so no peer can be seen.');
+    return 1;
+  }
+
+  if (values.json) return 0;
   if (body.peers.length === 0) {
     io.out('No peers have announced themselves yet.');
     return 0;

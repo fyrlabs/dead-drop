@@ -128,7 +128,9 @@ export async function startControlPlane(options: ControlPlaneOptions): Promise<C
     if (method === 'GET' && path === '/peers') {
       const workspace = resolveWorkspace(runtime, url);
       const includeStale = url.searchParams.get('stale') === 'true';
-      send(response, 200, { peers: await workspace.discover({ includeStale }) });
+      // `peers` keeps its shape; `read` and `unreadable` are additive, so an
+      // older client reading only `peers` is unaffected.
+      send(response, 200, await workspace.discoverPeers({ includeStale }));
       return;
     }
     if (method === 'GET' && path === '/queues') {
