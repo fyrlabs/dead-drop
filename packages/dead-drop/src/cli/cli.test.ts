@@ -292,6 +292,27 @@ describe('ddrop commands that need a runtime', () => {
     expect(io.stderr.join('\n')).toMatch(/lower bound/);
   });
 
+  it('marks the runtime own queue, which is the one it will drain itself', async () => {
+    const socket = await fakeControlPlane({
+      workspace: 'demo',
+      peerId: 'peer-a',
+      queues: [
+        { peerId: 'peer-b', count: 2, bytes: 100, oldestId: 'msg_x' },
+        { peerId: 'peer-a', count: 1, bytes: 50, oldestId: 'msg_y', oldestAt: Date.now() - 5000 },
+      ],
+      unreadable: [],
+      read: 1,
+      truncated: false,
+    });
+
+    const io = capture();
+    expect(await run(['queues', '--socket', socket], io)).toBe(0);
+    const lines = io.stdout.join('\n').split('\n');
+    expect(lines.find((line) => line.startsWith('peer-a'))).toContain('(this peer)');
+    expect(lines.find((line) => line.startsWith('peer-b'))).not.toContain('(this peer)');
+    expect(lines.find((line) => line.startsWith('peer-a'))).toMatch(/oldest 5s ago/);
+  });
+
   // `ddrop init` writes a project-local dataDir, so a client that always
   // assumed ~/.deaddrop would never find a runtime started from that config.
   it('looks for the socket under the config data dir, not the default one', async () => {
