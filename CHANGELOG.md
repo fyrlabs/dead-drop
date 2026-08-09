@@ -6,6 +6,8 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+## [0.2.6]
+
 ### Fixed
 
 - A request that timed out while its transport was still sending crashed the runtime. `ddrop connect` died outright the first time this happened during a transport outage.
