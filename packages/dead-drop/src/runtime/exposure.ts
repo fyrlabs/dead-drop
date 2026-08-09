@@ -58,8 +58,16 @@ export function registerExposure(
       : staticHandler(config, { ...options, logger });
 
   const stop = workspace.handle(channel, async (payload, context) => {
-    if (config.allowPeers && !config.allowPeers.includes(context.from)) {
-      logger.warn('rejecting request from a peer that is not allowed', { from: context.from });
+    // `context.identity`, never `context.from`. A `ddrop connect` client runs
+    // its own runtime with a per-process mailbox address, so matching on `from`
+    // meant an `allowPeers` list could never name the one thing a user actually
+    // has: the peer id in their config. The list denied everyone, which failed
+    // safe and made the feature useless.
+    if (config.allowPeers && !config.allowPeers.includes(context.identity)) {
+      logger.warn('rejecting request from a peer that is not allowed', {
+        identity: context.identity,
+        from: context.from,
+      });
       return encodeHttpResponse({
         status: 403,
         statusText: 'Forbidden',

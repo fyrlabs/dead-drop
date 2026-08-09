@@ -41,6 +41,8 @@ async function makeRuntime(options: {
   store: string;
   exposures?: Array<Record<string, unknown>>;
   subscribe?: string[];
+  /** Runs as a short-lived session, the way `ddrop connect` does. */
+  sessionId?: string;
 }): Promise<DeadDropRuntime> {
   const dataDir = await mkdtemp(join(tmpdir(), `deaddrop-${options.peerId}-`));
   cleanups.push(() => rm(dataDir, { recursive: true, force: true }));
@@ -63,7 +65,10 @@ async function makeRuntime(options: {
     ],
   });
 
-  const runtime = new DeadDropRuntime({ config });
+  const runtime = new DeadDropRuntime({
+    config,
+    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+  });
   await runtime.start();
   cleanups.push(() => runtime.stop());
   return runtime;
@@ -264,6 +269,60 @@ describe('two runtimes over a shared directory', () => {
     expect(response.status).toBe(404);
     expect(await response.text()).toContain('NOT_FOUND');
   }, 30_000);
+
+  it('lets allowPeers name the configured peer id, not a per-process address', async () => {
+    // `ddrop connect` runs its own runtime and takes a distinct mailbox address
+    // so it never polls the same inbox as the peer it shares a config with.
+    // That address used to be what an exposure saw, so an `allowPeers` list
+    // could not name it: the list denied everyone, and the only access control
+    // in the product was unusable from the main way people call an exposure.
+    const siteDir = await mkdtemp(join(tmpdir(), 'deaddrop-allow-'));
+    cleanups.push(() => rm(siteDir, { recursive: true, force: true }));
+    await writeFile(join(siteDir, 'index.txt'), 'members only');
+
+    await makeRuntime({
+      peerId: 'host-peer',
+      store: sharedDir,
+      exposures: [
+        { name: 'private', type: 'static', directory: siteDir, allowPeers: ['guest-peer'] },
+      ],
+    });
+
+    const guest = await makeRuntime({
+      peerId: 'guest-peer',
+      store: sharedDir,
+      sessionId: 'abc123',
+    });
+    const stranger = await makeRuntime({ peerId: 'stranger-peer', store: sharedDir });
+
+    // The address really is different, or this test proves nothing.
+    expect(guest.defaultWorkspace().peerId).not.toBe('guest-peer');
+    expect(guest.defaultWorkspace().identity).toBe('guest-peer');
+
+    const allowed = await connect({
+      workspace: guest.defaultWorkspace(),
+      target: 'host-peer',
+      exposure: 'private',
+      logger: guest.logger,
+      timeoutMs: 20_000,
+    });
+    cleanups.push(() => allowed.close());
+    const permitted = await fetch(`${allowed.url}/index.txt`);
+    expect(permitted.status).toBe(200);
+    expect(await permitted.text()).toBe('members only');
+
+    const refused = await connect({
+      workspace: stranger.defaultWorkspace(),
+      target: 'host-peer',
+      exposure: 'private',
+      logger: stranger.logger,
+      timeoutMs: 20_000,
+    });
+    cleanups.push(() => refused.close());
+    const denied = await fetch(`${refused.url}/index.txt`);
+    expect(denied.status).toBe(403);
+    expect(await denied.text()).toContain('does not accept requests from your peer');
+  }, 40_000);
 
   it('carries an RPC call and a service error', async () => {
     const server = await makeRuntime({ peerId: 'rpc-server', store: sharedDir });

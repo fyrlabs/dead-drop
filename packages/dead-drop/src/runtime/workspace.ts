@@ -19,6 +19,7 @@ import {
   encodeFrame,
   encodeJson,
   isErrorPayload,
+  senderIdentity,
   JSON_CONTENT_TYPE,
   type Envelope,
 } from '../protocol/index.js';
@@ -49,7 +50,10 @@ export type RequestHandler = (
 ) => Promise<Uint8Array | undefined> | Uint8Array | undefined;
 
 export interface RequestContext {
+  /** Mailbox address of the caller. Reply routing only. */
   from: string;
+  /** Who the caller is. Use this, not `from`, for any access decision. */
+  identity: string;
   channel: string;
   headers: Record<string, string>;
   contentType: string;
@@ -59,7 +63,10 @@ export interface RequestContext {
 export type EventHandler = (payload: Uint8Array, context: EventContext) => Promise<void> | void;
 
 export interface EventContext {
+  /** Mailbox address of the publisher. */
   from: string;
+  /** Who the publisher is. Use this, not `from`, for any access decision. */
+  identity: string;
   channel: string;
   headers: Record<string, string>;
 }
@@ -85,6 +92,12 @@ export interface WorkspaceOptions {
   clock?: Clock;
   /** File used to persist the deduplication set across restarts. */
   dedupePath?: string;
+  /**
+   * Marks this runtime as a short-lived session sharing a config with a
+   * longer-lived peer. It takes its own mailbox address so the two do not fight
+   * over one inbox, while keeping the configured peer id as its identity.
+   */
+  sessionId?: string;
   /** How often the presence beacon is rewritten. Default 30s. */
   presenceIntervalMs?: number;
   /** Beacons older than this are treated as gone. Default 3x the interval. */
@@ -102,7 +115,17 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 export class Workspace {
   readonly name: string;
+  /**
+   * This runtime's mailbox address. Replies come here, and it is unique per
+   * running process so two runtimes never poll one inbox.
+   */
   readonly peerId: string;
+  /**
+   * Who this runtime is, as configured. Equal to `peerId` for an ordinary peer,
+   * and the un-suffixed configured id for a `ddrop connect` session. This is
+   * what an exposure's `allowPeers` list is written against.
+   */
+  readonly identity: string;
   readonly manager: TransportManager;
   readonly mailbox: MailboxEngine;
   readonly metrics: MetricsRegistry;
@@ -127,7 +150,8 @@ export class Workspace {
   constructor(options: WorkspaceOptions) {
     this.config = options.config;
     this.name = options.config.name;
-    this.peerId = options.config.peerId ?? defaultPeerId();
+    this.identity = options.config.peerId ?? defaultPeerId();
+    this.peerId = options.sessionId ? `${this.identity}-c${options.sessionId}` : this.identity;
     this.logger = options.logger.child({ workspace: this.name, peer: this.peerId });
     this.clock = options.clock ?? systemClock;
     this.metrics = options.metrics ?? new Metrics();
@@ -268,6 +292,7 @@ export class Workspace {
       kind: 'event',
       channel,
       from: this.peerId,
+      identity: this.identity,
       contentType: options.contentType ?? JSON_CONTENT_TYPE,
       ts: this.clock.now(),
       payload,
@@ -304,6 +329,7 @@ export class Workspace {
       kind: 'request',
       channel,
       from: this.peerId,
+      identity: this.identity,
       to: target,
       contentType: options.contentType ?? JSON_CONTENT_TYPE,
       ts: this.clock.now(),
@@ -485,6 +511,7 @@ export class Workspace {
     const handler = this.requestHandlers.get(envelope.channel);
     const context: RequestContext = {
       from: envelope.from,
+      identity: senderIdentity(envelope),
       channel: envelope.channel,
       headers: envelope.headers ?? {},
       contentType: envelope.contentType,
@@ -521,6 +548,7 @@ export class Workspace {
       kind: 'response',
       channel: envelope.channel,
       from: this.peerId,
+      identity: this.identity,
       to: envelope.from,
       correlationId: envelope.id,
       contentType,
@@ -537,6 +565,7 @@ export class Workspace {
     if (!handlers || handlers.size === 0) return;
     const context: EventContext = {
       from: envelope.from,
+      identity: senderIdentity(envelope),
       channel: envelope.channel,
       headers: envelope.headers ?? {},
     };
@@ -569,6 +598,7 @@ export class Workspace {
       kind: 'control',
       channel: 'presence',
       from: this.peerId,
+      identity: this.identity,
       contentType: JSON_CONTENT_TYPE,
       ts: this.clock.now(),
       payload: encodeJson(record),

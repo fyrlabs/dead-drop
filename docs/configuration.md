@@ -123,10 +123,14 @@ An exposure makes a local application reachable to peers. Peers reach it with `d
 | `type` | string | **yes** | | `http` or `static`. |
 | `target` | string | for `http` | | Absolute `http:` or `https:` url, e.g. `http://localhost:3000`. Other schemes are rejected. |
 | `directory` | string | for `static` | | Directory to serve. Paths are clamped inside it, so no request can escape the root. |
-| `allowPeers` | string[] | no | every workspace member | Peers allowed to call this exposure. |
+| `allowPeers` | string[] | no | every workspace member | Peer ids allowed to call this exposure, written exactly as they appear in each caller's `peerId`. |
 | `timeoutMs` | number | no | `30000` | Per-request timeout. Must be positive. |
 
 Static exposures serve `GET` and `HEAD` only, fall back to `index.html` for a directory, and refuse files larger than 32 MiB.
+
+`allowPeers` matches the caller's configured `peerId`, not the address its replies go to. Those differ for a `ddrop connect` client: it runs a runtime of its own and takes a per-process mailbox address so it never polls the same inbox as an already-running peer sharing the config file. Write the list against the `peerId` in the caller's config and it matches either way.
+
+It is a guardrail, not a security boundary. Every peer holding the workspace secret can write any peer id it likes, so `allowPeers` keeps honest peers out of an exposure that is not for them. It does not defend against a workspace member who has decided to lie. Use a separate workspace and a separate secret when the boundary has to hold.
 
 ## Two gaps worth knowing
 

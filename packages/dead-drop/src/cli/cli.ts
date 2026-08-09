@@ -392,19 +392,20 @@ async function connectCommand(args: string[], values: Values, io: CliIo): Promis
   // has to translate requests, and routing them through the control plane would
   // mean base64-ing every request body through a second JSON hop.
   //
-  // That means this process is a second peer, so it must not claim the peer id
-  // of an already-running `ddrop start`: two runtimes polling one inbox would
-  // race for the same messages and lose responses. It gets its own ephemeral
-  // identity, and withdraws its presence beacon on exit.
-  const base = await resolveConfig(values);
-  const config: RuntimeConfig = {
-    ...base,
-    workspaces: base.workspaces.map((workspace) => ({
-      ...workspace,
-      peerId: `${workspace.peerId ?? 'peer'}-c${process.pid.toString(16)}`,
-    })),
-  };
-  const runtime = new DeadDropRuntime({ config, logFormat: 'pretty', version: VERSION });
+  // That means this process is a second peer, so it must not claim the mailbox
+  // address of an already-running `ddrop start`: two runtimes polling one inbox
+  // would race for the same messages and lose responses. `sessionId` gives it
+  // its own address while it keeps the configured peer id as its identity, so
+  // an exposure's `allowPeers` list still recognises it. Rewriting the config's
+  // `peerId` here, which is what this used to do, changed both at once and made
+  // `allowPeers` impossible to write.
+  const config = await resolveConfig(values);
+  const runtime = new DeadDropRuntime({
+    config,
+    logFormat: 'pretty',
+    version: VERSION,
+    sessionId: process.pid.toString(16),
+  });
   await runtime.start();
   const workspace =
     typeof values.workspace === 'string'

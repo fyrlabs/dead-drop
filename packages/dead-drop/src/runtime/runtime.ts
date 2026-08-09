@@ -43,6 +43,13 @@ export interface RuntimeOptions {
   /** Retained log records available through `logs()`. Default 500. */
   logBufferSize?: number;
   version?: string;
+  /**
+   * Marks this process as a short-lived session sharing a config file with a
+   * longer-lived runtime, which is what `ddrop connect` is. Each workspace
+   * takes its own mailbox address so the two never poll one inbox, and keeps
+   * the configured peer id as the identity an exposure authorises against.
+   */
+  sessionId?: string;
 }
 
 export interface RuntimeStatus {
@@ -72,6 +79,7 @@ export class DeadDropRuntime {
   private readonly workspaces = new Map<string, Workspace>();
   private readonly exposures = new Map<string, ExposureHandle[]>();
   private readonly version: string;
+  private readonly sessionId: string | undefined;
   private startedAt = 0;
   private started = false;
 
@@ -81,6 +89,7 @@ export class DeadDropRuntime {
     this.loader = options.loader;
     this.baseDir = options.baseDir ?? process.cwd();
     this.version = options.version ?? VERSION;
+    this.sessionId = options.sessionId;
     this.logBuffer = new MemoryLogSink(options.logBufferSize ?? 500);
 
     const format = options.logFormat ?? 'json';
@@ -202,6 +211,7 @@ export class DeadDropRuntime {
       tracer: this.tracer,
       clock: this.clock,
       dedupePath: join(this.config.dataDir, `${config.name}.dedupe.json`),
+      ...(this.sessionId ? { sessionId: this.sessionId } : {}),
       version: this.version,
     });
 

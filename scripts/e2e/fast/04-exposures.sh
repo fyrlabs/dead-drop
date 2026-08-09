@@ -8,12 +8,12 @@
 # workspace secret can address every other peer, so an exposure that should not
 # be readable by the whole workspace has to say so, and that has to hold.
 #
-# Worth knowing before reading the first scenario: `ddrop connect` runs its own
-# runtime in-process and gives it an ephemeral peer id, `<configured>-c<pid>`,
-# so it cannot collide with an already-running `ddrop start` sharing the config.
-# That id is what an exposure sees in `context.from`, so an `allowPeers` list
-# written by hand can never match a CLI proxy client. The list is discovered
-# here at run time for exactly that reason.
+# The list names configured peer ids, exactly as they appear in a peer's config.
+# That is worth asserting rather than assuming: `ddrop connect` runs its own
+# runtime with its own mailbox address, `<configured>-c<pid>`, so that it never
+# polls the same inbox as an already-running peer sharing the config. Until
+# 0.2.7 that address was also what the exposure checked, so a hand-written list
+# matched nobody and denied everyone.
 
 EX="$WORK/exposures"
 SHARED="$EX/store"
@@ -21,7 +21,8 @@ PRIVATE="$EX/private"
 mkdir -p "$SHARED" "$PRIVATE"
 echo "members-only" > "$PRIVATE/index.txt"
 
-# The identity a `ddrop connect` process announced, read from its own log.
+# The mailbox address a `ddrop connect` process announced, read from its own
+# log. Used only to prove it differs from the identity being authorised.
 connect_peer_id() { # $1 = connect log
   grep -o 'peer=[A-Za-z0-9._-]*' "$1" 2>/dev/null | head -1 | cut -d= -f2
 }
@@ -50,29 +51,26 @@ wait_for 15 1 port_accepts "$TARGET_PORT"
 write_config "$EX/b" "peer-b" "$(fs_transport "$SHARED")"
 write_config "$EX/c" "peer-c" "$(fs_transport "$SHARED")"
 
-# The two clients start first so their ephemeral identities exist to be listed.
-# They sit idle until peer A shows up, which is the offline case the transport
-# is built for anyway.
+# The list is written the way a user would write it: the peer id from peer B's
+# config, nothing discovered and nothing derived.
+write_config "$EX/a" "peer-a" "$(fs_transport "$SHARED")" "
+  { \"name\": \"private\", \"type\": \"static\", \"directory\": \"$PRIVATE\", \"allowPeers\": [\"peer-b\"] },
+  { \"name\": \"api\", \"type\": \"http\", \"target\": \"http://127.0.0.1:$TARGET_PORT\" }"
+A_PID=$(start_peer "$EX/a" "$EX/a.log")
+wait_up "$EX/a" "$A_PID" >/dev/null
+
 ALLOWED_PORT=$(free_port)
 DENIED_PORT=$(free_port)
 ALLOWED_PID=$(start_connect "$EX/b" "peer-a/private" "$ALLOWED_PORT" "$EX/allowed.log" 45000)
 DENIED_PID=$(start_connect "$EX/c" "peer-a/private" "$DENIED_PORT" "$EX/denied.log" 45000)
-
-ALLOWED_ID=$(connect_peer_id "$EX/allowed.log")
-DENIED_ID=$(connect_peer_id "$EX/denied.log")
-note "the two proxy clients announced themselves as '$ALLOWED_ID' and '$DENIED_ID'"
-
-write_config "$EX/a" "peer-a" "$(fs_transport "$SHARED")" "
-  { \"name\": \"private\", \"type\": \"static\", \"directory\": \"$PRIVATE\", \"allowPeers\": [\"$ALLOWED_ID\"] },
-  { \"name\": \"api\", \"type\": \"http\", \"target\": \"http://127.0.0.1:$TARGET_PORT\" }"
-A_PID=$(start_peer "$EX/a" "$EX/a.log")
-wait_up "$EX/a" "$A_PID" >/dev/null
+note "the proxy clients hold the addresses '$(connect_peer_id "$EX/allowed.log")' and '$(connect_peer_id "$EX/denied.log")', neither of which appears in any config"
 
 scenario "an exposure only some peers are allowed to call"
 
 allowed_body=$(curl -s --max-time 45 "http://127.0.0.1:$ALLOWED_PORT/index.txt" 2>/dev/null)
 ON_FAIL="$EX/allowed.log $EX/a.log"
-can "fetch an exposure your peer id is listed on" [ "$allowed_body" = "members-only" ]
+can "write an allowPeers list against the peer ids in the configs, and have a proxy client match it" \
+  [ "$allowed_body" = "members-only" ]
 ON_FAIL=""
 
 denied_code=$(http_code "http://127.0.0.1:$DENIED_PORT/index.txt" "$EX/denied-body.txt" 45)
