@@ -82,6 +82,28 @@ export interface WorkspaceConfig {
    * to close.
    */
   breaker?: Pick<CircuitBreakerOptions, 'failureThreshold' | 'resetTimeoutMs' | 'successThreshold'>;
+  /**
+   * How often every transport is probed for health. Default 30000.
+   *
+   * This is what decides how quickly `ddrop transport health` and the failover
+   * scores notice that a transport has died: the reported status changes on a
+   * sweep, not on the failure itself. Lower it for a local transport where a
+   * probe is nearly free and you want detection to be quick. Raise it for one
+   * where a probe costs something real -- the github transport spends an API
+   * call on every sweep -- and accept slower detection in exchange.
+   */
+  healthIntervalMs?: number;
+  /**
+   * How often this peer republishes its presence beacon. Default 30000.
+   *
+   * A peer is considered gone once its beacon is three intervals old, so this
+   * sets both how quickly `ddrop discover` sees a new peer and how long it
+   * keeps listing a departed one -- at the default, up to 90 seconds stale.
+   * Lower it where writes are cheap and discovery should be quick. Every peer
+   * writes one object per interval, so on a transport where a write costs an
+   * API call or a commit, that is the price to weigh.
+   */
+  presenceIntervalMs?: number;
   /** Default request timeout for this workspace. Default 30000. */
   requestTimeoutMs?: number;
   /**
@@ -344,6 +366,18 @@ function parseWorkspace(raw: unknown, index: number, baseDir?: string): Workspac
       fail(`workspace ${label}: requestTimeoutMs must be a positive number`);
     }
     workspace.requestTimeoutMs = source.requestTimeoutMs;
+  }
+  if (source.healthIntervalMs !== undefined) {
+    if (typeof source.healthIntervalMs !== 'number' || source.healthIntervalMs <= 0) {
+      fail(`workspace ${label}: healthIntervalMs must be a positive number`);
+    }
+    workspace.healthIntervalMs = source.healthIntervalMs;
+  }
+  if (source.presenceIntervalMs !== undefined) {
+    if (typeof source.presenceIntervalMs !== 'number' || source.presenceIntervalMs <= 0) {
+      fail(`workspace ${label}: presenceIntervalMs must be a positive number`);
+    }
+    workspace.presenceIntervalMs = source.presenceIntervalMs;
   }
   if (source.concurrency !== undefined) {
     if (

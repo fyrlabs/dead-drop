@@ -158,7 +158,10 @@ export class Workspace {
     this.metrics = options.metrics ?? new Metrics();
     this.tracer = options.tracer;
     this.keys = KeyRing.fromSecrets(this.name, options.config.secrets);
-    this.presenceIntervalMs = options.presenceIntervalMs ?? 30_000;
+    // The explicit option wins over the config field so a caller constructing a
+    // Workspace directly, which is what the tests do, is not overridden by it.
+    this.presenceIntervalMs =
+      options.presenceIntervalMs ?? options.config.presenceIntervalMs ?? 30_000;
     this.presenceTtlMs = options.presenceTtlMs ?? this.presenceIntervalMs * 3;
     this.version = options.version ?? VERSION;
     this.startedAt = this.clock.now();
@@ -170,6 +173,9 @@ export class Workspace {
       ...(options.config.policy ? { policy: options.config.policy } : {}),
       ...(options.config.retry ? { retry: options.config.retry } : {}),
       ...(options.config.breaker ? { breaker: options.config.breaker } : {}),
+      ...(options.config.healthIntervalMs !== undefined
+        ? { healthIntervalMs: options.config.healthIntervalMs }
+        : {}),
       logger: this.logger,
       metrics: this.metrics,
       clock: this.clock,

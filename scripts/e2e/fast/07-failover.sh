@@ -28,6 +28,31 @@ TRANSPORTS="
   { \"use\": \"filesystem\", \"name\": \"fallback\", \"config\": { \"root\": \"$FALLBACK\", \"pollIntervalMs\": 300 } }"
 POLICY='"policy": { "mode": "failover", "primary": "primary", "fallback": ["fallback"] }'
 
+# This file used to be the slow one in the fast tier, and almost all of it was
+# spent waiting out timers rather than exercising anything. Three of them, in
+# the order they cost:
+#
+#   healthIntervalMs  the reported status of a transport changes on a sweep, not
+#                     on the failure itself, so "notice the primary died" waited
+#                     up to a full 30s sweep however fast the failure was
+#   breaker           30s before a probe is allowed through, so every "recover
+#                     once it comes back" assertion waited that out too
+#   retry             a ladder capped at 30s per delay in front of each attempt
+#
+# All three are config now, so the scenario shortens them instead of sleeping
+# through them. The mechanism under test is identical; only the clock moved.
+# Anything asserting a *duration* below is deliberately left alone, because a
+# budget measured against shortened timers proves nothing about the defaults.
+#   presenceIntervalMs  "the fallback is carrying traffic" is checked by looking
+#                     for files in the fallback directory, and request objects
+#                     are deleted as acknowledgement, so the beacon is the only
+#                     thing reliably left behind -- which put a 30s floor under
+#                     that assertion no matter how fast the failover itself was
+TUNING='"healthIntervalMs": 1000,
+  "presenceIntervalMs": 2000,
+  "breaker": { "failureThreshold": 2, "resetTimeoutMs": 2000, "successThreshold": 1 },
+  "retry": { "maxAttempts": 3, "initialDelayMs": 100, "maxDelayMs": 1000 }'
+
 # The status a transport reports for itself, by instance name.
 transport_status() { # $1 = peer dir, $2 = transport name
   dd_json "$1" "j.transports?.find((t) => t.name === '$2')?.status" transport health
@@ -84,8 +109,8 @@ manager_recorded_a_failover() {
 }
 
 write_config "$FO/server" "server" "$TRANSPORTS" \
-  "{ \"name\": \"site\", \"type\": \"static\", \"directory\": \"$STATIC\" }" "$POLICY"
-write_config "$FO/client" "client" "$TRANSPORTS" "" "$POLICY"
+  "{ \"name\": \"site\", \"type\": \"static\", \"directory\": \"$STATIC\" }" "$POLICY, $TUNING"
+write_config "$FO/client" "client" "$TRANSPORTS" "" "$POLICY, $TUNING"
 
 SERVER_PID=$(start_peer "$FO/server" "$FO/server.log")
 wait_up "$FO/server" "$SERVER_PID" >/dev/null
@@ -202,8 +227,17 @@ chmod 000 "$PRIMARY" "$FALLBACK"
 MAROONED_TRANSPORTS="
   { \"use\": \"memory\", \"name\": \"slow\", \"config\": { \"namespace\": \"marooned\", \"failureRate\": 1, \"latencyMs\": 3000 } },
   $TRANSPORTS"
+# This peer keeps the default retry ladder deliberately, unlike the two above.
+# The bind assertion below is what catches the bug this scenario exists for, and
+# it catches it precisely because the ladder in front of the announce is slow: a
+# shortened one would let the old code bind inside the budget and prove nothing.
+# Only the breaker's reset window and the health sweep are shortened, and
+# neither can make that assertion easier to pass -- an earlier half-open lets
+# another three-second probe through rather than skipping one.
 write_config "$FO/marooned" "marooned" "$MAROONED_TRANSPORTS" "" \
-  '"policy": { "mode": "failover", "primary": "slow", "fallback": ["primary", "fallback"] }'
+  '"policy": { "mode": "failover", "primary": "slow", "fallback": ["primary", "fallback"] },
+  "healthIntervalMs": 1000,
+  "breaker": { "resetTimeoutMs": 2000 }'
 
 MAROONED_PORT=$(free_port)
 marooned_started=$(date +%s)

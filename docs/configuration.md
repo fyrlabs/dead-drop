@@ -48,6 +48,8 @@ A Unix socket path cannot exceed 104 bytes. When `<dataDir>/deaddrop.sock` would
 | `polling` | object | no | | `minIntervalMs` (default `250`) and `maxIntervalMs` (default `15000`). The mailbox backs off between these two while a workspace is idle and drops back to the minimum as soon as it sees traffic. |
 | `retry` | object | no | see below | How a failed transport operation is retried. |
 | `breaker` | object | no | see below | When a failing transport is taken out of rotation, and when it is probed again. |
+| `healthIntervalMs` | number | no | `30000` | How often every transport is probed for health. Must be positive. See below. |
+| `presenceIntervalMs` | number | no | `30000` | How often this peer republishes its presence beacon. Must be positive. See below. |
 | `concurrency` | number | no | `1` | How many inbound messages this workspace handles at once. Must be a whole number of at least 1. See below. |
 
 ### `retry`
@@ -74,6 +76,18 @@ Every field is checked at start-up. A misspelling or a non-number fails with the
 | `successThreshold` | number | `2` | Consecutive successes on probes needed to return it to service. |
 
 Lower `resetTimeoutMs` when you want failover to recover quickly in a test; the defaults are tuned for a real remote that is briefly unwell rather than gone.
+
+### `healthIntervalMs`
+
+A transport's reported status changes on a health sweep, not at the moment it fails. So this is what decides how quickly `ddrop transport health` and the failover scores notice a transport has died, and at the default of 30 seconds a dead transport can look healthy for most of a minute.
+
+Lower it when a probe is nearly free and detection speed matters, which is the case for `filesystem` and for a local `git` remote. Raise it when a probe costs something real: the `github` transport spends an API call on every sweep, and a workspace with several github transports polling every few seconds is spending its rate limit on health rather than on messages. Failover itself does not wait for a sweep -- the circuit breaker reacts to real failures as they happen -- so a longer interval costs you reporting lag, not availability.
+
+### `presenceIntervalMs`
+
+Every peer writes one small object per interval saying it is alive, what services it answers and what exposures it offers. A peer is treated as gone once its beacon is three intervals old, so at the default of 30 seconds `ddrop discover` can be up to 90 seconds behind reality in both directions: a peer that just started may not be listed, and one that just left may still be.
+
+Lower it where a write is cheap and discovery should feel immediate, which is the case for `filesystem`. Leave it alone, or raise it, on `git` and `github`, where every beacon is a commit and a push: the cost is one object per peer per interval, forever, and it is also history that never goes away on the git transports.
 
 ### `concurrency`
 

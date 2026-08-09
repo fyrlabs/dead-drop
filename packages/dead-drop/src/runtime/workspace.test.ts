@@ -40,7 +40,10 @@ class HangingStore implements StoreTransport {
 
   async delete(): Promise<void> {}
 
+  healthChecks = 0;
+
   async health(): Promise<TransportHealth> {
+    this.healthChecks += 1;
     return { status: 'healthy', latencyMs: 1 };
   }
 
@@ -80,7 +83,9 @@ function workspace(
     registrations: [registration(store)],
     logger: createLogger({ level: 'silent', sink: logs.sink, clock }),
     clock,
-    presenceIntervalMs: 30_000,
+    // Supplied only when the config does not, because the explicit option wins
+    // over the config field and would hide whether that field reaches anything.
+    ...(config.presenceIntervalMs === undefined ? { presenceIntervalMs: 30_000 } : {}),
   });
 }
 
@@ -111,6 +116,43 @@ describe('presence beacons', () => {
     await clock.advance(30_000);
     expect(store.puts).toBe(2);
 
+    await ws.stop();
+  });
+});
+
+describe('interval tuning from config', () => {
+  // Both of these were code-only options that the config could not reach, which
+  // is the same shape of gap `concurrency` had: the value parses, and then
+  // nothing consumes it. Each test advances the clock by less than the default
+  // interval, so it fails if the config field is ignored.
+  it('takes the presence interval from the workspace config', async () => {
+    const store = new HangingStore();
+    const clock = new TestClock();
+    const ws = workspace(store, clock, { presenceIntervalMs: 5000 });
+
+    await ws.start();
+    expect(store.puts).toBe(1);
+    store.inflight.splice(0).forEach((release) => release());
+
+    await clock.advance(5000);
+    expect(store.puts).toBe(2);
+
+    store.inflight.splice(0).forEach((release) => release());
+    await ws.stop();
+  });
+
+  it('takes the health sweep interval from the workspace config', async () => {
+    const store = new HangingStore();
+    const clock = new TestClock();
+    const ws = workspace(store, clock, { healthIntervalMs: 1000 });
+
+    await ws.start();
+    const afterOpeningSweep = store.healthChecks;
+
+    await clock.advance(3000);
+    expect(store.healthChecks).toBeGreaterThan(afterOpeningSweep);
+
+    store.inflight.splice(0).forEach((release) => release());
     await ws.stop();
   });
 });

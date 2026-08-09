@@ -9,6 +9,8 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 ### Added
 
 - `concurrency` on a workspace, so a poll that finds several messages can handle them together instead of one at a time. Default 1, which is the behaviour up to now. Raising it removes head-of-line blocking behind a slow handler, at the cost of messages being answered out of the order they were sent.
+- `healthIntervalMs` on a workspace, so you can choose how quickly a dead transport is reported as dead. Default 30000, unchanged. Lower it for a transport where probing is cheap; raise it for `github`, where every sweep spends an API call.
+- `presenceIntervalMs` on a workspace, so you can choose how quickly `ddrop discover` notices a peer arriving or leaving. Default 30000, unchanged, which leaves discovery up to 90 seconds stale. Lower it on a shared folder; leave it alone on git, where every beacon is a commit.
 
 ## [0.4.1]
 

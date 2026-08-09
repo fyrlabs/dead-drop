@@ -210,6 +210,20 @@ describe('parseRuntimeConfig', () => {
     expect(config.workspaces[0]?.breaker).toEqual({ resetTimeoutMs: 1000, failureThreshold: 2 });
   });
 
+  it('carries the health sweep interval through to the workspace', () => {
+    const config = parseRuntimeConfig({
+      workspaces: [{ ...valid.workspaces[0], healthIntervalMs: 1000 }],
+    });
+    expect(config.workspaces[0]?.healthIntervalMs).toBe(1000);
+  });
+
+  it('carries the presence beacon interval through to the workspace', () => {
+    const config = parseRuntimeConfig({
+      workspaces: [{ ...valid.workspaces[0], presenceIntervalMs: 5000 }],
+    });
+    expect(config.workspaces[0]?.presenceIntervalMs).toBe(5000);
+  });
+
   it('carries delivery concurrency through to the workspace', () => {
     const config = parseRuntimeConfig({
       workspaces: [{ ...valid.workspaces[0], concurrency: 4 }],
@@ -246,6 +260,16 @@ describe('parseRuntimeConfig', () => {
       'a breaker threshold of zero, which would trip on nothing',
       { workspaces: [{ ...valid.workspaces[0], breaker: { failureThreshold: 0 } }] },
       /breaker\.failureThreshold must be a number greater than zero/,
+    ],
+    [
+      'a presence interval of zero, which would beacon forever',
+      { workspaces: [{ ...valid.workspaces[0], presenceIntervalMs: 0 }] },
+      /presenceIntervalMs must be a positive number/,
+    ],
+    [
+      'a health interval of zero, which would sweep forever',
+      { workspaces: [{ ...valid.workspaces[0], healthIntervalMs: 0 }] },
+      /healthIntervalMs must be a positive number/,
     ],
     [
       'a concurrency of zero, which would deliver nothing',
