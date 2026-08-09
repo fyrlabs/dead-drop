@@ -14,7 +14,9 @@ import {
   DeadDropError,
   HTTP_REQUEST_CONTENT_TYPE,
   decodeHttpResponse,
+  decodeJson,
   encodeHttpRequest,
+  isErrorPayload,
   sanitiseHeaders,
 } from '../protocol/index.js';
 import type { Logger } from '../core/index.js';
@@ -81,7 +83,7 @@ export async function connect(options: ConnectOptions): Promise<ConnectHandle> {
         timeoutMs,
         contentType: HTTP_REQUEST_CONTENT_TYPE,
       });
-      const remote = decodeHttpResponse(envelope.payload);
+      const remote = decodeHttpResponse(unwrapRemoteError(envelope.payload));
       response.writeHead(remote.status, remote.statusText, remote.headers);
       response.end(Buffer.from(remote.body));
     } catch (error) {
@@ -114,6 +116,33 @@ export async function connect(options: ConnectOptions): Promise<ConnectHandle> {
     port,
     close: () => closeServer(server),
   };
+}
+
+/**
+ * Raises the remote failure a `response` envelope describes, if that is what it
+ * carries, and otherwise hands the payload back untouched.
+ *
+ * A workspace answers a request it cannot serve with a JSON error document
+ * rather than an encoded HTTP response: no handler for the channel, or a
+ * handler that threw. Feeding that to `decodeHttpResponse` reads the first four
+ * bytes of `{"error"` as a length prefix, so asking for an exposure that does
+ * not exist used to fail with `DECODE_FAILED`, HTTP 500 and the message "http
+ * message head length out of range" — blaming the framing for what is really a
+ * missing exposure. `Workspace.call` already unwraps these on the RPC path;
+ * proxy mode is the half that did not.
+ */
+function unwrapRemoteError(payload: Uint8Array): Uint8Array {
+  // Only a JSON document can be an error document, and a real encoded response
+  // never starts with `{`, so this costs nothing on the success path.
+  if (payload[0] !== 0x7b) return payload;
+  let decoded: unknown;
+  try {
+    decoded = decodeJson(payload);
+  } catch {
+    return payload;
+  }
+  if (isErrorPayload(decoded)) throw DeadDropError.fromJSON(decoded.error);
+  return payload;
 }
 
 async function readBody(request: IncomingMessage, limit: number): Promise<Uint8Array | undefined> {

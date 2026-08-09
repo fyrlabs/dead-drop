@@ -243,6 +243,28 @@ describe('two runtimes over a shared directory', () => {
     await new Promise((settle) => setTimeout(settle, 250));
   }, 15_000);
 
+  it('names the missing exposure when connecting to one that does not exist', async () => {
+    // The remote answers a channel it does not serve with a JSON error document
+    // rather than an encoded HTTP response. Proxy mode used to hand that
+    // straight to `decodeHttpResponse`, which read `{"er` as a length prefix
+    // and reported DECODE_FAILED with "http message head length out of range"
+    // and a 500 — blaming the framing for a missing exposure.
+    await makeRuntime({ peerId: 'bare-peer', store: sharedDir });
+    const clientRuntime = await makeRuntime({ peerId: 'asking-peer', store: sharedDir });
+    const handle = await connect({
+      workspace: clientRuntime.defaultWorkspace(),
+      target: 'bare-peer',
+      exposure: 'no-such-exposure',
+      logger: clientRuntime.logger,
+      timeoutMs: 20_000,
+    });
+    cleanups.push(() => handle.close());
+
+    const response = await fetch(`${handle.url}/anything`);
+    expect(response.status).toBe(404);
+    expect(await response.text()).toContain('NOT_FOUND');
+  }, 30_000);
+
   it('carries an RPC call and a service error', async () => {
     const server = await makeRuntime({ peerId: 'rpc-server', store: sharedDir });
     server.defaultWorkspace().service('math', {
