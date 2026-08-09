@@ -387,12 +387,29 @@ export class Workspace {
     // still receives it, and the caller still gets its TIMEOUT.
     response.catch(() => undefined);
 
+    // The deadline covers the send as well as the wait for a reply, because a
+    // caller cannot tell the two apart and never asked to. It used to guard
+    // only the reply, so with transports failing the send sat in a retry loop
+    // and a caller that asked for 15 seconds waited two minutes. Aborting is
+    // better than racing: it stops the retries too, rather than leaving work
+    // running for someone who has already gone.
+    const deadline = new AbortController();
+    const cancelDeadline = this.clock.setTimeout(timeoutMs, () => deadline.abort());
+    const sendSignal = options.signal
+      ? AbortSignal.any([options.signal, deadline.signal])
+      : deadline.signal;
+
     try {
       const trace = traceContext(span);
-      await this.mailbox.send(envelope, {
-        ...(options.signal ? { signal: options.signal } : {}),
-        ...(trace ? { trace } : {}),
-      });
+      try {
+        await this.mailbox.send(envelope, { signal: sendSignal, ...(trace ? { trace } : {}) });
+      } catch (error) {
+        // Our own deadline stopped the send, so report the timeout the caller
+        // asked about rather than the cancellation it never requested. Any
+        // other failure is the transport's and is reported as itself.
+        if (deadline.signal.aborted && !options.signal?.aborted) await response;
+        throw error;
+      }
       const result = await response;
       this.metrics.requestsTotal.inc({ channel, outcome: 'success' });
       this.metrics.requestLatency.observe(this.clock.now() - startedAt, { channel });
@@ -407,6 +424,7 @@ export class Workspace {
       span?.end(deadDropError.code === 'CANCELLED' ? 'cancelled' : 'error');
       throw deadDropError;
     } finally {
+      cancelDeadline();
       this.metrics.inflightRequests.add(-1, { workspace: this.name });
     }
   }

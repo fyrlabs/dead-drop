@@ -101,24 +101,19 @@ can "notice the primary transport has stopped working, without being told" \
 ON_FAIL=""
 note "primary is now '$(transport_status "$FO/server" primary)', fallback is '$(transport_status "$FO/server" fallback)'"
 
-# The user-visible round trip during a failover is deliberately NOT asserted
-# here, and that is a considered omission rather than an oversight.
-#
-# It was measured at 90s, then 231s, then 461s on the same idle machine, and the
-# reason it climbs is that measuring it makes it worse: the manager retries with
-# backoff capped at 30s even when the breaker in front of the transport is
-# already open and rejecting instantly, so every extra probe queues another
-# retry chain behind the last one. There is no budget that is both generous
-# enough to pass reliably and tight enough to mean anything, and a scenario that
-# flakes in CI is worse than one that does not exist.
-#
-# What is asserted instead is every observable step of the mechanism: the
-# breaker opened, the transport is marked unavailable, the manager recorded
-# failovers, the fallback is carrying objects, and traffic works again once the
-# outage ends. A regression in any of those fails in seconds. The latency itself
-# is a real finding and is written up in docs/testing.md rather than guarded by
-# a timer here.
-note "not asserting a round trip mid-failover: measured 90-460s and it grows with every probe, see the comment above"
+# This is the assertion the scenario exists for, and until 0.2.7 it could not be
+# made: a failover took between 90 and 460 seconds, and got slower every time it
+# was measured, because the manager retried with backoff capped at 30 seconds
+# even when the breaker it was retrying through was already open. An open
+# breaker is now treated as the answer it is, so the fallback is reached on the
+# next attempt. The elapsed time is printed on every run; if it starts climbing
+# back into the minutes, that regressed.
+started_at=$(date +%s)
+ON_FAIL="$FO/server.log $FO/proxy.log"
+can "keep serving through the surviving transport, with no config change and no restart" \
+  fetches_content_within 10 3
+ON_FAIL=""
+note "the first successful round trip after the break came $(( $(date +%s) - started_at ))s later"
 
 can "see the traffic move: the fallback directory is now carrying it" \
   traffic_moved_to_fallback
@@ -136,7 +131,7 @@ chmod 000 "$FALLBACK"
 
 PROXY_TIMEOUT_S=15
 dead_started=$(date +%s)
-dead_code=$(http_code "http://127.0.0.1:$PROXY_PORT/index.txt" "$FO/dead-body.txt" 240)
+dead_code=$(http_code "http://127.0.0.1:$PROXY_PORT/index.txt" "$FO/dead-body.txt" 120)
 dead_elapsed=$(( $(date +%s) - dead_started ))
 dead_body=$(cat "$FO/dead-body.txt" 2>/dev/null)
 note "with both transports revoked the caller got http $dead_code after ${dead_elapsed}s: $dead_body"
@@ -144,20 +139,16 @@ note "with both transports revoked the caller got http $dead_code after ${dead_e
 cannot "get an answer when no transport can carry the message" \
   [ "$dead_code" != "200" ]
 
-# The bound here is deliberately far looser than the ${PROXY_TIMEOUT_S}s the
-# caller asked for, because the product does not currently honour that number
-# and this suite records what is true rather than what the docstring says.
-# `Workspace.request` calls its timeout "the caller's only guarantee", but it
-# only guards the wait for a response: `mailbox.send` in front of it is awaited
-# unbounded, so with every transport failing the caller waits out retries and
-# breaker windows instead. What is still guaranteed, and what this asserts, is
-# that the wait ends. Tighten this to the requested timeout the day the send
-# path learns the deadline.
-cannot "wait forever: the request ends in a failure rather than never returning" \
+# The deadline is the whole promise of a timeout, so it is asserted as one.
+# `Workspace.request` calls it "the caller's only guarantee" and until 0.2.7 it
+# guarded only the wait for a reply: the send in front of it ran unbounded, and
+# a caller asking for 15 seconds waited 120. The allowance below is the
+# requested deadline plus room for process scheduling, not a shrug.
+cannot "wait longer than the deadline it asked for (${PROXY_TIMEOUT_S}s requested, ${dead_elapsed}s waited)" \
+  [ "$dead_elapsed" -le $(( PROXY_TIMEOUT_S + 15 )) ]
+
+cannot "be left with silence: the runtime answered rather than dropping the caller" \
   [ "$dead_code" != "000" ]
-if [ "$dead_elapsed" -gt $(( PROXY_TIMEOUT_S + 10 )) ]; then
-  note "the caller asked for a ${PROXY_TIMEOUT_S}s deadline and waited ${dead_elapsed}s: the send path is not bounded by it"
-fi
 
 # Restoring access has to be enough on its own. A breaker that latched open
 # would mean a transient outage needed a restart to recover from, which is worse
