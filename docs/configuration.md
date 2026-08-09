@@ -76,6 +76,8 @@ Built-in short names: `memory`, `filesystem` (also `fs`), `git`, `github`. All f
 | `gitPath` | string | no | `git` | Path to the git binary. |
 | `timeoutMs` | number | no | `120000` | Per-git-command timeout. |
 
+Give each runtime on a machine its own `workDir`. A git working tree has one writer: when two processes share a clone, one process's poll can reset away a commit the other has made but not yet pushed, and git answers that push with "Everything up-to-date". The transport checks the commit reached the remote and retries rather than believing the exit code, so nothing is lost, but the retries are wasted work. `ddrop connect` starts its own runtime from the same config file, so it shares the clone unless you point it at a different one.
+
 ### `github`
 
 A thin layer over `git`: it resolves the clone url through `gh`, then delegates. It forwards `branch`, `prefix`, `gitPath`, `timeoutMs`, `batchWindowMs` and `freshnessMs` to the git transport, and takes these of its own:

@@ -37,7 +37,7 @@ scripts/two-peer-check.sh          # against the built tree
 scripts/two-peer-check.sh 0.2.1    # against that version from npm
 ```
 
-It starts two runtimes over one shared filesystem transport, waits for each to discover the other, serves a directory from peer A, fetches it through peer B, and checks the bytes on the transport are ciphertext. Twelve assertions, about a minute.
+It starts two runtimes over one shared filesystem transport, waits for each to discover the other, serves a directory from peer A, fetches it through peer B, and checks the bytes on the transport are ciphertext. It then kills peer A, sends a request into the store with nothing listening, and checks the answer arrives once A returns; and moves a 30 MiB payload end to end plus a 33 MiB one that must be refused at the cap. Twenty-one assertions, a couple of minutes.
 
 One thing a same-machine run must do that a two-machine run gets for free: **set `peerId` explicitly in both configs.** It defaults to the machine's hostname, so two runtimes on one box otherwise share a mailbox address, poll each other's mail, and fail with `DECODE_FAILED` on garbage frames. That is correct behaviour for a colliding address, not a bug, and it is the first thing to check if a local two-peer setup misbehaves.
 
@@ -46,6 +46,15 @@ Point both configs at one git repository instead of one directory and the same s
 ## What needs a human
 
 These need real credentials and a real account, so they cannot run in CI. Work through them before trusting the GitHub transport in production.
+
+Most of it is now a script. Against a private throwaway repository:
+
+```bash
+gh repo create <owner>/dead-drop-trial --private
+scripts/github-live-check.sh <owner>/dead-drop-trial
+```
+
+It covers authentication failure, discovery, a real round trip, fifty concurrent requests, and a 30 MiB object through git, in about fifteen minutes. It writes a `deaddrop-data` branch to that repository and leaves it there; delete the repository when you are done. The manual walkthrough below is still worth doing once on two real machines, because one machine cannot tell you anything about the network between them.
 
 ### The walkthrough, start to finish
 

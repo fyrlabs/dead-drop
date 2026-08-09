@@ -6,6 +6,15 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+### Fixed
+
+- The git and github transports could drop a message with no error anywhere. `git push` exits 0 saying "Everything up-to-date" when the commit it was meant to publish is no longer HEAD, which happens whenever a second process shares the clone. `ddrop connect` starts its own runtime from the same config, so it shares it. A push is now only treated as published once the commit is on the remote-tracking branch, and a discarded one is retried and logged. A live GitHub run lost 10 of 50 requests to this.
+
+### Added
+
+- `scripts/github-live-check.sh` runs the live GitHub walkthrough end to end against a real repository: authentication failure, discovery, a round trip, sustained concurrent load, and a 30 MiB object. It is opt-in and needs an account.
+- `scripts/two-peer-check.sh` now also covers offline peer redelivery and the 32 MiB response cap.
+
 ## [0.2.3]
 
 ### Fixed

@@ -371,17 +371,35 @@ class GitStore implements StoreTransport {
         '-m',
         `ddrop: ${touched} object${touched === 1 ? '' : 's'}`,
       ]);
+      const committed = (await this.git.run(['rev-parse', 'HEAD'])).stdout.trim();
       const pushed = await this.git.tryRun(['push', '--quiet', 'origin', `HEAD:${branch}`]);
-      if (pushed.code === 0) return;
+      if (pushed.code === 0 && (await this.isOnRemote(committed))) return;
 
-      lastError = pushed.stderr;
-      if (!isNonFastForward(pushed.stderr)) {
-        throw new DeadDropError('TRANSPORT_ERROR', `git push failed: ${redactUrl(pushed.stderr)}`, {
-          retryable: true,
+      if (pushed.code === 0) {
+        // `git push` exits 0 saying "Everything up-to-date" when HEAD no longer
+        // carries our commit. That happens when a second process shares this
+        // working tree -- `ddrop connect` starts its own runtime from the same
+        // config, so it does -- and its poll ran `reset --hard origin/<branch>`
+        // between our commit and our push. Exit 0 is not proof of publication;
+        // the remote-tracking ref holding our commit is. Trusting the exit code
+        // resolved the write as successful and dropped the message silently.
+        lastError = `push reported success but ${committed.slice(0, 8)} never reached origin/${branch}`;
+        this.context.logger.warn('a push was discarded before it left this clone, replaying', {
+          attempt,
+          commit: committed.slice(0, 8),
         });
+      } else {
+        lastError = pushed.stderr;
+        if (!isNonFastForward(pushed.stderr)) {
+          throw new DeadDropError(
+            'TRANSPORT_ERROR',
+            `git push failed: ${redactUrl(pushed.stderr)}`,
+            { retryable: true },
+          );
+        }
+        // Someone else pushed first. Drop our commit and replay onto their state.
+        this.context.logger.debug('git push lost a race, replaying', { attempt });
       }
-      // Someone else pushed first. Drop our commit and replay onto their state.
-      this.context.logger.debug('git push lost a race, replaying', { attempt });
       await this.git.tryRun(['reset', '--quiet', '--hard', `origin/${branch}`]);
     }
 
@@ -391,6 +409,18 @@ class GitStore implements StoreTransport {
         redactUrl(String(lastError).slice(0, 300)),
       { retryable: true },
     );
+  }
+
+  /** True when `commit` is reachable from the remote-tracking branch. */
+  private async isOnRemote(commit: string): Promise<boolean> {
+    const branch = this.config.branch;
+    const reachable = await this.git.tryRun([
+      'merge-base',
+      '--is-ancestor',
+      commit,
+      `origin/${branch}`,
+    ]);
+    return reachable.code === 0;
   }
 
   private async exists(key: string): Promise<boolean> {
