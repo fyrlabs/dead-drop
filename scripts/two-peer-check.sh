@@ -9,6 +9,10 @@
 # encryption, chunking, the filesystem transport, the mailbox engine, discovery
 # and the control plane.
 #
+# It then kills peer A, sends a request into the store while nothing is
+# listening, and checks the answer arrives once A comes back; and moves a 30 MiB
+# payload end to end, plus a 33 MiB one that must be refused at the 32 MiB cap.
+#
 # The same shape works over the git transport by pointing both peers at one
 # repository, which is the closest you get to a true cross-machine test without
 # a second machine.
@@ -24,13 +28,25 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FROM_NPM="${1:-}"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/ddrop-2peer-XXXXXX")
 PASS=0; FAIL=0
-A_PID=""; B_PID=""; EXPOSE_PID=""; CONNECT_PID=""
+A_PID=""; B_PID=""; EXPOSE_PID=""; CONNECT_PID=""; CURL_PID=""
 
 ok()  { echo "  PASS  $1"; PASS=$((PASS+1)); }
 bad() { echo "  FAIL  $1"; FAIL=$((FAIL+1)); }
 
+# Ask the OS for a free port instead of hard-coding one, so a straggler from a
+# previous run cannot make this look like a product failure.
+free_port() {
+  node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})'
+}
+
+# macOS ships shasum, most Linux images ship sha256sum. Neither is guaranteed.
+sha256_of() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+  else sha256sum "$1" | cut -d' ' -f1; fi
+}
+
 cleanup() {
-  for pid in "$CONNECT_PID" "$EXPOSE_PID" "$A_PID" "$B_PID"; do [ -n "$pid" ] && kill "$pid" 2>/dev/null; done
+  for pid in "$CURL_PID" "$CONNECT_PID" "$EXPOSE_PID" "$A_PID" "$B_PID"; do [ -n "$pid" ] && kill "$pid" 2>/dev/null; done
   sleep 1
   rm -rf "$WORK"
 }
@@ -54,10 +70,18 @@ SECRET=$($DDROP keygen 2>/dev/null | grep '^ddk1_')
 [ -n "$SECRET" ] && ok "generated a workspace secret" || { bad "keygen"; exit 1; }
 export DEADDROP_SECRET="$SECRET"
 
+# The directory peer A serves. It is created before the configs because peer A
+# declares a static exposure over it in config rather than through `ddrop
+# expose`: a config exposure is registered during workspace start, so a request
+# already sitting in the inbox cannot arrive before its handler exists. The
+# `ddrop expose` path is still exercised separately below.
+STATIC="$WORK/site"; mkdir -p "$STATIC"
+echo "hello-from-peer-a" > "$STATIC/index.txt"
+
 # peerId defaults to the machine's hostname, so two runtimes on one box would
 # share a mailbox address and poll each other's mail. Set it explicitly. This is
 # the one thing a same-machine test must do that a two-machine test gets free.
-write_config() { # $1 = peer dir, $2 = peer id
+write_config() { # $1 = peer dir, $2 = peer id, $3 = exposures array body (optional)
   mkdir -p "$1"
   cat > "$1/deaddrop.config.json" <<JSON
 {
@@ -71,19 +95,24 @@ write_config() { # $1 = peer dir, $2 = peer id
       "transports": [
         { "use": "filesystem", "config": { "root": "$SHARED", "pollIntervalMs": 300 } }
       ],
-      "exposures": []
+      "exposures": [${3:-}]
     }
   ]
 }
 JSON
 }
 
-write_config "$WORK/peerA" "peer-a"
+write_config "$WORK/peerA" "peer-a" \
+  "{ \"name\": \"site\", \"type\": \"static\", \"directory\": \"$STATIC\" }"
 write_config "$WORK/peerB" "peer-b"
 ok "wrote two configs sharing one filesystem transport, with distinct peer ids"
 
+# `exec` matters: without it the subshell forks node and `$!` is the subshell,
+# so a later `kill` reaps the wrapper and leaves the runtime running. The offline
+# check below then silently tests nothing, because the peer it "killed" is still
+# answering.
 start_peer() { # $1 = peer dir, $2 = log
-  ( cd "$1" && $DDROP start --config "$1/deaddrop.config.json" ) > "$2" 2>&1 &
+  ( cd "$1" && exec $DDROP start --config "$1/deaddrop.config.json" ) > "$2" 2>&1 &
   echo $!
 }
 
@@ -137,10 +166,7 @@ done
 
 echo
 echo "--- request/response: expose from A, fetch through B ---"
-STATIC="$WORK/site"; mkdir -p "$STATIC"
-echo "hello-from-peer-a" > "$STATIC/index.txt"
-
-( cd "$WORK/peerA" && $DDROP expose "$STATIC" --name files \
+( cd "$WORK/peerA" && exec $DDROP expose "$STATIC" --name files \
     --config "$WORK/peerA/deaddrop.config.json" ) > "$WORK/expose.log" 2>&1 &
 EXPOSE_PID=$!
 sleep 4
@@ -151,10 +177,8 @@ else
   bad "exposure not visible on peer A"; tail -10 "$WORK/expose.log"
 fi
 
-# Ask the OS for a free port instead of hard-coding one, so a straggler from a
-# previous run cannot make this look like a product failure.
-PORT=$(node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')
-( cd "$WORK/peerB" && $DDROP connect "$A_ID/files" --port "$PORT" \
+PORT=$(free_port)
+( cd "$WORK/peerB" && exec $DDROP connect "$A_ID/files" --port "$PORT" \
     --config "$WORK/peerB/deaddrop.config.json" ) > "$WORK/connect.log" 2>&1 &
 CONNECT_PID=$!
 sleep 5
@@ -196,6 +220,107 @@ else
   bad "object keys no longer match the documented layout; update docs/security-model.md"
 fi
 echo "  note: keys are readable by design; only frame contents are encrypted"
+
+echo
+echo "--- offline peer redelivery: A is down when the request is sent ---"
+
+# Kill peer A outright instead of stopping it politely. A laptop that closed its
+# lid does not get to withdraw its presence beacon, and the property under test
+# is that a request survives in the store until the peer comes back.
+kill -9 "$A_PID" 2>/dev/null
+wait "$A_PID" 2>/dev/null
+A_PID=""
+sleep 2
+if $DDROP status --config "$WORK/peerA/deaddrop.config.json" >/dev/null 2>&1; then
+  bad "peer A still answers after being killed"
+else
+  ok "peer A is offline"
+fi
+
+PORT=$(free_port)
+( cd "$WORK/peerB" && exec $DDROP connect "$A_ID/site" --port "$PORT" --timeout 120000 \
+    --config "$WORK/peerB/deaddrop.config.json" ) > "$WORK/offline-connect.log" 2>&1 &
+CONNECT_PID=$!
+sleep 6
+
+# Fire the request with nobody listening. curl blocks; the envelope goes into
+# A's inbox on the shared store and stays there until A polls it.
+curl -s --max-time 150 "http://127.0.0.1:$PORT/index.txt" > "$WORK/offline-body.txt" 2>/dev/null &
+CURL_PID=$!
+sleep 6
+
+queued=$(find "$SHARED" -type f -path "*inbox/$A_ID/*" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$queued" -gt 0 ]; then
+  ok "the request is queued in peer A's inbox while A is offline ($queued objects)"
+else
+  bad "nothing queued for peer A -- the request never reached the transport"
+fi
+
+A_PID=$(start_peer "$WORK/peerA" "$WORK/a2.log")
+if wait_up "$WORK/peerA"; then
+  ok "peer A came back up after being killed"
+else
+  bad "peer A did not restart"; tail -20 "$WORK/a2.log"
+fi
+
+wait "$CURL_PID" 2>/dev/null
+body=$(cat "$WORK/offline-body.txt" 2>/dev/null)
+kill "$CONNECT_PID" 2>/dev/null; CONNECT_PID=""
+if [ "$body" = "hello-from-peer-a" ]; then
+  ok "the request queued while A was offline was answered once A returned"
+else
+  bad "offline redelivery failed: expected 'hello-from-peer-a', got '${body:-<empty>}'"
+  echo "  --- connect log ---";        tail -20 "$WORK/offline-connect.log"
+  echo "  --- peer A restart log ---"; tail -20 "$WORK/a2.log"
+fi
+
+echo
+echo "--- large payloads, and the 32 MiB cap ---"
+BIG_BYTES=$((30 * 1024 * 1024))
+OVER_BYTES=$((33 * 1024 * 1024))
+head -c "$BIG_BYTES"  /dev/urandom > "$STATIC/big.bin"
+head -c "$OVER_BYTES" /dev/urandom > "$STATIC/over.bin"
+
+PORT=$(free_port)
+( cd "$WORK/peerB" && exec $DDROP connect "$A_ID/site" --port "$PORT" --timeout 300000 \
+    --config "$WORK/peerB/deaddrop.config.json" ) > "$WORK/big-connect.log" 2>&1 &
+CONNECT_PID=$!
+sleep 6
+
+start=$(date +%s)
+code=$(curl -s --max-time 300 -o "$WORK/big-out.bin" -w '%{http_code}' \
+       "http://127.0.0.1:$PORT/big.bin" 2>/dev/null)
+elapsed=$(( $(date +%s) - start ))
+got_bytes=$(wc -c < "$WORK/big-out.bin" | tr -d ' ')
+if [ "$code" = "200" ] && [ "$got_bytes" = "$BIG_BYTES" ]; then
+  ok "30 MiB payload arrived whole through the transport in ${elapsed}s"
+else
+  bad "30 MiB payload: http $code, $got_bytes of $BIG_BYTES bytes"
+  tail -15 "$WORK/big-connect.log"
+fi
+
+if [ "$(sha256_of "$STATIC/big.bin")" = "$(sha256_of "$WORK/big-out.bin")" ]; then
+  ok "30 MiB payload is byte-identical after encrypt, transport and decrypt"
+else
+  bad "30 MiB payload came back corrupted"
+fi
+
+# Over the cap the exposure must refuse cheaply and legibly, not stall until the
+# caller's timeout and not ship 33 MiB before noticing.
+code=$(curl -s --max-time 300 -o "$WORK/over-out.txt" -w '%{http_code}' \
+       "http://127.0.0.1:$PORT/over.bin" 2>/dev/null)
+over_body=$(cat "$WORK/over-out.txt" 2>/dev/null)
+if [ "$code" = "413" ]; then
+  ok "33 MiB file is refused with 413, not truncated or hung"
+else
+  bad "expected 413 over the 32 MiB cap, got http $code"
+fi
+if [ "$over_body" = "File is too large to serve." ]; then
+  ok "the refusal says why: '$over_body'"
+else
+  bad "413 body does not name the cause: '${over_body:-<empty>}'"
+fi
+kill "$CONNECT_PID" 2>/dev/null; CONNECT_PID=""
 
 echo
 echo "================================"
