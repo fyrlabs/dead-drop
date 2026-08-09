@@ -40,7 +40,7 @@ Requires Node.js 20.11 or newer.
 
 - [ ] `@fyrlabs/dead-drop` resolves on npm at the new version, and transport-sdk at whatever version it should be
 - [ ] `verify-release.sh <version>` passes 40/40 against the registry, not just green CI
-- [ ] `scripts/two-peer-check.sh <version>` passes 21/21 against the published package
+- [ ] `scripts/e2e.sh fast --npm <version>` is green against the published package, not just against this tree
 - [ ] Provenance shows on the npm package page
 - [ ] Tags and releases still line up: every released version keeps its tag and its release page. Delete a tag only when it never had a release, or when its artifact is broken and withdrawn
 - [ ] A new Unreleased section opened in `CHANGELOG.md`

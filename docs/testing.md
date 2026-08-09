@@ -28,33 +28,58 @@ The end-to-end suite is the one that answers "does it work". It runs two indepen
 
 Time is injected everywhere through a `Clock`, so retry and backoff suites run in milliseconds instead of sleeping. `TestClock.advance` drains the microtask queue through a macrotask boundary before each timer, which is what stops fake-timer tests from hanging on promise chains deeper than a fixed tick count.
 
-## Two peers, one machine
+## The scenario suite
 
-You do not need a second laptop to test peer-to-peer behaviour. A peer is a runtime with its own data directory and peer id. What makes two runtimes peers is sharing one transport, not sitting on different hardware.
+Unit tests answer "does this function behave". The scenario suite answers "can a user do this, and is it stopped from doing what it should not". Every bug found during the 0.2.x series was invisible to the unit suite because it only existed once real processes, real sockets, real files and real restarts were involved.
 
 ```bash
-scripts/two-peer-check.sh          # against the built tree
-scripts/two-peer-check.sh 0.2.1    # against that version from npm
+scripts/e2e.sh fast                    # no network, no credentials
+scripts/e2e.sh live <owner>/<repo>     # a real GitHub repository, opt-in
+scripts/e2e.sh all <owner>/<repo>      # both
+scripts/e2e.sh fast --npm 0.2.5        # a published version instead of this tree
+scripts/e2e.sh fast --only broadcast   # one file
+scripts/e2e.sh --list                  # what is in each tier
 ```
 
-It starts two runtimes over one shared filesystem transport, waits for each to discover the other, serves a directory from peer A, fetches it through peer B, and checks the bytes on the transport are ciphertext. It then kills peer A, sends a request into the store with nothing listening, and checks the answer arrives once A returns; and moves a 30 MiB payload end to end plus a 33 MiB one that must be refused at the cap. Twenty-one assertions, a couple of minutes.
+Every scenario is written as what a user **can** do and what a user **cannot** do, and both halves are required: the runner fails a scenario that declares only one kind, because a capability nobody has bounded is a capability nobody understands. The `PASS CAN` / `PASS CANNOT` lines are the documentation.
 
-One thing a same-machine run must do that a two-machine run gets for free: **set `peerId` explicitly in both configs.** It defaults to the machine's hostname, so two runtimes on one box otherwise share a mailbox address, poll each other's mail, and fail with `DECODE_FAILED` on garbage frames. That is correct behaviour for a colliding address, not a bug, and it is the first thing to check if a local two-peer setup misbehaves.
+Scenarios live one file per subject under `scripts/e2e/fast/` and `scripts/e2e/live/`, with the shared harness in `scripts/e2e/lib.sh`. Adding one means adding a file; the runner picks it up.
 
-Point both configs at one git repository instead of one directory and the same script shape covers the git transport, which is the closest you get to a real cross-machine test without a second machine. What it still cannot tell you is anything in the next section: real latency, real auth, real rate limits.
+### The fast tier
 
-## What needs a human
+No network, no credentials, safe for CI, and it runs before every release. Five to ten minutes, and the spread is almost entirely `07-failover.sh`: a transport failing over to a healthy one takes between 90 and 230 seconds of real waiting, because the transport manager backs off up to 30 seconds per retry even when the circuit breaker in front of it is already open. None of that is configurable from `deaddrop.config.json`. Everything else in the tier finishes in under a minute.
 
-These need real credentials and a real account, so they cannot run in CI. Work through them before trusting the GitHub transport in production.
+| File | What it establishes |
+| --- | --- |
+| `01-configuration.sh` | Bad configuration is refused out loud, before anything looks alive |
+| `02-control-plane.sh` | The control plane is an owner-only socket, and a data directory too deep for one still works |
+| `03-two-peers.sh` | Discovery, a round trip, ciphertext on the transport, static exposure limits, offline redelivery, message expiry, 30 MiB payloads and the 32 MiB cap |
+| `04-exposures.sh` | `allowPeers`, and an `http` exposure proxying a local server that is up and then down |
+| `05-broadcast.sh` | One publisher, three subscribers, one peer that never subscribed, one that was offline |
+| `06-key-rotation.sh` | Two-stage rotation with no downtime, and a peer left on the retired key failing closed |
+| `07-failover.sh` | A transport dying under a running peer, and recovery when it comes back |
+| `08-git-transport.sh` | The git transport against a local bare repository, including two runtimes sharing one `workDir` |
 
-Most of it is now a script. Against a private throwaway repository:
+### The live tier
+
+Real credentials, a real repository, about fifteen minutes. It writes a `deaddrop-data` branch to the repository you name and leaves it there, so point it at a private throwaway:
 
 ```bash
 gh repo create <owner>/dead-drop-trial --private
-scripts/github-live-check.sh <owner>/dead-drop-trial
+scripts/e2e.sh live <owner>/dead-drop-trial
 ```
 
-It covers authentication failure, discovery, a real round trip, fifty concurrent requests, and a 30 MiB object through git, in about fifteen minutes. It writes a `deaddrop-data` branch to that repository and leaves it there; delete the repository when you are done. The manual walkthrough below is still worth doing once on two real machines, because one machine cannot tell you anything about the network between them.
+It covers authentication failure, discovery, a real round trip, fifty concurrent requests, and a 30 MiB object through git. This is the tier that found the `git push` exit-code bug: nothing local reproduced it, because a local push is too fast to interleave.
+
+**Do not put the live tier in CI.** It needs credentials and writes to a real repository.
+
+### One thing a same-machine run must do
+
+**Set `peerId` explicitly in every config.** It defaults to the machine's hostname, so two runtimes on one box otherwise share a mailbox address, poll each other's mail, and fail with `DECODE_FAILED` on garbage frames. That is correct behaviour for a colliding address, not a bug, and it is the first thing to check when a local multi-peer setup misbehaves.
+
+## What still needs a human
+
+The walkthrough below is worth doing once on two real machines, because one machine cannot tell you anything about the network between them. Windows named pipes also still need driving by hand: the Windows CI job proves the test suite passes, not that anyone has used the control plane there.
 
 ### The walkthrough, start to finish
 

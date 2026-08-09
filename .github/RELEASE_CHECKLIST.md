@@ -31,8 +31,8 @@ The two packages **do not share a version**. `@fyrlabs/dead-drop` churns; `@fyrl
 
 ## 4. The thing that is never done and always should be
 
-- [ ] The live GitHub walkthrough has been run against a real account: `scripts/github-live-check.sh <owner>/<throwaway-repo>`, expecting 20/20 in about fifteen minutes. Everything GitHub-specific is otherwise tested only against a scripted fake `gh` and a local bare repo, so real auth, rate limits, latency and large-repo behaviour are unverified. (0.2.4 fixed a silent message loss that only this found: it lost 10 of 50 concurrent requests, and nothing in the suite could see it.)
-- [ ] A two-peer run has actually exchanged a message. One machine is enough: `scripts/two-peer-check.sh` starts two runtimes with separate data directories over one shared filesystem transport.
+- [ ] `scripts/e2e.sh fast` is green. No network, no credentials, about ten minutes. It runs real runtimes against real transports and asserts what a user can and cannot do, which is where every bug in the 0.2.x series was found.
+- [ ] `scripts/e2e.sh live <owner>/<throwaway-repo>` is green, in about fifteen minutes. Everything GitHub-specific is otherwise tested only against a scripted fake `gh` and a local bare repo, so real auth, rate limits, latency and large-repo behaviour are unverified without it. (0.2.4 fixed a silent message loss that only this found: it lost 10 of 50 concurrent requests, and nothing in the suite could see it.)
 
 ## 5. Tag and publish
 

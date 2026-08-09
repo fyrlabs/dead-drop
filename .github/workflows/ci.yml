@@ -49,6 +49,30 @@ jobs:
           path: coverage/
           retention-days: 7
 
+  scenarios:
+    name: scenarios (fast tier)
+    runs-on: ubuntu-latest
+    # Real runtimes, real sockets, real files, and real waiting: the failover
+    # scenario sits out circuit breaker windows that cannot be shortened from
+    # config. Generous enough to fail on a hang rather than on a slow runner.
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Configure git for the git transport scenarios
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+          git config --global init.defaultBranch main
+      # The fast tier only. The live tier needs credentials and writes to a real
+      # repository, so it stays a human decision.
+      - run: scripts/e2e.sh fast
+
   windows:
     name: verify (windows)
     runs-on: windows-latest

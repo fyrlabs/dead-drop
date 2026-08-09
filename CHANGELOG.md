@@ -6,6 +6,15 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+### Fixed
+
+- A request that timed out while its transport was still sending crashed the runtime. `ddrop connect` died outright the first time this happened during a transport outage.
+- Connecting to an exposure a peer does not have now says `NOT_FOUND` with a 404, instead of `DECODE_FAILED` with a 500.
+
+### Added
+
+- `scripts/e2e.sh`: one scenario suite in two tiers, `fast` (no network, runs in CI) and `live` (a real GitHub repository, opt-in). Every scenario states what a user can and cannot do. It replaces the two older check scripts and covers broadcast, key rotation, transport failover, message expiry, `allowPeers` and the `http` exposure type for the first time. Both fixes above came out of writing it.
+
 ## [0.2.5]
 
 ### Changed
