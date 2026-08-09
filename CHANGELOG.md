@@ -6,6 +6,10 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+### Changed
+
+- Two runtimes on one `workDir` no longer share a git working tree, which git does not support. The first to start claims the directory and is laid out exactly as before; a second one clones into `<workDir>.peers/<workspace>-<peer>-<transport>/` and logs that it did. Abandoned clones are removed when the next runtime starts. This needs no configuration and mainly affects `ddrop connect`, which builds its runtime from the same config file as the peer already running.
+
 ## [0.2.4]
 
 ### Fixed

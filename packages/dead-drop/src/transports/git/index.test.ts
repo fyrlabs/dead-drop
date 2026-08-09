@@ -51,6 +51,7 @@ function context(overrides: Partial<TransportContext> = {}): TransportContext {
 async function store(
   remote: string,
   overrides: Partial<Parameters<typeof gitTransport>[0]> = {},
+  ctx: TransportContext = context(),
 ): Promise<StoreTransport> {
   return gitTransport.definition.create(
     {
@@ -62,7 +63,7 @@ async function store(
       freshnessMs: 0,
       ...overrides,
     },
-    context(),
+    ctx,
   ) as StoreTransport;
 }
 
@@ -180,6 +181,49 @@ describe('git transport specifics', () => {
     },
     90_000,
   );
+
+  it('gives a second store its own clone instead of sharing a working tree', async () => {
+    const remote = await bareRemote();
+    const workDir = await temp('deaddrop-git-contended-');
+
+    // Same config, same directory: what `ddrop connect` does to the peer that
+    // is already running, since it builds its runtime from the same file.
+    const first = await store(remote, { workDir });
+    const second = await store(remote, { workDir }, context({ peerId: 'peer-b' }));
+
+    await first.put('inbox/peer-b/from-first.ddf', bytes('first'));
+    await second.put('inbox/peer-a/from-second.ddf', bytes('second'));
+
+    // The loser clones beside the directory, never inside it: a clone nested in
+    // the working tree would be committed to the data branch by `add --all`.
+    const nested = await readdir(workDir);
+    expect(nested).not.toContain('.peers');
+    const clones = (await readdir(`${workDir}.peers`)).filter((name) => !name.endsWith('.owner'));
+    expect(clones).toEqual(['demo-peer-b-git']);
+
+    const observer = await store(remote);
+    const listed = await observer.list('inbox');
+    expect(listed.entries.map((entry) => entry.key).sort()).toEqual([
+      'inbox/peer-a/from-second.ddf',
+      'inbox/peer-b/from-first.ddf',
+    ]);
+  }, 90_000);
+
+  it('keeps the configured directory for a single store, and reclaims it after close', async () => {
+    const remote = await bareRemote();
+    const workDir = await temp('deaddrop-git-solo-');
+
+    const first = await store(remote, { workDir });
+    await first.put('inbox/peer-b/1.ddf', bytes('one'));
+    // No fallback directory: the ordinary setup is laid out exactly as before.
+    expect(await readdir(`${workDir}.peers`).catch(() => undefined)).toBeUndefined();
+    await first.close();
+
+    // A restart takes the directory back rather than piling up clones.
+    const second = await store(remote, { workDir });
+    await second.put('inbox/peer-b/2.ddf', bytes('two'));
+    expect(await readdir(`${workDir}.peers`).catch(() => undefined)).toBeUndefined();
+  }, 90_000);
 
   it('batches concurrent writes into a single commit', async () => {
     const remote = await bareRemote();

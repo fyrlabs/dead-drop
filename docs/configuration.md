@@ -76,7 +76,9 @@ Built-in short names: `memory`, `filesystem` (also `fs`), `git`, `github`. All f
 | `gitPath` | string | no | `git` | Path to the git binary. |
 | `timeoutMs` | number | no | `120000` | Per-git-command timeout. |
 
-Give each runtime on a machine its own `workDir`. A git working tree has one writer: when two processes share a clone, one process's poll can reset away a commit the other has made but not yet pushed, and git answers that push with "Everything up-to-date". The transport checks the commit reached the remote and retries rather than believing the exit code, so nothing is lost, but the retries are wasted work. `ddrop connect` starts its own runtime from the same config file, so it shares the clone unless you point it at a different one.
+A git working tree has one writer, so only one runtime uses `workDir` itself. The first to start claims it, recording the owner in a `<workDir>.owner` file beside the directory. A second runtime on the same config — which is what `ddrop connect` is, since it builds its runtime from the same file — clones into `<workDir>.peers/<workspace>-<peer>-<transport>/` instead and logs that it did. Clones whose runtime is gone are deleted when the next one starts, so they do not accumulate.
+
+You do not need to configure anything for this, and a single-runtime setup is laid out exactly as it was and never re-clones. Giving each runtime its own `workDir` explicitly is still the tidier arrangement when you are writing the config by hand.
 
 ### `github`
 

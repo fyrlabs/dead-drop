@@ -288,14 +288,22 @@ done
 
 RL_AFTER=$(gh api rate_limit --jq '.resources.core.remaining' 2>/dev/null)
 spent=$(( RL_BEFORE - RL_AFTER ))
-note "core API calls spent on $requests requests: $spent (${RL_BEFORE} -> ${RL_AFTER})"
-# Data movement is git, not the REST API, so the spend should be a handful of
-# polls rather than one call per request. If that ever stops being true, the
-# transport has started using the API for data and will exhaust the budget.
-if [ "$spent" -lt "$requests" ]; then
-  ok "sustained traffic does not cost one API call per request ($spent for $requests)"
+# The hourly window can roll over mid-run, which refills the budget and makes
+# the subtraction negative. That is not a measurement of anything; say so rather
+# than reporting "spent -385".
+if [ "$spent" -lt 0 ]; then
+  note "the rate limit window reset mid-run (${RL_BEFORE} -> ${RL_AFTER}); spend not measurable this run"
+  ok "sustained traffic did not exhaust the API budget"
 else
-  bad "the API budget is being spent per request ($spent for $requests)"
+  note "core API calls spent on $requests requests: $spent (${RL_BEFORE} -> ${RL_AFTER})"
+  # Data movement is git, not the REST API, so the spend should be a handful of
+  # polls rather than one call per request. If that ever stops being true, the
+  # transport has started using the API for data and will exhaust the budget.
+  if [ "$spent" -lt "$requests" ]; then
+    ok "sustained traffic does not cost one API call per request ($spent for $requests)"
+  else
+    bad "the API budget is being spent per request ($spent for $requests)"
+  fi
 fi
 
 health_after=$($DDROP transport health --config "$WORK/peerA/deaddrop.config.json" --json 2>/dev/null \

@@ -39,6 +39,25 @@ import {
 } from '@fyrlabs/dead-drop-transport-sdk';
 
 import { Git, isNonFastForward, redactUrl } from './git.js';
+import { sweepAbandoned, takeDirLock, type DirLock } from './workdir-lock.js';
+
+/**
+ * Suffix for the directory holding extra clones when the configured `workDir`
+ * is already owned. It is a sibling, never a child: anything inside the working
+ * tree gets walked as objects and committed by `git add --all`, so a clone
+ * nested there would push itself into the data branch.
+ */
+const PEER_CLONES_SUFFIX = '.peers';
+
+/**
+ * A directory name for one store instance, unique across every store that could
+ * contend for a `workDir`: two processes differ by peer id, and two stores
+ * inside one runtime differ by workspace or instance name.
+ */
+function safeDirName(context: TransportContext): string {
+  const raw = `${context.workspace}-${context.peerId}-${context.instance}`;
+  return raw.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120);
+}
 
 export interface GitTransportConfig {
   /** Anything `git clone` accepts: an https url, an ssh url, or a local path. */
@@ -82,9 +101,12 @@ class GitStore implements StoreTransport {
   > &
     GitTransportConfig;
   private readonly context: TransportContext;
-  private readonly git: Git;
-  private readonly workDir: string;
-  private readonly dataDir: string;
+  /** The directory the config asked for, before ownership is settled. */
+  private readonly configuredWorkDir: string;
+  private git: Git;
+  private workDir: string;
+  private dataDir: string;
+  private lock: DirLock | undefined;
 
   private ready: Promise<void> | undefined;
   private queue: PendingMutation[] = [];
@@ -104,14 +126,60 @@ class GitStore implements StoreTransport {
       ...config,
     };
     this.context = context;
-    this.workDir = resolve(config.workDir);
-    this.dataDir = this.config.prefix
-      ? join(this.workDir, ...this.config.prefix.split('/'))
-      : this.workDir;
-    this.git = new Git({
-      ...(config.gitPath ? { gitPath: config.gitPath } : {}),
-      cwd: this.workDir,
-      ...(config.timeoutMs ? { timeoutMs: config.timeoutMs } : {}),
+    this.configuredWorkDir = resolve(config.workDir);
+    // Provisional until `initialise` finds out whether this directory is free.
+    this.workDir = this.configuredWorkDir;
+    this.dataDir = this.resolveDataDir(this.workDir);
+    this.git = this.gitFor(this.workDir);
+  }
+
+  private resolveDataDir(workDir: string): string {
+    return this.config.prefix ? join(workDir, ...this.config.prefix.split('/')) : workDir;
+  }
+
+  private gitFor(workDir: string): Git {
+    return new Git({
+      ...(this.config.gitPath ? { gitPath: this.config.gitPath } : {}),
+      cwd: workDir,
+      ...(this.config.timeoutMs ? { timeoutMs: this.config.timeoutMs } : {}),
+    });
+  }
+
+  /**
+   * Settles which directory this store owns.
+   *
+   * The first store to claim the configured directory keeps it, so an ordinary
+   * single-runtime setup is laid out exactly as before and never re-clones. A
+   * second one -- another runtime, or `ddrop connect`, which builds its runtime
+   * from the same config file -- takes a clone of its own instead of sharing a
+   * working tree, which git does not support and which used to interleave one
+   * process's `reset --hard` with another's commit.
+   */
+  private async claimWorkDir(): Promise<void> {
+    this.lock = await takeDirLock(this.configuredWorkDir, () => this.context.now());
+    if (this.lock) return;
+
+    const parent = `${this.configuredWorkDir}${PEER_CLONES_SUFFIX}`;
+    const own = join(parent, safeDirName(this.context));
+    await mkdir(parent, { recursive: true });
+    const siblings = await readdir(parent).catch(() => [] as string[]);
+    const swept = await sweepAbandoned(parent, own, siblings);
+
+    this.lock = await takeDirLock(own, () => this.context.now());
+    if (!this.lock) {
+      throw new DeadDropError(
+        'TRANSPORT_ERROR',
+        `another runtime already owns ${own}. Give this runtime its own "workDir".`,
+        { retryable: false },
+      );
+    }
+    this.workDir = own;
+    this.dataDir = this.resolveDataDir(own);
+    this.git = this.gitFor(own);
+    this.context.logger.info('another runtime owns this workDir, cloning separately', {
+      configured: this.configuredWorkDir,
+      using: own,
+      ...(swept.length > 0 ? { reclaimed: swept.length } : {}),
     });
   }
 
@@ -230,6 +298,8 @@ class GitStore implements StoreTransport {
     // Let queued writes finish; dropping them would silently lose messages the
     // caller has already been told are durable.
     await this.flushing?.catch(() => undefined);
+    await this.lock?.release().catch(() => undefined);
+    this.lock = undefined;
   }
 
   // --------------------------------------------------------------- internals
@@ -240,6 +310,7 @@ class GitStore implements StoreTransport {
   }
 
   private async initialise(): Promise<void> {
+    await this.claimWorkDir();
     await mkdir(this.workDir, { recursive: true });
     const isRepo = await this.git.tryRun(['rev-parse', '--git-dir']);
     if (isRepo.code !== 0) {
