@@ -71,7 +71,7 @@ Each layer is a subpath export of `@fyrlabs/dead-drop` (`./core`, `./runtime`, a
 
 ## Things that will bite you
 
-- **Windows.** Path handling and the named-pipe control plane differ. Never compare a resolved path against an unresolved one, and never assume `/` separators. A Windows-only CI failure has already happened once for exactly this reason.
+- **Windows.** Path handling and the named-pipe control plane differ. Never compare a resolved path against an unresolved one, and never assume `/` separators. Two Windows-only CI failures have happened for this, and the second one was in a *test*: a helper that binds its own control socket must take the same named-pipe branch `defaultSocketPath` does, because `listen` on a socket path fails there with a bare `EACCES` that names nothing. Anything that binds a listener, in `src/` or in a test, needs the platform branch.
 - **Hoisting.** Every workspace package resolves from the repo root here, which hides missing dependencies. Check manifests, not just imports.
 - **Prettier and identifier length.** Renaming a symbol can reflow lines and fail `format:check` in files you did not touch. Run `npm run format` after any large rename.
 - **`npm publish` and `bin` paths.** A `./` prefix on a bin path makes npm warn that the entry "was invalid and removed". Write `dist/bin.js`, not `./dist/bin.js`.

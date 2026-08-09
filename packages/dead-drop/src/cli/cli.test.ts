@@ -11,6 +11,8 @@ import { VERSION, run, type CliIo } from './cli.js';
 
 const dirs: string[] = [];
 const servers: Array<{ close(cb?: () => void): unknown }> = [];
+/** Makes each named pipe name unique within the process. */
+let fakeControlPlanes = 0;
 
 function capture(): CliIo & { stdout: string[]; stderr: string[] } {
   const stdout: string[] = [];
@@ -44,11 +46,22 @@ async function temp(): Promise<string> {
   return dir;
 }
 
-/** A control socket answering one canned body, so a client command can be driven alone. */
+/**
+ * A control socket answering one canned body, so a client command can be driven
+ * alone.
+ *
+ * Windows has no Unix sockets, and `listen` on a path there fails with a bare
+ * `EACCES` rather than anything naming the cause. The runtime already solves
+ * this with a named pipe in `defaultSocketPath`; the same branch is needed in
+ * any test that binds its own listener.
+ */
 async function fakeControlPlane(body: unknown): Promise<string> {
   const { createServer } = await import('node:http');
   const { once } = await import('node:events');
-  const socketPath = join(await temp(), 'control.sock');
+  const socketPath =
+    process.platform === 'win32'
+      ? `\\\\.\\pipe\\deaddrop-test-${process.pid.toString(16)}-${fakeControlPlanes++}`
+      : join(await temp(), 'control.sock');
   const server = createServer((_request, response) => {
     const payload = JSON.stringify(body);
     response.writeHead(200, {
