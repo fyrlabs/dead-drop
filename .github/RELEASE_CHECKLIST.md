@@ -55,13 +55,15 @@ The workflow publishes in dependency order and skips whichever package is alread
 
 **A green CI run proves the tests passed. It does not prove the tarball is right.** Both 0.1.0 and 0.2.0 passed CI while shipping a CLI that reported the wrong version.
 
-- [ ] Run it:
+- [ ] Run `verify-release.sh`, which is kept in the maintainer's release notes rather than in this repository because it is machine-specific:
 
 ```bash
-~/.claude/artifacts/-Users-me-workspace-dead-drop/verify-release.sh X.Y.Z
+verify-release.sh <version> <transport-sdk-version>
 ```
 
-It installs from the registry into a throwaway prefix and checks: retired packages gone, survivors intact, exactly one transport-sdk copy, caret range, both bins, every subpath export, `ddrop --version`, a `dataDir` past the 104-byte socket limit binding, the `DeadDropError` cross-copy brand, and a live runtime answering over its control socket. Expect 40 pass, 0 fail.
+It installs from the registry into a throwaway prefix and checks: retired packages gone, survivors intact, exactly one transport-sdk copy, caret range, both bins, every subpath export, `ddrop --version`, a `dataDir` past the 104-byte socket limit binding, the `DeadDropError` cross-copy brand, and a live runtime answering over its control socket. Every check must pass; the count grows as checks are added, so read the `FAIL` total rather than matching a number.
+
+Both packages are arguments because they version independently. The script used to assert transport-sdk was exactly `1.0.0` and the only version ever published, which reported two failures against a sound 0.6.0 the moment the sdk legitimately moved to 1.1.0. A gate that encodes a fact expires when the fact does; assert the rule.
 
 ## 7. Clean up
 
