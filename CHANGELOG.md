@@ -4,6 +4,8 @@ Notable changes to dead-drop. The format follows [Keep a Changelog](https://keep
 
 Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is the stable transport contract and versions independently; its changes are called out explicitly.
 
+## [Unreleased]
+
 ## [0.6.0]
 
 ### Added
