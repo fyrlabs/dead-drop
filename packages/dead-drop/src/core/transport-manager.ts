@@ -24,7 +24,11 @@ import type { Logger } from './observability/logger.js';
 import { silentLogger } from './observability/logger.js';
 import { MetricsRegistry, healthToNumber } from './observability/metrics.js';
 import type { TraceContext, Tracer } from './observability/tracer.js';
-import { CircuitBreaker, isBreakerOpen } from './reliability/circuit-breaker.js';
+import {
+  CircuitBreaker,
+  isBreakerOpen,
+  type CircuitBreakerOptions,
+} from './reliability/circuit-breaker.js';
 import {
   DEFAULT_RETRY_POLICY,
   withRetry,
@@ -93,6 +97,8 @@ export interface TransportManagerOptions {
   tracer?: Tracer;
   clock?: Clock;
   retry?: Partial<RetryPolicy>;
+  /** Breaker tuning applied to every managed transport. */
+  breaker?: Pick<CircuitBreakerOptions, 'failureThreshold' | 'resetTimeoutMs' | 'successThreshold'>;
   /** Health probe interval. Default 30s. */
   healthIntervalMs?: number;
   /** Per-operation timeout. Default 60s. */
@@ -115,6 +121,7 @@ export class TransportManager {
   private readonly tracer: Tracer | undefined;
   private readonly clock: Clock;
   private readonly retryPolicy: RetryPolicy;
+  private readonly breakerOptions: NonNullable<TransportManagerOptions['breaker']>;
   private readonly healthIntervalMs: number;
   private readonly operationTimeoutMs: number;
   private readonly controller = new AbortController();
@@ -132,6 +139,7 @@ export class TransportManager {
     this.tracer = options.tracer;
     this.clock = options.clock ?? systemClock;
     this.retryPolicy = { ...DEFAULT_RETRY_POLICY, ...options.retry };
+    this.breakerOptions = options.breaker ?? {};
     this.healthIntervalMs = options.healthIntervalMs ?? 30_000;
     this.operationTimeoutMs = options.operationTimeoutMs ?? 60_000;
     options.signal?.addEventListener('abort', () => this.controller.abort(), { once: true });
@@ -166,6 +174,7 @@ export class TransportManager {
       };
       const transport = await registration.definition.create(registration.config, context);
       const breaker = new CircuitBreaker(name, {
+        ...this.breakerOptions,
         clock: this.clock,
         onStateChange: (from, to) => {
           this.logger.warn('transport circuit breaker changed state', {

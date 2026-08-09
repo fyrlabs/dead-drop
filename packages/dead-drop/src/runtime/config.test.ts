@@ -192,8 +192,49 @@ describe('parseRuntimeConfig', () => {
     expect(config.workspaces[0]?.exposures?.[0]?.directory).toBe(resolve(homedir(), 'public'));
   });
 
+  it('carries retry and breaker tuning through to the workspace', () => {
+    const config = parseRuntimeConfig({
+      workspaces: [
+        {
+          ...valid.workspaces[0],
+          retry: { maxAttempts: 2, initialDelayMs: 50, jitter: 'none' },
+          breaker: { resetTimeoutMs: 1000, failureThreshold: 2 },
+        },
+      ],
+    });
+    expect(config.workspaces[0]?.retry).toEqual({
+      maxAttempts: 2,
+      initialDelayMs: 50,
+      jitter: 'none',
+    });
+    expect(config.workspaces[0]?.breaker).toEqual({ resetTimeoutMs: 1000, failureThreshold: 2 });
+  });
+
   const rejections: Array<[string, unknown, RegExp]> = [
     ['a non-object', 'nope', /must be a JSON object/],
+    // These are the numbers reached for when something is timing out. A typo
+    // that silently fell back to the default would be indistinguishable from
+    // the knob not working at all.
+    [
+      'a retry option that is not a number',
+      { workspaces: [{ ...valid.workspaces[0], retry: { maxAttempts: '5' } }] },
+      /retry\.maxAttempts must be a number greater than zero/,
+    ],
+    [
+      'a misspelled retry option',
+      { workspaces: [{ ...valid.workspaces[0], retry: { maxAttempt: 5 } }] },
+      /retry\.maxAttempt is not a known option/,
+    ],
+    [
+      'a jitter mode that does not exist',
+      { workspaces: [{ ...valid.workspaces[0], retry: { jitter: 'chaotic' } }] },
+      /retry\.jitter must be one of none, full, equal/,
+    ],
+    [
+      'a breaker threshold of zero, which would trip on nothing',
+      { workspaces: [{ ...valid.workspaces[0], breaker: { failureThreshold: 0 } }] },
+      /breaker\.failureThreshold must be a number greater than zero/,
+    ],
     ['no workspaces', { workspaces: [] }, /at least one workspace/],
     ['a bad log level', { ...valid, logLevel: 'loud' }, /logLevel must be/],
     [

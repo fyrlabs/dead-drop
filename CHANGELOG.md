@@ -4,6 +4,14 @@ Notable changes to dead-drop. The format follows [Keep a Changelog](https://keep
 
 Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is the stable transport contract and versions independently; its changes are called out explicitly.
 
+## [Unreleased]
+
+### Added
+
+- `retry` and `breaker` on a workspace, so the retry ladder and the circuit breaker can be tuned from `deaddrop.config.json` instead of only in code. Every field is validated at start-up and a typo names itself, rather than silently falling back to the default.
+
+  Raising `retry.maxAttempts` alone usually buys nothing: since 0.3.0 the request timeout bounds the whole request, so the extra attempts are cut off by the deadline rather than run. Raise `requestTimeoutMs` with it. `docs/configuration.md` says so next to the field.
+
 ## [0.4.0]
 
 ### Changed

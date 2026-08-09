@@ -46,6 +46,33 @@ A Unix socket path cannot exceed 104 bytes. When `<dataDir>/deaddrop.sock` would
 | `subscribe` | string[] | no | none | Broadcast channels joined at start-up. |
 | `requestTimeoutMs` | number | no | `30000` | Default request timeout for this workspace. Must be positive. |
 | `polling` | object | no | | `minIntervalMs` (default `250`) and `maxIntervalMs` (default `15000`). The mailbox backs off between these two while a workspace is idle and drops back to the minimum as soon as it sees traffic. |
+| `retry` | object | no | see below | How a failed transport operation is retried. |
+| `breaker` | object | no | see below | When a failing transport is taken out of rotation, and when it is probed again. |
+
+### `retry`
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `maxAttempts` | number | `5` | Total attempts including the first. `1` disables retrying. |
+| `initialDelayMs` | number | `200` | Delay before the second attempt. |
+| `maxDelayMs` | number | `30000` | Ceiling on any single delay. |
+| `factor` | number | `2` | Multiplier applied to the delay between attempts. |
+| `jitter` | string | `full` | One of `none`, `full`, `equal`. Randomises the delay so retries from many peers do not land together. |
+| `maxElapsedMs` | number | none | Never sleep longer than this in total across all attempts. |
+
+**Raising `maxAttempts` on its own usually buys nothing, and this is the part worth reading twice.** Since 0.3.0 the request timeout bounds the *whole* request, the send included. Extra attempts are therefore cut off by the deadline rather than run: a caller with the default 30s timeout does not get more retries by asking for 10 attempts, it just fails at the same 30s with more of the ladder unused. Raise `requestTimeoutMs` in step, or the knob is decoration.
+
+Every field is checked at start-up. A misspelling or a non-number fails with the field named, rather than falling back to the default, because a knob that silently does nothing is worse than no knob.
+
+### `breaker`
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `failureThreshold` | number | `5` | Consecutive failures that take the transport out of rotation. |
+| `resetTimeoutMs` | number | `30000` | How long it stays out before one probe is allowed through. |
+| `successThreshold` | number | `2` | Consecutive successes on probes needed to return it to service. |
+
+Lower `resetTimeoutMs` when you want failover to recover quickly in a test; the defaults are tuned for a real remote that is briefly unwell rather than gone.
 
 ## Transports
 

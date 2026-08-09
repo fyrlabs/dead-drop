@@ -168,6 +168,8 @@ export class Workspace {
       peerId: this.peerId,
       registrations: options.registrations,
       ...(options.config.policy ? { policy: options.config.policy } : {}),
+      ...(options.config.retry ? { retry: options.config.retry } : {}),
+      ...(options.config.breaker ? { breaker: options.config.breaker } : {}),
       logger: this.logger,
       metrics: this.metrics,
       clock: this.clock,

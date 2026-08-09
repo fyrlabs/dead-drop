@@ -17,7 +17,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 
 import { DeadDropError, isValidName } from '../protocol/index.js';
-import type { LogLevel } from '../core/index.js';
+import type { CircuitBreakerOptions, JitterMode, LogLevel, RetryPolicy } from '../core/index.js';
 import { isLogLevel } from '../core/index.js';
 
 export interface TransportConfigEntry {
@@ -67,6 +67,21 @@ export interface WorkspaceConfig {
     minIntervalMs?: number;
     maxIntervalMs?: number;
   };
+  /**
+   * How a failed transport operation is retried, merged over the defaults
+   * (5 attempts, 200ms initial, 30s cap, factor 2, full jitter).
+   *
+   * Raising `maxAttempts` alone usually buys nothing. Since 0.3.0 the request
+   * timeout bounds the whole request, send included, so extra attempts are cut
+   * off by the deadline rather than run; `requestTimeoutMs` has to move with it.
+   */
+  retry?: Partial<RetryPolicy>;
+  /**
+   * When a transport is taken out of rotation and when it is probed again.
+   * Defaults: 5 consecutive failures to open, 30s before a probe, 2 successes
+   * to close.
+   */
+  breaker?: Pick<CircuitBreakerOptions, 'failureThreshold' | 'resetTimeoutMs' | 'successThreshold'>;
   /** Default request timeout for this workspace. Default 30000. */
   requestTimeoutMs?: number;
 }
@@ -321,7 +336,70 @@ function parseWorkspace(raw: unknown, index: number, baseDir?: string): Workspac
     }
     workspace.polling = source.polling as WorkspaceConfig['polling'];
   }
+  if (source.retry !== undefined) {
+    workspace.retry = parseRetry(source.retry, label);
+  }
+  if (source.breaker !== undefined) {
+    workspace.breaker = parseBreaker(source.breaker, label);
+  }
   return workspace;
+}
+
+const JITTER_MODES: readonly JitterMode[] = ['none', 'full', 'equal'];
+
+/**
+ * Checks each field rather than accepting any object.
+ *
+ * These are the numbers people reach for when something is timing out, and a
+ * typo has to be a start-up error naming the field. A `maxAttempts` of `"5"`
+ * that silently fell back to the default would be indistinguishable from the
+ * knob not working, which is worse than not having the knob.
+ */
+function parseTuning<T>(
+  raw: unknown,
+  label: string,
+  field: string,
+  numeric: readonly string[],
+  extra: (key: string, value: unknown) => boolean = () => false,
+): T {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    fail(`workspace ${label}: ${field} must be an object`);
+  }
+  const source = raw as Record<string, unknown>;
+  for (const [key, value] of Object.entries(source)) {
+    if (extra(key, value)) continue;
+    if (!numeric.includes(key)) {
+      fail(`workspace ${label}: ${field}.${key} is not a known option`);
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+      fail(`workspace ${label}: ${field}.${key} must be a number greater than zero`);
+    }
+  }
+  return source as T;
+}
+
+function parseRetry(raw: unknown, label: string): Partial<RetryPolicy> {
+  return parseTuning<Partial<RetryPolicy>>(
+    raw,
+    label,
+    'retry',
+    ['maxAttempts', 'initialDelayMs', 'maxDelayMs', 'factor', 'maxElapsedMs'],
+    (key, value) => {
+      if (key !== 'jitter') return false;
+      if (!JITTER_MODES.includes(value as JitterMode)) {
+        fail(`workspace ${label}: retry.jitter must be one of ${JITTER_MODES.join(', ')}`);
+      }
+      return true;
+    },
+  );
+}
+
+function parseBreaker(raw: unknown, label: string): WorkspaceConfig['breaker'] {
+  return parseTuning<NonNullable<WorkspaceConfig['breaker']>>(raw, label, 'breaker', [
+    'failureThreshold',
+    'resetTimeoutMs',
+    'successThreshold',
+  ]);
 }
 
 function parsePolicy(raw: unknown, label: string): WorkspaceConfig['policy'] {
