@@ -111,6 +111,8 @@ export class CircuitBreaker {
   async execute<T>(operation: () => Promise<T>): Promise<T> {
     if (!this.canAttempt()) {
       throw new DeadDropError('TRANSPORT_ERROR', `circuit breaker "${this.name}" is open`, {
+        // Retryable, but not by a caller standing in front of this breaker.
+        // Somewhere else, or later; see `isBreakerOpen`.
         retryable: true,
         retryAfterMs: this.retryAfterMs,
         details: { breaker: this.name, state: 'open' },
@@ -154,4 +156,17 @@ export class CircuitBreaker {
     this.samples.push(ok);
     if (this.samples.length > this.sampleSize) this.samples.shift();
   }
+}
+
+/**
+ * True when a rejection came from the breaker itself rather than the backend.
+ *
+ * An open breaker is a decision that has already been made: this transport is
+ * not working, do not call it. Retrying that rejection re-asks a question the
+ * breaker exists to answer once, and the retry loop backs off up to 30 seconds
+ * per attempt while doing it. A caller that has somewhere else to go should go
+ * there immediately; the breaker's own half-open probe is the retry.
+ */
+export function isBreakerOpen(error: unknown): boolean {
+  return DeadDropError.is(error) && error.details?.state === 'open';
 }

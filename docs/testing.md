@@ -47,7 +47,7 @@ Scenarios live one file per subject under `scripts/e2e/fast/` and `scripts/e2e/l
 
 ### The fast tier
 
-No network, no credentials, safe for CI, and it runs before every release. Five to ten minutes, and the spread is almost entirely `07-failover.sh`: a transport failing over to a healthy one takes between 90 and 230 seconds of real waiting, because the transport manager backs off up to 30 seconds per retry even when the circuit breaker in front of it is already open. None of that is configurable from `deaddrop.config.json`. Everything else in the tier finishes in under a minute.
+No network, no credentials, safe for CI, and it runs before every release. Around three minutes. The slowest files are `07-failover.sh`, which waits for real circuit breakers to trip, and `06-key-rotation.sh`, which restarts peers.
 
 | File | What it establishes |
 | --- | --- |

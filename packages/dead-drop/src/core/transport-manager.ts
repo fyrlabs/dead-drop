@@ -24,7 +24,7 @@ import type { Logger } from './observability/logger.js';
 import { silentLogger } from './observability/logger.js';
 import { MetricsRegistry, healthToNumber } from './observability/metrics.js';
 import type { TraceContext, Tracer } from './observability/tracer.js';
-import { CircuitBreaker } from './reliability/circuit-breaker.js';
+import { CircuitBreaker, isBreakerOpen } from './reliability/circuit-breaker.js';
 import {
   DEFAULT_RETRY_POLICY,
   withRetry,
@@ -491,6 +491,13 @@ export class TransportManager {
           policy: { ...this.retryPolicy, ...options.retry },
           clock: this.clock,
           ...(options.signal ? { signal: options.signal } : {}),
+          // An open breaker is a decision already made about this transport, so
+          // retrying it here is asking the same question five times and sleeping
+          // up to 30 seconds between asks. Failing immediately hands control
+          // back to `run`, which moves to the next transport — which is the
+          // entire reason a fallback is configured. This one predicate was the
+          // difference between failing over in seconds and taking minutes.
+          isRetryable: (error) => !isBreakerOpen(error) && error.retryable,
           onRetry: ({ attempt, error, delayMs }) => {
             this.logger.debug('retrying transport operation', {
               transport: entry.name,

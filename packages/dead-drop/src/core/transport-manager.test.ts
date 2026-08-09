@@ -266,6 +266,52 @@ describe('TransportManager run', () => {
     expect(subject.list()[0]?.breaker).toBe('open');
   });
 
+  it('fails over immediately once a breaker is open, without backing off first', async () => {
+    // The reason a fallback is configured is so nobody waits for the primary.
+    // Retrying an open breaker waited anyway: up to five attempts with backoff
+    // capped at 30 seconds, each one re-asking a breaker that had already
+    // answered. A real failover measured between 90 and 460 seconds because of
+    // it, and every extra probe made the next one slower.
+    const primary = faultyTransport('primary', {
+      failOperations: ['put'],
+      failCount: Number.POSITIVE_INFINITY,
+    });
+    const fallbackCalls: string[] = [];
+    const fallback = faultyTransport('fallback', { calls: fallbackCalls });
+    const { manager: subject, clock } = manager([primary.registration, fallback.registration], {
+      policy: { mode: 'failover', primary: 'primary', fallback: ['fallback'] },
+    });
+    await subject.start();
+
+    const write = (key: string, retry?: { maxAttempts: number }): Promise<void> =>
+      subject.run(
+        'put',
+        (transport) => (transport as StoreTransport).put(key, new Uint8Array()),
+        retry ? { retry } : {},
+      );
+
+    // Trip the primary's breaker: one failed attempt each, no backoff to wait
+    // out, and not enough elapsed time for the breaker to start probing again.
+    for (let i = 0; i < 5; i++) {
+      const attempt = write(`ws/demo/inbox/peer-b/trip-${i}.ddf`, { maxAttempts: 1 });
+      await clock.advance(100);
+      await attempt;
+    }
+    expect(subject.get('primary').breaker.current).toBe('open');
+
+    // Now the real thing, on the default retry policy. The clock never moves,
+    // so any backoff at all leaves this pending: `clock.sleep` on a test clock
+    // only resolves when time is advanced. Reaching the fallback proves the
+    // open breaker was treated as an answer rather than a question.
+    fallbackCalls.length = 0;
+    const outcome = await Promise.race([
+      write('ws/demo/inbox/peer-b/real.ddf').then(() => 'reached the fallback'),
+      new Promise((resolve) => setTimeout(() => resolve('still backing off'), 250)),
+    ]);
+    expect(outcome).toBe('reached the fallback');
+    expect(fallbackCalls.some((call) => call.startsWith('put'))).toBe(true);
+  });
+
   it('times out a hung operation', async () => {
     const { registration } = faultyTransport('slow');
     const { manager: subject, clock } = manager([registration], {
