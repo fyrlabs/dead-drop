@@ -173,6 +173,25 @@ function storeCases(harness: ConformanceHarness): ConformanceCase[] {
       }),
     },
     {
+      name: 'list descends into nested prefixes',
+      run: store(async (t) => {
+        // A prefix names a subtree, not one directory level: `assertValidPrefix`
+        // documents the empty prefix as meaning "everything". The runtime reads
+        // queued depth for the whole workspace by listing one inbox root and
+        // grouping the keys underneath, so an adapter that returned only direct
+        // children would report every peer's queue as empty.
+        await t.put('inbox/peer-a/1.ddf', bytes('a'));
+        await t.put('inbox/peer-b/2.ddf', bytes('bb'));
+        await settle();
+
+        const listed = await collect(t, 'inbox');
+        const keys = listed.map((entry) => entry.key).sort();
+        assert(keys.length === 2, `expected 2 entries under inbox, got ${keys.length}`);
+        assert(keys[0] === 'inbox/peer-a/1.ddf', `unexpected key ${keys[0]}`);
+        assert(keys[1] === 'inbox/peer-b/2.ddf', `unexpected key ${keys[1]}`);
+      }),
+    },
+    {
       name: 'list does not treat a prefix as a substring match',
       run: store(async (t) => {
         await t.put('inbox/peer-a/1.ddf', bytes('a'));

@@ -18,6 +18,8 @@ const sum = await ddrop.call('machine-a', 'math.add', { a: 10, b: 20 });
 
 `call` waits for a reply and takes a timeout; `publish` is fire-and-forget to every subscriber. Delivery is at-least-once, so a handler that is not idempotent will eventually run twice. See [guarantees.md](guarantees.md).
 
+`ddrop.queues()` answers what is still waiting, per peer, without decrypting or consuming anything. It backs the `ddrop queues` command and is described in [operations.md](operations.md#queued-depth); check `read` before trusting an empty `queues` array.
+
 ## Serving
 
 From an embedded runtime, a service is a plain object of functions:

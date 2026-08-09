@@ -130,6 +130,7 @@ ddrop init [--root <folder>]        write a config, and a secret beside it
 ddrop start                         run the runtime
 ddrop status                        runtime, workspaces, transports
 ddrop discover                      peers visible in the workspace
+ddrop queues                        messages waiting in each peer's inbox
 ddrop expose --target <url> --name <n>
 ddrop expose <dir> --name <n>
 ddrop connect <peer>/<exposure>

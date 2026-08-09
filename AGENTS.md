@@ -17,7 +17,7 @@ npm test            # tests only
 npm run build       # tsc --build
 npm run format      # prettier --write
 npm run format:check
-node examples/custom-transport/index.js   # 18/18 conformance cases
+node examples/custom-transport/index.js   # 19/19 conformance cases
 ```
 
 `npm run verify` must pass before you consider a change done. CI additionally runs `npm run format:check`, the three examples, and the whole suite on Windows, so a change that only passes on macOS is not finished.

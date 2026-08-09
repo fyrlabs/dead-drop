@@ -30,6 +30,24 @@ export interface TransportInfoLike {
   message?: string;
 }
 
+export interface QueueDepth {
+  peerId: string;
+  count: number;
+  bytes: number;
+  oldestId: string;
+  oldestAt?: number;
+}
+
+export interface QueueReport {
+  workspace: string;
+  peerId: string;
+  queues: QueueDepth[];
+  unreadable: Array<{ transport: string; message: string }>;
+  /** Store transports the counts were read from. Zero means the report says nothing. */
+  read: number;
+  truncated: boolean;
+}
+
 export interface RuntimeStatus {
   startedAt: number;
   uptimeMs: number;

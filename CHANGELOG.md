@@ -4,6 +4,16 @@ Notable changes to dead-drop. The format follows [Keep a Changelog](https://keep
 
 Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is the stable transport contract and versions independently; its changes are called out explicitly.
 
+## [Unreleased]
+
+### Added
+
+- `ddrop queues` shows how many messages are waiting in each peer's inbox and how old the oldest one is, so you can see a peer that has stopped keeping up without waiting for a request to time out. It reads object keys only: nothing is decrypted, and nothing is consumed. Also available as `client.queues()`.
+
+### Changed
+
+- `@fyrlabs/dead-drop-transport-sdk`: the conformance suite now checks that listing a prefix returns keys nested below it, not just its direct children. Every built-in transport already did this; a third-party adapter that did not would have reported every queue as empty.
+
 ## [0.5.0]
 
 ### Added

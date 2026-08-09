@@ -12,9 +12,15 @@
 
 import { DeadDropError } from '../protocol/index.js';
 import { ControlPlaneClient, defaultSocketPath, DEFAULT_DATA_DIR } from '../runtime/index.js';
-import type { PeerRecord, RuntimeStatus, TransportInfoLike } from './types.js';
+import type {
+  PeerRecord,
+  QueueDepth,
+  QueueReport,
+  RuntimeStatus,
+  TransportInfoLike,
+} from './types.js';
 
-export type { PeerRecord, RuntimeStatus, TransportInfoLike };
+export type { PeerRecord, QueueDepth, QueueReport, RuntimeStatus, TransportInfoLike };
 
 export interface ClientOptions {
   /** Workspace to act in. Defaults to the runtime's first workspace. */
@@ -51,6 +57,14 @@ export class DeadDropClient {
     const query = this.query({ ...(options.includeStale ? { stale: 'true' } : {}) });
     const body = await this.control.request<{ peers: PeerRecord[] }>('GET', `/peers${query}`);
     return body.peers;
+  }
+
+  /**
+   * How many messages are waiting for each peer, read from object keys alone.
+   * Nothing is decrypted and nothing is consumed.
+   */
+  async queues(): Promise<QueueReport> {
+    return this.control.request<QueueReport>('GET', `/queues${this.query()}`);
   }
 
   async transports(): Promise<TransportInfoLike[]> {

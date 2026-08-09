@@ -55,6 +55,7 @@ Usage
   ddrop status [--json]                      show runtime, workspace and transport state
   ddrop list                                 list workspaces
   ddrop discover [--json] [--stale]          list peers visible in the workspace
+  ddrop queues [--json]                      messages waiting in each peer's inbox
   ddrop transport list [--json]              show transports and their scores
   ddrop transport health [--json]            re-probe transports and show health
   ddrop expose --target <url> --name <name>  expose a local http server
@@ -157,6 +158,8 @@ async function dispatch(
       return listWorkspaces(values, io);
     case 'discover':
       return discover(values, io);
+    case 'queues':
+      return queues(values, io);
     case 'transport':
       return transport(args, values, io);
     case 'expose':
@@ -379,6 +382,50 @@ async function discover(values: Values, io: CliIo): Promise<number> {
     if (peer.exposures.length > 0) io.out(`  exposures: ${peer.exposures.join(', ')}`);
     if (peer.services.length > 0) io.out(`  services:  ${peer.services.join(', ')}`);
     io.out(`  last seen: ${new Date(peer.announcedAt).toISOString()}`);
+  }
+  return 0;
+}
+
+async function queues(values: Values, io: CliIo): Promise<number> {
+  const body = await (
+    await client(values)
+  ).request<{
+    peerId: string;
+    queues: Array<{ peerId: string; count: number; bytes: number; oldestAt?: number }>;
+    unreadable: Array<{ transport: string; message: string }>;
+    read: number;
+    truncated: boolean;
+  }>('GET', `/queues${buildQuery(values)}`);
+
+  // The JSON report carries `read` and `unreadable`, so it stays honest on its
+  // own and a script gets the detail as well as the exit code.
+  if (values.json) io.out(JSON.stringify(body, null, 2));
+
+  for (const problem of body.unreadable) {
+    io.err(`ddrop: could not list ${problem.transport}: ${problem.message}`);
+  }
+  // Answered before the human report is printed. "Nothing is queued" and "I
+  // could not look" read almost the same on a terminal and mean opposite
+  // things, so the empty table must not appear when no store was read at all.
+  if (body.read === 0) {
+    io.err('ddrop: no store transport could be listed, so queue depth is unknown.');
+    return 1;
+  }
+  if (body.truncated) io.err('ddrop: scan limit reached; every count is a lower bound.');
+
+  if (values.json) return 0;
+  if (body.queues.length === 0) {
+    io.out('No messages are queued.');
+    return 0;
+  }
+  const now = Date.now();
+  for (const queue of body.queues) {
+    const age = queue.oldestAt === undefined ? '?' : `${formatDuration(now - queue.oldestAt)} ago`;
+    io.out(
+      `${pad(queue.peerId, 24)} ${String(queue.count).padStart(5)} waiting  ` +
+        `${pad(formatBytes(queue.bytes), 10)} oldest ${age}` +
+        (queue.peerId === body.peerId ? '  (this peer)' : ''),
+    );
   }
   return 0;
 }
@@ -719,6 +766,18 @@ function parseInput(value: string | boolean | undefined): unknown {
 
 function pad(value: string, width: number): string {
   return value.length >= width ? value : value + ' '.repeat(width - value.length);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(1)} ${units[unit]}`;
 }
 
 function formatDuration(ms: number): string {

@@ -523,6 +523,45 @@ describe('control plane', () => {
     await expect(client.request('GET', '/nope')).rejects.toMatchObject({ code: 'NOT_FOUND' });
   }, 30_000);
 
+  it('reports queued depth for a peer that is not running', async () => {
+    // The point of the command: a message addressed to a peer nobody is
+    // running sits in that peer's inbox, and the only thing that can say so
+    // today is a listing of the key layout. Nothing here is decrypted -- the
+    // runtime asked has no handler for the channel and never sees the payload.
+    const runtime = await makeRuntime({ peerId: 'sender-peer', store: sharedDir });
+    const workspace = runtime.defaultWorkspace();
+
+    const before = Date.now();
+    await expect(
+      workspace.request('ghost-peer', 'jobs.run', new TextEncoder().encode('work'), {
+        timeoutMs: 300,
+      }),
+    ).rejects.toMatchObject({ code: 'TIMEOUT' });
+
+    const dataDir = await mkdtemp(join(tmpdir(), 'deaddrop-queues-'));
+    cleanups.push(() => rm(dataDir, { recursive: true, force: true }));
+    const socketPath = defaultSocketPath(dataDir);
+    const control = await startControlPlane({ runtime, socketPath, logger: runtime.logger });
+    cleanups.push(() => control.close());
+
+    const report = await new ControlPlaneClient(socketPath).request<{
+      peerId: string;
+      read: number;
+      truncated: boolean;
+      queues: Array<{ peerId: string; count: number; bytes: number; oldestAt?: number }>;
+    }>('GET', '/queues');
+
+    expect(report.peerId).toBe('sender-peer');
+    expect(report.read).toBe(1);
+    expect(report.truncated).toBe(false);
+    const ghost = report.queues.find((queue) => queue.peerId === 'ghost-peer');
+    expect(ghost?.count).toBe(1);
+    expect(ghost?.bytes).toBeGreaterThan(0);
+    // Dated from the message id, so it is the sender's clock, not the store's.
+    expect(ghost?.oldestAt).toBeGreaterThanOrEqual(before);
+    expect(ghost?.oldestAt).toBeLessThanOrEqual(Date.now());
+  }, 30_000);
+
   it('reports an actionable error when no runtime is listening', async () => {
     const client = new ControlPlaneClient(join(tmpdir(), 'deaddrop-missing.sock'));
     await expect(client.request('GET', '/health')).rejects.toThrowError(/ddrop start/);

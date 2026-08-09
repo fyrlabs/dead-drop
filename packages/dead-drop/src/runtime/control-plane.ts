@@ -131,6 +131,11 @@ export async function startControlPlane(options: ControlPlaneOptions): Promise<C
       send(response, 200, { peers: await workspace.discover({ includeStale }) });
       return;
     }
+    if (method === 'GET' && path === '/queues') {
+      const workspace = resolveWorkspace(runtime, url);
+      send(response, 200, await workspace.queues());
+      return;
+    }
     if (method === 'GET' && path === '/traces') {
       const traceId = url.searchParams.get('id');
       send(response, 200, {

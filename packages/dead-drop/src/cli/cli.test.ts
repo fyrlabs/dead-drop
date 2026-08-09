@@ -10,6 +10,7 @@ import { defaultSocketPath } from '../runtime/index.js';
 import { VERSION, run, type CliIo } from './cli.js';
 
 const dirs: string[] = [];
+const servers: Array<{ close(cb?: () => void): unknown }> = [];
 
 function capture(): CliIo & { stdout: string[]; stderr: string[] } {
   const stdout: string[] = [];
@@ -43,7 +44,31 @@ async function temp(): Promise<string> {
   return dir;
 }
 
+/** A control socket answering one canned body, so a client command can be driven alone. */
+async function fakeControlPlane(body: unknown): Promise<string> {
+  const { createServer } = await import('node:http');
+  const { once } = await import('node:events');
+  const socketPath = join(await temp(), 'control.sock');
+  const server = createServer((_request, response) => {
+    const payload = JSON.stringify(body);
+    response.writeHead(200, {
+      'content-type': 'application/json',
+      'content-length': payload.length,
+    });
+    response.end(payload);
+  });
+  server.listen(socketPath);
+  await once(server, 'listening');
+  servers.push(server);
+  return socketPath;
+}
+
 afterEach(async () => {
+  await Promise.all(
+    servers
+      .splice(0)
+      .map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+  );
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -212,6 +237,59 @@ describe('ddrop commands that need a runtime', () => {
     const badTransport = capture();
     expect(await run(['transport', 'explode'], badTransport)).toBe(2);
     expect(badTransport.stderr.join('\n')).toContain('list');
+  });
+
+  // "Nothing is queued" and "I could not look" print almost the same thing and
+  // mean opposite things. This project has already shipped one bug from reading
+  // a failed check as a passing one (`git push` exit 0), so the empty-looking
+  // report has to be distinguishable by exit code, not just by reading stderr.
+  it('fails ddrop queues when no transport could be listed', async () => {
+    const socket = await fakeControlPlane({
+      workspace: 'demo',
+      peerId: 'peer-a',
+      queues: [],
+      unreadable: [{ transport: 'filesystem', message: 'root is gone' }],
+      read: 0,
+      truncated: false,
+    });
+
+    const io = capture();
+    expect(await run(['queues', '--socket', socket], io)).toBe(1);
+    expect(io.stderr.join('\n')).toContain('root is gone');
+    expect(io.stderr.join('\n')).toMatch(/queue depth is unknown/);
+    expect(io.stdout.join('\n')).not.toMatch(/No messages are queued/);
+  });
+
+  it('succeeds with an empty report when the stores were readable', async () => {
+    const socket = await fakeControlPlane({
+      workspace: 'demo',
+      peerId: 'peer-a',
+      queues: [],
+      unreadable: [],
+      read: 1,
+      truncated: false,
+    });
+
+    const io = capture();
+    expect(await run(['queues', '--socket', socket], io)).toBe(0);
+    expect(io.stdout.join('\n')).toContain('No messages are queued');
+  });
+
+  it('says counts are lower bounds when the listing was truncated', async () => {
+    const socket = await fakeControlPlane({
+      workspace: 'demo',
+      peerId: 'peer-a',
+      queues: [{ peerId: 'peer-b', count: 10_000, bytes: 2048, oldestId: 'msg_x' }],
+      unreadable: [],
+      read: 1,
+      truncated: true,
+    });
+
+    const io = capture();
+    expect(await run(['queues', '--socket', socket], io)).toBe(0);
+    // An id the runtime could not date must not print as a bogus age.
+    expect(io.stdout.join('\n')).toMatch(/peer-b\s+10000 waiting\s+2\.0 KB\s+oldest \?/);
+    expect(io.stderr.join('\n')).toMatch(/lower bound/);
   });
 
   // `ddrop init` writes a project-local dataDir, so a client that always

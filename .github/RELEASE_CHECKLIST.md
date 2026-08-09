@@ -9,7 +9,7 @@ The notes body template is in [RELEASE_TEMPLATE.md](RELEASE_TEMPLATE.md).
 - [ ] `main` is green on all three CI jobs, **including Windows**. A change that only passes on macOS is not finished.
 - [ ] `npm run verify` passes from a clean checkout (`npm ci`, not a warm `node_modules`).
 - [ ] `npm run format:check` passes. A rename can reflow files you never opened.
-- [ ] `node examples/custom-transport/index.js` reports 18/18 conformance cases.
+- [ ] `node examples/custom-transport/index.js` reports 19/19 conformance cases.
 - [ ] `rg -cil bridge -g '!AGENTS.md' -g '!.github/RELEASE_CHECKLIST.md' -g '!package-lock.json'` prints nothing (invariant 8). The two files that state the rule contain the word, so they have to be excluded or this can never pass.
 
 ## 2. Versions

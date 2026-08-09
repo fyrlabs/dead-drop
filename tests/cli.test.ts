@@ -142,6 +142,21 @@ describe('ddrop start and the commands that talk to it', () => {
     ).toBe(1);
     expect(call.stderr.join('\n')).toMatch(/timed out/i);
 
+    // That call left a frame addressed to a peer nobody is running, which is
+    // exactly what "queued depth" is for: it is still sitting in the store.
+    const queuesJson = capture();
+    expect(await run(['queues', '--socket', socket, '--json'], queuesJson)).toBe(0);
+    const report = JSON.parse(queuesJson.stdout.join('\n')) as {
+      read: number;
+      queues: Array<{ peerId: string; count: number }>;
+    };
+    expect(report.read).toBe(1);
+    expect(report.queues.find((queue) => queue.peerId === 'nobody')?.count).toBe(1);
+
+    const queues = capture();
+    expect(await run(['queues', '--socket', socket], queues)).toBe(0);
+    expect(queues.stdout.join('\n')).toMatch(/nobody\s+1 waiting/);
+
     const metrics = capture();
     expect(await run(['metrics', '--socket', socket], metrics)).toBe(0);
     expect(metrics.stdout.join('\n')).toContain('deaddrop_messages_sent_total');

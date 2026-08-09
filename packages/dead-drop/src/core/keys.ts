@@ -25,6 +25,9 @@ const ROOT = 'ws';
 
 export const workspaceRoot = (workspace: string): string => joinKey(ROOT, workspace);
 
+/** Every peer's inbox, not just one. Listing it is how queued depth is read. */
+export const inboxRoot = (workspace: string): string => joinKey(ROOT, workspace, 'inbox');
+
 export const inboxPrefix = (workspace: string, peerId: string): string =>
   joinKey(ROOT, workspace, 'inbox', peerId);
 
@@ -54,4 +57,25 @@ export function messageIdFromKey(key: string): string | undefined {
   if (!last.endsWith(FRAME_EXTENSION)) return undefined;
   const id = last.slice(0, -FRAME_EXTENSION.length);
   return id.length > 0 ? id : undefined;
+}
+
+/**
+ * Splits an inbox key back into the peer it is addressed to and the message id.
+ *
+ * `undefined` for anything that is not `ws/<workspace>/inbox/<peer>/<id>.ddf`,
+ * so a listing of the whole inbox root can be read without trusting the store
+ * to hold only what dead-drop put there.
+ */
+export function parseInboxKey(
+  workspace: string,
+  key: string,
+): { peerId: string; messageId: string } | undefined {
+  const root = `${inboxRoot(workspace)}/`;
+  if (!key.startsWith(root)) return undefined;
+  const parts = key.slice(root.length).split('/');
+  if (parts.length !== 2) return undefined;
+  const peerId = parts[0] as string;
+  const messageId = messageIdFromKey(parts[1] as string);
+  if (peerId.length === 0 || messageId === undefined) return undefined;
+  return { peerId, messageId };
 }

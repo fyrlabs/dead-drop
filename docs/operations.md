@@ -63,6 +63,24 @@ One beacon is in flight at a time, and a beacon is abandoned once it is older th
 
 Shutdown on SIGINT/SIGTERM is graceful: pending requests are rejected with `CANCELLED`, the presence beacon is withdrawn, queued writes finish, and transports close.
 
+## Queued depth
+
+`ddrop queues` reports what is waiting in each peer's inbox, deepest queue first:
+
+```text
+peer-b                       7 waiting  14.2 KB   oldest 4m 12s ago
+peer-a                       1 waiting  2.1 KB    oldest 3s ago  (this peer)
+```
+
+A deep queue with an old head means the peer it names is not running, or is running and cannot keep up. A peer with nothing waiting is left out entirely, and `No messages are queued.` means all its inboxes are empty.
+
+It reads object keys and nothing else. Keys carry the peer name and a time-sortable message id in the clear by design ([security model](security-model.md)), so counts and ages come from the key layout alone; no frame is fetched, and nothing is decrypted or consumed. The age is the sender's clock, taken from the message id, not the store's modification time, which store transports are not required to report.
+
+Two things to know before scripting it:
+
+- Each call lists every store transport once, which on `git` and `github` means a fetch. Fine for a dashboard poll, not for a tight loop.
+- `read` in `--json` counts the transports that answered. When it is zero the command exits 1 and prints nothing to stdout, because "nothing is queued" and "I could not look" are different answers. `unreadable` names the transports that failed, and `truncated` marks counts as lower bounds when a listing hit its 10,000-object scan cap.
+
 ## Metrics
 
 `ddrop metrics` emits Prometheus text. The ones worth alerting on:

@@ -18,6 +18,7 @@ import {
   decodeJson,
   encodeFrame,
   encodeJson,
+  idTime,
   isErrorPayload,
   senderIdentity,
   JSON_CONTENT_TYPE,
@@ -27,6 +28,8 @@ import {
   DedupeStore,
   MailboxEngine,
   TransportManager,
+  inboxRoot,
+  parseInboxKey,
   peersPrefix,
   peerKey,
   systemClock,
@@ -82,6 +85,37 @@ export interface PeerRecord {
   startedAt: number;
   version: string;
 }
+
+/** What is waiting in one peer's inbox, counted without decrypting anything. */
+export interface QueueDepth {
+  peerId: string;
+  /** Frames waiting for this peer. Counted once even when several transports hold it. */
+  count: number;
+  /** Total size of those frames. Ciphertext, so a little larger than the payloads. */
+  bytes: number;
+  /** Id of the oldest waiting message: keys sort by creation time. */
+  oldestId: string;
+  /** Creation time of `oldestId`, or `undefined` if the id is not a dead-drop id. */
+  oldestAt: number | undefined;
+}
+
+export interface QueueReport {
+  workspace: string;
+  /** This runtime's own mailbox address, so its own queue can be told apart. */
+  peerId: string;
+  /** Non-empty inboxes, deepest first. A peer with nothing waiting is absent. */
+  queues: QueueDepth[];
+  /** Store transports that could not be listed. The counts exclude what they hold. */
+  unreadable: Array<{ transport: string; message: string }>;
+  /** Store transports the counts were read from. Zero means the report says nothing. */
+  read: number;
+  /** A listing hit the scan cap, so every count is a lower bound. */
+  truncated: boolean;
+}
+
+/** Entries per list call, and the most one `queues()` will walk per transport. */
+const QUEUE_PAGE_SIZE = 1000;
+const QUEUE_SCAN_LIMIT = 10_000;
 
 export interface WorkspaceOptions {
   config: WorkspaceConfig;
@@ -487,6 +521,91 @@ export class Workspace {
       }
     }
     return [...seen.values()].sort((a, b) => (a.peerId < b.peerId ? -1 : 1));
+  }
+
+  /**
+   * How many messages are waiting in each peer's inbox, and how old the oldest
+   * one is.
+   *
+   * Nothing is decrypted and nothing is consumed. Object keys carry the peer
+   * name and a time-sortable message id in the clear on purpose (invariant 9),
+   * so listing `ws/<workspace>/inbox` answers "what is pending, and for whom"
+   * from the key layout alone. Frame contents stay sealed.
+   *
+   * Reading costs one listing per store transport, which on the git and github
+   * transports means a fetch. Cheap enough to poll a dashboard with, not cheap
+   * enough to call in a loop.
+   */
+  async queues(): Promise<QueueReport> {
+    const root = inboxRoot(this.name);
+    const buckets = new Map<string, QueueDepth>();
+    const counted = new Set<string>();
+    const unreadable: QueueReport['unreadable'] = [];
+    let read = 0;
+    let truncated = false;
+
+    for (const entry of this.manager.stores()) {
+      const store = entry.transport as StoreTransport;
+      try {
+        let cursor: string | undefined;
+        let scanned = 0;
+        do {
+          const page = await store.list(root, {
+            limit: QUEUE_PAGE_SIZE,
+            ...(cursor ? { cursor } : {}),
+          });
+          for (const item of page.entries) {
+            const parsed = parseInboxKey(this.name, item.key);
+            if (!parsed) continue;
+            const bucket = buckets.get(parsed.peerId) ?? {
+              peerId: parsed.peerId,
+              count: 0,
+              bytes: 0,
+              oldestId: parsed.messageId,
+              oldestAt: idTime(parsed.messageId),
+            };
+            buckets.set(parsed.peerId, bucket);
+            // The same message can sit on two transports at once under the
+            // parallel policy, and the mailbox deduplicates on delivery, so
+            // counting it twice would report a backlog that does not exist.
+            const identity = `${parsed.peerId}/${parsed.messageId}`;
+            if (counted.has(identity)) continue;
+            counted.add(identity);
+            bucket.count += 1;
+            bucket.bytes += item.size;
+            if (parsed.messageId < bucket.oldestId) {
+              bucket.oldestId = parsed.messageId;
+              bucket.oldestAt = idTime(parsed.messageId);
+            }
+          }
+          scanned += page.entries.length;
+          cursor = page.cursor;
+          if (cursor && scanned >= QUEUE_SCAN_LIMIT) {
+            truncated = true;
+            break;
+          }
+        } while (cursor);
+        read += 1;
+      } catch (error) {
+        const failure = DeadDropError.from(error);
+        this.logger.debug('inbox listing failed', {
+          transport: entry.name,
+          error: failure.message,
+        });
+        unreadable.push({ transport: entry.name, message: failure.message });
+      }
+    }
+
+    return {
+      workspace: this.name,
+      peerId: this.peerId,
+      queues: [...buckets.values()].sort(
+        (a, b) => b.count - a.count || (a.peerId < b.peerId ? -1 : 1),
+      ),
+      unreadable,
+      read,
+      truncated,
+    };
   }
 
   transports(): TransportInfo[] {
