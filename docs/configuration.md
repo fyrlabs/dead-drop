@@ -10,7 +10,13 @@ In order: `--config <path>`, then `./deaddrop.config.json`, then `~/.deaddrop/co
 
 ## Rules that apply to every field
 
-**Environment references.** `${env:NAME}` is expanded anywhere in the file, at any depth, in keys' values. An unset variable is a hard error rather than an empty string, so a missing secret fails loudly at start-up instead of producing a runtime that cannot decrypt anything.
+**References.** `${env:NAME}` and `${file:PATH}` are expanded anywhere in the file, at any depth, in values. An unset variable or an unreadable file is a hard error rather than an empty string, so a missing secret fails loudly at start-up instead of producing a runtime that cannot decrypt anything.
+
+`${file:PATH}` reads the file and strips surrounding whitespace, because a secret written by an editor or a shell redirect carries a trailing newline and a key with a newline on the end is not the key. `PATH` follows the same rules as any other path below: a leading `~` is your home directory, and a relative path resolves against the config file's directory. This is what `ddrop init` writes, so the config can be committed and copied between machines while the secret stays beside it.
+
+Both are expanded in a single pass, so whatever a reference expands to is data. A secret file whose contents happen to read `${env:...}`, or a variable holding `${file:...}`, is never followed as a second lookup.
+
+**Placeholders.** `ddrop init` writes `REPLACE-ME` where it cannot choose for you. Any value still containing that text fails at load with the field named. It is deliberately not a default: the shared location is the one thing no default can guess, and the old behaviour -- a path under the local data directory -- let two machines each start cleanly, write into their own folder, and never see each other.
 
 **Path resolution.** A leading `~` expands to your home directory. Relative paths resolve against the config file's directory, not the working directory, so a config means the same thing wherever you run it from. Inside a transport's `config` block this applies to the keys `root`, `workDir`, `directory` and `path`.
 
@@ -34,7 +40,7 @@ A Unix socket path cannot exceed 104 bytes. When `<dataDir>/deaddrop.sock` would
 | `name` | string | **yes** | | Identifies the workspace across all peers. Must match on every machine. |
 | `secrets` | string[] | **yes** | | At least one. The first encrypts; the rest still decrypt, which is what makes rotation possible without downtime. Generate with `ddrop keygen`. |
 | `transports` | array | **yes** | | At least one. See below. |
-| `peerId` | string | no | `DEADDROP_PEER_ID`, else the machine's hostname | This machine's address within the workspace. Set it explicitly if hostnames are not stable: changing a peer id strands messages already addressed to the old one. This field wins over the environment variable, which only supplies the default. |
+| `peerId` | string | no | `DEADDROP_PEER_ID`, else the machine's hostname (`ddrop init` writes it explicitly) | This machine's address within the workspace. Set it explicitly if hostnames are not stable: changing a peer id strands messages already addressed to the old one. This field wins over the environment variable, which only supplies the default. |
 | `policy` | object | no | score-based | Transport selection. See below. |
 | `exposures` | array | no | none | Local applications made reachable to peers. See below. |
 | `subscribe` | string[] | no | none | Broadcast channels joined at start-up. |
@@ -141,6 +147,6 @@ It is a guardrail, not a security boundary. Every peer holding the workspace sec
 | Variable | Effect |
 | --- | --- |
 | `DEADDROP_PEER_ID` | Overrides this machine's peer id. |
-| `DEADDROP_SECRET` | Nothing on its own. It is the name `ddrop init` writes into the generated config as `${env:DEADDROP_SECRET}`, so the secret stays out of the file. |
+| `DEADDROP_SECRET` | Nothing on its own. It is a conventional name to reference from the config as `${env:DEADDROP_SECRET}` when you keep the secret in the environment or a secret manager. `ddrop init` writes `${file:.deaddrop/secret}` instead, so a fresh install needs nothing exported. |
 
-Any variable can be referenced from the config with `${env:NAME}`; those two are the only ones the runtime reads by name.
+Any variable can be referenced from the config with `${env:NAME}`, and any file with `${file:PATH}`; those two variables are the only ones the runtime reads by name.

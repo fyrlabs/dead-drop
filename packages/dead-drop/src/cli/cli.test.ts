@@ -104,19 +104,57 @@ describe('ddrop keygen', () => {
 });
 
 describe('ddrop init', () => {
-  it('writes a starter config that references the secret from the environment', async () => {
+  it('writes a config that starts, with the secret beside it rather than inline', async () => {
     const dir = await temp();
     const path = join(dir, 'deaddrop.config.json');
     const io = capture();
-    expect(await run(['init', '--config', path, '--name', 'my-project'], io)).toBe(0);
+    expect(
+      await run(['init', '--config', path, '--name', 'my-project', '--peer', 'peer-a'], io),
+    ).toBe(0);
 
     const written = JSON.parse(await readFile(path, 'utf8')) as {
-      workspaces: Array<{ name: string; secrets: string[] }>;
+      workspaces: Array<{ name: string; peerId: string; secrets: string[] }>;
     };
     expect(written.workspaces[0]?.name).toBe('my-project');
     // A literal secret in a config file that people commit is the failure mode
     // this template exists to avoid.
-    expect(written.workspaces[0]?.secrets).toEqual(['${env:DEADDROP_SECRET}']);
+    expect(written.workspaces[0]?.secrets).toEqual(['${file:.deaddrop/secret}']);
+    // Explicit, because the old default was the hostname and two runtimes on one
+    // machine then collided on a mailbox address with an unexplained DECODE_FAILED.
+    expect(written.workspaces[0]?.peerId).toBe('peer-a');
+
+    // The referenced secret exists and is a real key, so nothing has to be
+    // exported before `ddrop start` works.
+    const secret = await readFile(join(dir, '.deaddrop', 'secret'), 'utf8');
+    expect(parseWorkspaceSecret(secret.trim())).toHaveLength(32);
+  });
+
+  it('leaves the shared location as a placeholder that refuses to start', async () => {
+    const dir = await temp();
+    const path = join(dir, 'deaddrop.config.json');
+    expect(await run(['init', '--config', path], capture())).toBe(0);
+
+    // The whole point: two people following the quick start used to each get a
+    // runtime that started cleanly against its own local folder and could never
+    // see the other. This has to fail, and has to say which field.
+    const io = capture();
+    expect(await run(['status', '--config', path], io)).toBe(1);
+    expect(io.stderr.join('\n')).toMatch(
+      /config\.workspaces\[0\][^\n]*root is still the placeholder/,
+    );
+  });
+
+  it('fills the shared location in when it is given one', async () => {
+    const dir = await temp();
+    const path = join(dir, 'deaddrop.config.json');
+    const io = capture();
+    expect(await run(['init', '--config', path, '--root', '/srv/shared'], io)).toBe(0);
+
+    const written = JSON.parse(await readFile(path, 'utf8')) as {
+      workspaces: Array<{ transports: Array<{ config: { root: string } }> }>;
+    };
+    expect(written.workspaces[0]?.transports[0]?.config.root).toBe('/srv/shared');
+    expect(io.stderr.join('\n')).toContain('Next: ddrop start');
   });
 
   it('refuses to overwrite an existing config', async () => {

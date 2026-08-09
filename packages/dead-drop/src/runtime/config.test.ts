@@ -38,6 +38,85 @@ describe('expandEnv', () => {
   });
 });
 
+describe('${file:...} references', () => {
+  async function withSecretFile(contents: string): Promise<{ dir: string }> {
+    const dir = await mkdtemp(join(tmpdir(), 'deaddrop-config-file-'));
+    dirs.push(dir);
+    await writeFile(join(dir, 'secret'), contents);
+    return { dir };
+  }
+
+  it('reads a secret from beside the config instead of the environment', async () => {
+    const secret = 'ddk1_' + 'B'.repeat(43);
+    const { dir } = await withSecretFile(`${secret}\n`);
+    const config = parseRuntimeConfig(
+      {
+        workspaces: [
+          { name: 'demo', secrets: ['${file:secret}'], transports: [{ use: 'memory' }] },
+        ],
+      },
+      { baseDir: dir },
+    );
+    // Trailing newline stripped: a shell redirect or an editor adds one, and a
+    // key with a newline on the end is not the key.
+    expect(config.workspaces[0]?.secrets).toEqual([secret]);
+  });
+
+  it('names the path it could not read rather than failing later as a bad key', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'deaddrop-config-file-'));
+    dirs.push(dir);
+    expect(() =>
+      parseRuntimeConfig(
+        {
+          workspaces: [
+            { name: 'demo', secrets: ['${file:missing}'], transports: [{ use: 'memory' }] },
+          ],
+        },
+        { baseDir: dir },
+      ),
+    ).toThrowError(/missing, which could not be read/);
+  });
+
+  it('does not rescan what a reference expanded to', async () => {
+    // A secret file whose contents look like another reference is data, not a
+    // second lookup. One pass is what guarantees that.
+    const { dir } = await withSecretFile('${env:SHOULD_NOT_EXPAND}');
+    const config = parseRuntimeConfig(
+      {
+        workspaces: [
+          {
+            name: 'demo',
+            secrets: ['x'],
+            transports: [{ use: 'memory', config: { note: '${file:secret}' } }],
+          },
+        ],
+      },
+      { baseDir: dir, env: {} },
+    );
+    expect((config.workspaces[0]?.transports[0]?.config as { note: string }).note).toBe(
+      '${env:SHOULD_NOT_EXPAND}',
+    );
+  });
+});
+
+describe('placeholders left by ddrop init', () => {
+  it('fails at load, naming the field, rather than starting a peer nobody can reach', () => {
+    expect(() =>
+      parseRuntimeConfig({
+        workspaces: [
+          {
+            name: 'demo',
+            secrets: ['ddk1_' + 'A'.repeat(43)],
+            transports: [{ use: 'filesystem', config: { root: 'REPLACE-ME (a folder)' } }],
+          },
+        ],
+      }),
+    ).toThrowError(
+      /config\.workspaces\[0\]\.transports\[0\]\.config\.root is still the placeholder/,
+    );
+  });
+});
+
 describe('parseRuntimeConfig', () => {
   it('accepts a minimal config and applies defaults', () => {
     const config = parseRuntimeConfig(valid);

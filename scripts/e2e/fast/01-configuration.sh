@@ -19,6 +19,36 @@ init_name=$(json_get 'j.workspaces[0].name' < "$CFG/deaddrop.config.json" 2>/dev
 can "start from \`ddrop init\`, which writes a parseable config for the named workspace" \
   [ "$init_name" = "probe" ]
 
+# The two failures that made the documented first afternoon impossible, and
+# which the check above could not see because it only read the file back.
+#
+# 1. `init` used to reference an environment variable it did not set, so the
+#    very next command failed on a config it had just written itself.
+# 2. It used to default the shared location to a folder under the local data
+#    directory, so two people each got a runtime that started cleanly and could
+#    never see the other. There is no error to assert for that: it is silence.
+#
+# So the shared location is now a placeholder that refuses to start, and the
+# assertions are one of each kind: unedited must fail with the field named,
+# and `--root` must produce something that runs with nothing else to do.
+INIT_RUN="$WORK/init-run"
+mkdir -p "$INIT_RUN/unedited" "$INIT_RUN/ready" "$INIT_RUN/shared"
+( cd "$INIT_RUN/unedited" && $DDROP init --name probe >/dev/null 2>&1 )
+( cd "$INIT_RUN/ready" && $DDROP init --name probe --peer ready-peer --root ../shared >/dev/null 2>&1 )
+
+unedited_err=$( cd "$INIT_RUN/unedited" && $DDROP status 2>&1 )
+cannot "start a config whose shared location was never chosen, without being told which field" \
+  grep -q 'root is still the placeholder' <<<"$unedited_err"
+
+# No secret is exported anywhere in this scenario. That is the point: `init`
+# generates one beside the config, so nothing stands between it and `start`.
+READY_PID=$(start_peer "$INIT_RUN/ready" "$INIT_RUN/ready.log")
+ON_FAIL="$INIT_RUN/ready.log"
+can "start straight from \`ddrop init --root\`, with no secret to export first" \
+  wait_up "$INIT_RUN/ready" "$READY_PID"
+ON_FAIL=""
+stop_peer "$READY_PID"
+
 secret=$($DDROP keygen 2>/dev/null | grep -c '^ddk1_')
 can "\`ddrop keygen\` mints a workspace secret in the documented format" \
   [ "$secret" = "1" ]

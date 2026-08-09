@@ -6,6 +6,15 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+### Changed
+
+- **`ddrop init` now writes a config that works.** It generates the workspace secret into `.deaddrop/secret` and points at it, so there is nothing to export before `ddrop start`. It writes the peer id explicitly, so two peers no longer default to the same hostname and collide. And it marks the shared location `REPLACE-ME` instead of quietly defaulting to a local folder, which used to leave two people each running a peer that could never see the other. `ddrop init --root <folder>` fills that in and leaves nothing to edit.
+
+### Added
+
+- Config values can now read a file with `${file:PATH}`, alongside `${env:NAME}`. Relative paths resolve against the config file, and surrounding whitespace is stripped, so a config can be committed with the secret sitting beside it rather than inside it.
+- A config still holding a `REPLACE-ME` placeholder fails at start-up naming the exact field, instead of starting a runtime that reaches nobody.
+
 ## [0.3.1]
 
 ### Fixed

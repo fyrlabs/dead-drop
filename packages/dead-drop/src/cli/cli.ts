@@ -12,9 +12,10 @@
  */
 
 import { parseArgs } from 'node:util';
-import { readFile, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { VERSION } from '../version.js';
-import { resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import { DeadDropError, generateWorkspaceSecret } from '../protocol/index.js';
 import { createLogger, prettySink, type LogRecord, type Span } from '../core/index.js';
@@ -65,7 +66,8 @@ Usage
   ddrop trace [<traceId>]                    recent traces, or one trace as a span tree
   ddrop metrics                              Prometheus metrics
   ddrop keygen                               print a new workspace secret
-  ddrop init [--name <workspace>]            write a starter deaddrop.config.json
+  ddrop init [--root <shared-folder>]        write a config, and a secret beside it
+             [--name <workspace>] [--peer <id>]
 
 Global options
   --config <file>    config file (default ./deaddrop.config.json, then ~/.deaddrop/config.json)
@@ -90,6 +92,8 @@ export async function run(argv: string[], io: CliIo = defaultIo): Promise<number
         socket: { type: 'string' },
         target: { type: 'string' },
         name: { type: 'string' },
+        root: { type: 'string' },
+        peer: { type: 'string' },
         port: { type: 'string' },
         input: { type: 'string' },
         limit: { type: 'string' },
@@ -186,23 +190,50 @@ function keygen(values: Values, io: CliIo): number {
     io.out(secret);
     io.err('');
     io.err('Share this secret with every peer in the workspace, over a channel you trust.');
-    io.err('Anyone holding it can read and write the workspace. Store it in a secret manager');
-    io.err('and reference it from the config as "${env:DEADDROP_SECRET}".');
+    io.err('Anyone holding it can read and write the workspace. Reference it from the');
+    io.err('config as "${file:.deaddrop/secret}" or "${env:DEADDROP_SECRET}", never inline.');
+    io.err('');
+    io.err('"ddrop init" already generates one, so this is for rotating or adding a key.');
   }
   return 0;
 }
 
+/**
+ * Writes a config that starts, and leaves exactly one decision to the reader.
+ *
+ * The old one left three, and two of them failed silently. It wrote no `peerId`,
+ * so two peers both defaulted to the machine hostname and collided on a mailbox
+ * address with a `DECODE_FAILED` that named nothing. It pointed the transport at
+ * a directory under the local data dir, so two people following the quick start
+ * each got a working runtime that could never see the other. And it referenced
+ * an environment variable it did not set, so the very next command failed.
+ *
+ * Now: the secret is generated and written beside the config, the peer id is
+ * explicit, and the shared location is the single thing marked REPLACE-ME --
+ * because it is the one value no default can guess. `--root` fills it in for
+ * anyone who already knows where it goes.
+ */
 async function init(values: Values, io: CliIo): Promise<number> {
   const name = typeof values.name === 'string' ? values.name : 'default';
   const path = resolve(typeof values.config === 'string' ? values.config : 'deaddrop.config.json');
+  const dir = dirname(path);
+  const dataDir = '.deaddrop';
+  const secretFile = join(dataDir, 'secret');
+  const peerId = typeof values.peer === 'string' ? values.peer : defaultPeerId();
+  const root =
+    typeof values.root === 'string'
+      ? values.root
+      : `REPLACE-ME (a folder every peer can reach, e.g. ~/Dropbox/${name})`;
+
   const config = {
-    dataDir: '.deaddrop',
+    dataDir,
     logLevel: 'info',
     workspaces: [
       {
         name,
-        secrets: ['${env:DEADDROP_SECRET}'],
-        transports: [{ use: 'filesystem', config: { root: './.deaddrop/store' } }],
+        peerId,
+        secrets: [`\${file:${secretFile}}`],
+        transports: [{ use: 'filesystem', config: { root } }],
         exposures: [],
       },
     ],
@@ -218,9 +249,41 @@ async function init(values: Values, io: CliIo): Promise<number> {
       throw error;
     },
   );
+
+  // Only after the config is safely written, so a re-run against an existing
+  // config cannot rotate a secret that peers are already using.
+  await mkdir(resolve(dir, dataDir), { recursive: true });
+  const secretPath = resolve(dir, secretFile);
+  await writeFile(secretPath, `${generateWorkspaceSecret()}\n`, { flag: 'wx', mode: 0o600 }).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EEXIST') throw error;
+    },
+  );
+
   io.out(`Wrote ${path}`);
-  io.err('Next: export DEADDROP_SECRET="$(ddrop keygen)" && ddrop start');
+  io.out(`Wrote ${secretPath}`);
+  io.err('');
+  io.err(`The secret in ${secretFile} is the workspace. Keep it out of version control,`);
+  io.err('and copy it to every other peer over a channel you trust.');
+  io.err('');
+  if (typeof values.root === 'string') {
+    io.err('Next: ddrop start');
+  } else {
+    io.err(`Next: set "root" in ${path} to a folder every peer can reach, then: ddrop start`);
+    io.err('      (or re-run with --root <path> against a fresh config)');
+  }
   return 0;
+}
+
+/**
+ * The hostname, which is right for the ordinary case of one runtime per machine
+ * and wrong for two on one box -- so it is written into the file where it can be
+ * seen and changed, rather than defaulted invisibly at load time.
+ */
+function defaultPeerId(): string {
+  const raw = hostname().split('.')[0] ?? 'peer';
+  const cleaned = raw.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 60);
+  return cleaned.length > 0 ? cleaned : 'peer';
 }
 
 async function start(values: Values, io: CliIo): Promise<number> {

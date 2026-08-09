@@ -6,10 +6,12 @@
  * package specifier and loaded at start-up, which is what lets a third-party
  * adapter be used without changing dead-drop.
  *
- * Secrets are never written here in plain text by us. `${env:NAME}` references
- * are expanded at load time so the config file can live in version control.
+ * Secrets are never written here in plain text by us. `${env:NAME}` and
+ * `${file:PATH}` references are expanded at load time so the config file can
+ * live in version control with the secret beside it rather than inside it.
  */
 
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
@@ -109,18 +111,83 @@ export function expandEnv(value: string, env: NodeJS.ProcessEnv = process.env): 
   });
 }
 
-function expandDeep(value: unknown, env: NodeJS.ProcessEnv): unknown {
-  if (typeof value === 'string') return expandEnv(value, env);
-  if (Array.isArray(value)) return value.map((item) => expandDeep(item, env));
+/**
+ * Expands `${env:NAME}` and `${file:PATH}` in one pass.
+ *
+ * One pass rather than two on purpose: a replacement is never rescanned, so a
+ * secret file whose contents happen to contain `${env:...}`, or an environment
+ * variable holding `${file:...}`, is data and not another reference to follow.
+ *
+ * `file:` exists so a config can be committed and copied between machines while
+ * the workspace secret stays out of it. `ddrop init` writes the secret beside
+ * the config and points at it this way, which is what removes the export step
+ * that used to stand between `init` and a runtime that starts.
+ */
+function expandRefs(value: string, env: NodeJS.ProcessEnv, baseDir: string | undefined): string {
+  return value.replace(/\$\{(env|file):([^}]+)\}/g, (_match, kind: string, ref: string) => {
+    if (kind === 'env') {
+      const resolved = env[ref];
+      if (resolved === undefined) {
+        fail(`config references unset environment variable ${ref}`);
+      }
+      return resolved;
+    }
+    const path = resolveConfigPath(ref.trim(), baseDir);
+    let contents: string;
+    try {
+      contents = readFileSync(path, 'utf8');
+    } catch {
+      fail(`config references ${path}, which could not be read`);
+    }
+    // Trimmed because a secret written by an editor or a shell redirect carries
+    // a trailing newline, and a key with a newline on the end is not the key.
+    return contents.trim();
+  });
+}
+
+function expandDeep(value: unknown, env: NodeJS.ProcessEnv, baseDir: string | undefined): unknown {
+  if (typeof value === 'string') return expandRefs(value, env, baseDir);
+  if (Array.isArray(value)) return value.map((item) => expandDeep(item, env, baseDir));
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([key, item]) => [
         key,
-        expandDeep(item, env),
+        expandDeep(item, env, baseDir),
       ]),
     );
   }
   return value;
+}
+
+/**
+ * The marker `ddrop init` leaves where it cannot choose for you.
+ *
+ * A shared location is the one thing no default can guess, and the old default
+ * -- a path under the local data directory -- was the worst possible answer: two
+ * machines each started cleanly, each wrote into their own folder, and neither
+ * ever saw the other. Failing at load with the field named beats that.
+ */
+const PLACEHOLDER = 'REPLACE-ME';
+
+function assertNoPlaceholder(value: unknown, path: string): void {
+  if (typeof value === 'string') {
+    if (value.includes(PLACEHOLDER)) {
+      fail(
+        `${path} is still the placeholder "ddrop init" wrote. ` +
+          `Set it to something every peer can reach, then start again.`,
+      );
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoPlaceholder(item, `${path}[${index}]`));
+    return;
+  }
+  if (value && typeof value === 'object') {
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      assertNoPlaceholder(item, `${path}.${key}`);
+    }
+  }
 }
 
 /**
@@ -138,7 +205,10 @@ export function parseRuntimeConfig(
   options: { env?: NodeJS.ProcessEnv; baseDir?: string } = {},
 ): RuntimeConfig {
   const env = options.env ?? process.env;
-  const expanded = expandDeep(raw, env);
+  // Before expansion: a placeholder is what the author left behind, and saying
+  // so beats reporting whatever the unedited value fails as three layers down.
+  assertNoPlaceholder(raw, 'config');
+  const expanded = expandDeep(raw, env, options.baseDir);
   if (typeof expanded !== 'object' || expanded === null || Array.isArray(expanded)) {
     fail('configuration must be a JSON object');
   }
