@@ -73,7 +73,27 @@ export interface MailboxOptions {
   pollBackoffFactor?: number;
   /** Messages fetched per poll. Default 32. */
   batchSize?: number;
-  /** Messages processed concurrently. Default 1, which preserves key order. */
+  /**
+   * Messages processed concurrently within one poll. Default 1.
+   *
+   * The trade is ordering. At 1 a batch is delivered in key order, which is id
+   * order, which is roughly send order. Above 1 the handlers of one batch run
+   * interleaved and finish in whatever order they finish, so a peer can see
+   * two messages answered out of the order they were sent. Invariant 4 only
+   * promises best-effort ordering per recipient, so this is allowed, but it is
+   * a real change for a handler that quietly relied on the stricter behaviour.
+   * That is why the default stays 1 and raising it is opt-in.
+   *
+   * What it does *not* trade is correctness of the shared state `consume`
+   * touches. `dedupe.claim` is a synchronous check-and-set and `delivery` is
+   * keyed by object key, which is unique within a batch, so no two parallel
+   * consumes read or write the same entry. Keep both properties if you change
+   * this: an `await` inserted between the dedupe check and its record would
+   * make duplicates deliverable twice.
+   *
+   * Cost to expect: a batch holds up to `concurrency` payloads in memory at
+   * once instead of one.
+   */
   concurrency?: number;
   /** Handler attempts before a message is dead-lettered. Default 5. */
   maxDeliveryAttempts?: number;
@@ -105,6 +125,8 @@ interface DeliveryState {
 export interface MailboxStats {
   running: boolean;
   pollIntervalMs: number;
+  /** Messages handled at once. Reported so a config value can be seen to have taken effect. */
+  concurrency: number;
   inflight: number;
   retrying: number;
   pendingChunkGroups: number;
@@ -314,6 +336,7 @@ export class MailboxEngine {
     return {
       running: this.running,
       pollIntervalMs: this.pollIntervalMs,
+      concurrency: this.concurrency,
       inflight: this.inflight,
       retrying: this.delivery.size,
       pendingChunkGroups: this.assembler.pendingGroups,

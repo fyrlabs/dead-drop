@@ -510,6 +510,86 @@ describe('MailboxEngine polling', () => {
   });
 });
 
+describe('MailboxEngine concurrency', () => {
+  /**
+   * Runs every pending microtask and immediate. Both tests below wait exactly
+   * this way, so "the second handler never started" means it never started
+   * rather than that the assertion looked too early.
+   */
+  async function settle(): Promise<void> {
+    for (let index = 0; index < 20; index += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  }
+
+  /** Puts `count` messages in peer-b's inbox, written by a real sender. */
+  async function inbox(count: number): Promise<Map<string, Uint8Array>> {
+    const objects = new Map<string, Uint8Array>();
+    const sender = await fixture({ peerId: 'peer-a', objects });
+    for (let index = 0; index < count; index += 1) {
+      await sender.mailbox.send(envelope({ to: 'peer-b' }));
+    }
+    await sender.stop();
+    return objects;
+  }
+
+  it('works through a batch one message at a time by default', async () => {
+    const objects = await inbox(3);
+    const entered: string[] = [];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const context = await fixture({
+      peerId: 'peer-b',
+      objects,
+      handler: async (message) => {
+        entered.push(message.id);
+        await held;
+      },
+    });
+
+    const poll = context.mailbox.pollOnce();
+    await settle();
+    // Head-of-line blocking is the default, and it is what `concurrency` buys
+    // its way out of: one slow handler holds up everything behind it.
+    expect(entered).toHaveLength(1);
+
+    release();
+    expect(await poll).toBe(3);
+    expect(entered).toHaveLength(3);
+  });
+
+  it('delivers a batch in parallel once concurrency is raised', async () => {
+    const objects = await inbox(3);
+    const entered: string[] = [];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const context = await fixture({
+      peerId: 'peer-b',
+      objects,
+      mailbox: { concurrency: 3 },
+      handler: async (message) => {
+        entered.push(message.id);
+        await held;
+      },
+    });
+
+    const poll = context.mailbox.pollOnce();
+    await settle();
+    expect(entered).toHaveLength(3);
+
+    release();
+    expect(await poll).toBe(3);
+    // Each message is still claimed once and acknowledged once. The dedupe
+    // check-and-set is synchronous, so parallel consumers cannot both claim it.
+    expect(new Set(entered).size).toBe(3);
+    expect([...objects.keys()].filter((key) => key.includes('/inbox/'))).toHaveLength(0);
+  });
+});
+
 describe('mailbox keys', () => {
   it('builds and parses frame keys', () => {
     expect(inboxPrefix('demo', 'peer-b')).toBe('ws/demo/inbox/peer-b');

@@ -63,7 +63,11 @@ function registration(store: StoreTransport): TransportRegistration<never> {
   return factory({}) as unknown as TransportRegistration<never>;
 }
 
-function workspace(store: StoreTransport, clock: TestClock): Workspace {
+function workspace(
+  store: StoreTransport,
+  clock: TestClock,
+  config: Record<string, unknown> = {},
+): Workspace {
   const logs = new MemoryLogSink();
   return new Workspace({
     config: {
@@ -71,6 +75,7 @@ function workspace(store: StoreTransport, clock: TestClock): Workspace {
       peerId: 'peer-a',
       secrets: [SECRET],
       transports: [],
+      ...config,
     } as never,
     registrations: [registration(store)],
     logger: createLogger({ level: 'silent', sink: logs.sink, clock }),
@@ -107,5 +112,22 @@ describe('presence beacons', () => {
     expect(store.puts).toBe(2);
 
     await ws.stop();
+  });
+});
+
+describe('delivery concurrency', () => {
+  it('reaches the mailbox from the workspace config', () => {
+    // The engine has always had this option and nothing ever set it, so the
+    // failure to guard against is a config field that parses and then goes
+    // nowhere. Assert the effective value, not that the field was accepted.
+    const clock = new TestClock();
+    expect(
+      workspace(new HangingStore(), clock, { concurrency: 4 }).stats().mailbox.concurrency,
+    ).toBe(4);
+  });
+
+  it('defaults to one, which is the serial behaviour', () => {
+    const clock = new TestClock();
+    expect(workspace(new HangingStore(), clock).stats().mailbox.concurrency).toBe(1);
   });
 });

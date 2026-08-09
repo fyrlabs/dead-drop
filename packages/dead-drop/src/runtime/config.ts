@@ -84,6 +84,21 @@ export interface WorkspaceConfig {
   breaker?: Pick<CircuitBreakerOptions, 'failureThreshold' | 'resetTimeoutMs' | 'successThreshold'>;
   /** Default request timeout for this workspace. Default 30000. */
   requestTimeoutMs?: number;
+  /**
+   * How many inbound messages this workspace handles at once. Default 1.
+   *
+   * At 1 a poll that finds several messages works through them one at a time,
+   * so a slow handler holds up everything behind it. Raising it removes that
+   * head-of-line blocking, which is worth doing when handlers spend their time
+   * waiting on I/O rather than on CPU.
+   *
+   * The trade is ordering: concurrent handlers finish in whatever order they
+   * finish, so a peer can see two of its messages answered out of the order it
+   * sent them. Delivery has only ever promised best-effort ordering per
+   * recipient, but a handler written against the serial behaviour can still
+   * notice, which is why the default is 1.
+   */
+  concurrency?: number;
 }
 
 export interface RuntimeConfig {
@@ -329,6 +344,16 @@ function parseWorkspace(raw: unknown, index: number, baseDir?: string): Workspac
       fail(`workspace ${label}: requestTimeoutMs must be a positive number`);
     }
     workspace.requestTimeoutMs = source.requestTimeoutMs;
+  }
+  if (source.concurrency !== undefined) {
+    if (
+      typeof source.concurrency !== 'number' ||
+      !Number.isInteger(source.concurrency) ||
+      source.concurrency < 1
+    ) {
+      fail(`workspace ${label}: concurrency must be a whole number of at least 1`);
+    }
+    workspace.concurrency = source.concurrency;
   }
   if (source.polling !== undefined) {
     if (typeof source.polling !== 'object' || source.polling === null) {

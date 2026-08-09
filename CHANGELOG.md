@@ -4,6 +4,12 @@ Notable changes to dead-drop. The format follows [Keep a Changelog](https://keep
 
 Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is the stable transport contract and versions independently; its changes are called out explicitly.
 
+## [Unreleased]
+
+### Added
+
+- `concurrency` on a workspace, so a poll that finds several messages can handle them together instead of one at a time. Default 1, which is the behaviour up to now. Raising it removes head-of-line blocking behind a slow handler, at the cost of messages being answered out of the order they were sent.
+
 ## [0.4.1]
 
 ### Added

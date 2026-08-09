@@ -41,6 +41,7 @@ export interface RuntimeStatus {
     mailbox: {
       running: boolean;
       pollIntervalMs: number;
+      concurrency: number;
       inflight: number;
       retrying: number;
       pendingChunkGroups: number;

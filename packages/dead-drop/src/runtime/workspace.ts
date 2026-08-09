@@ -195,6 +195,9 @@ export class Workspace {
       ...(options.config.polling?.maxIntervalMs !== undefined
         ? { maxPollIntervalMs: options.config.polling.maxIntervalMs }
         : {}),
+      ...(options.config.concurrency !== undefined
+        ? { concurrency: options.config.concurrency }
+        : {}),
     });
   }
 

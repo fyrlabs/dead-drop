@@ -48,6 +48,7 @@ A Unix socket path cannot exceed 104 bytes. When `<dataDir>/deaddrop.sock` would
 | `polling` | object | no | | `minIntervalMs` (default `250`) and `maxIntervalMs` (default `15000`). The mailbox backs off between these two while a workspace is idle and drops back to the minimum as soon as it sees traffic. |
 | `retry` | object | no | see below | How a failed transport operation is retried. |
 | `breaker` | object | no | see below | When a failing transport is taken out of rotation, and when it is probed again. |
+| `concurrency` | number | no | `1` | How many inbound messages this workspace handles at once. Must be a whole number of at least 1. See below. |
 
 ### `retry`
 
@@ -73,6 +74,14 @@ Every field is checked at start-up. A misspelling or a non-number fails with the
 | `successThreshold` | number | `2` | Consecutive successes on probes needed to return it to service. |
 
 Lower `resetTimeoutMs` when you want failover to recover quickly in a test; the defaults are tuned for a real remote that is briefly unwell rather than gone.
+
+### `concurrency`
+
+A poll can find several messages waiting. At the default of `1` they are handled one at a time, in the order they were sent, and a handler that takes ten seconds keeps every message behind it waiting. Raising `concurrency` lets that batch run together.
+
+**The trade is ordering, and it is the reason the default is 1.** Concurrent handlers finish in whatever order they finish, so a peer can see two of its requests answered out of the order it sent them. dead-drop has only ever promised best-effort ordering per recipient ([docs/guarantees.md](guarantees.md)), so nothing is broken by this, but a handler written against the serial behaviour can notice the difference. Requests from different peers were never ordered relative to each other in the first place.
+
+Raise it when handlers spend their time waiting -- on a database, an HTTP call, a disk -- which is the usual case. Leave it at 1 when handlers must not interleave, for example when they mutate one shared file. It does not make a single message faster, and a batch now holds up to `concurrency` payloads in memory at once rather than one, so pair a large value with a modest `maxMessageBytes`.
 
 ## Transports
 

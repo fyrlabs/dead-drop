@@ -210,6 +210,18 @@ describe('parseRuntimeConfig', () => {
     expect(config.workspaces[0]?.breaker).toEqual({ resetTimeoutMs: 1000, failureThreshold: 2 });
   });
 
+  it('carries delivery concurrency through to the workspace', () => {
+    const config = parseRuntimeConfig({
+      workspaces: [{ ...valid.workspaces[0], concurrency: 4 }],
+    });
+    expect(config.workspaces[0]?.concurrency).toBe(4);
+  });
+
+  it('leaves concurrency unset so the mailbox default of 1 applies', () => {
+    const config = parseRuntimeConfig(valid);
+    expect(config.workspaces[0]?.concurrency).toBeUndefined();
+  });
+
   const rejections: Array<[string, unknown, RegExp]> = [
     ['a non-object', 'nope', /must be a JSON object/],
     // These are the numbers reached for when something is timing out. A typo
@@ -234,6 +246,16 @@ describe('parseRuntimeConfig', () => {
       'a breaker threshold of zero, which would trip on nothing',
       { workspaces: [{ ...valid.workspaces[0], breaker: { failureThreshold: 0 } }] },
       /breaker\.failureThreshold must be a number greater than zero/,
+    ],
+    [
+      'a concurrency of zero, which would deliver nothing',
+      { workspaces: [{ ...valid.workspaces[0], concurrency: 0 }] },
+      /concurrency must be a whole number of at least 1/,
+    ],
+    [
+      'a fractional concurrency',
+      { workspaces: [{ ...valid.workspaces[0], concurrency: 2.5 }] },
+      /concurrency must be a whole number of at least 1/,
     ],
     ['no workspaces', { workspaces: [] }, /at least one workspace/],
     ['a bad log level', { ...valid, logLevel: 'loud' }, /logLevel must be/],
