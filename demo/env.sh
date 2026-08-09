@@ -2,10 +2,11 @@
 #
 #     . demo/env.sh
 #
-# Defines `ddrop` as a shell function over the built CLI, and exports the one
-# workspace secret all the peers share. The secret is generated once into
-# demo/.secret and reused, so terminals two and three do not have to be handed
-# it by hand.
+# Defines `ddrop` as a shell function over the built CLI, and exports what the
+# demo configs reference: the workspace secret all the peers share, and the path
+# to the local repository the git variant uses as its remote. The secret is
+# generated once into demo/.secret and reused, so terminals two and three do not
+# have to be handed it by hand.
 #
 # A function rather than an alias or a variable on purpose: an alias does not
 # exist inside scripts, and `$DDROP start` breaks under zsh, which does not
@@ -26,6 +27,14 @@ else
   fi
   DEADDROP_SECRET=$(cat "$PWD/demo/.secret")
   export DEADDROP_SECRET
+
+  # Absolute, because git resolves a relative remote against the clone's own
+  # directory -- `workDir` -- and not against the config file or the directory
+  # `ddrop start` was run in. Writing `../shared-repo.git` here looks right next
+  # to `"workDir": ".deaddrop/git-work"` and sends git looking three levels too
+  # deep, which surfaces only as a push failure in the log.
+  DEMO_GIT_REMOTE="$PWD/demo/shared-repo.git"
+  export DEMO_GIT_REMOTE
 
   echo "demo: ddrop ready, secret loaded from demo/.secret"
 fi

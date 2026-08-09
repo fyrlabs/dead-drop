@@ -9,7 +9,7 @@
         {
           "use": "git",
           "config": {
-            "remote": "../shared-repo.git",
+            "remote": "${env:DEMO_GIT_REMOTE}",
             "workDir": ".deaddrop/git-work",
             "freshnessMs": 1000
           }
