@@ -205,8 +205,17 @@ export class Workspace {
     await this.manager.start();
     for (const channel of this.config.subscribe ?? []) this.mailbox.subscribeTopic(channel);
     await this.mailbox.start((envelope) => this.dispatch(envelope));
-    await this.announce().catch((error: unknown) => {
-      // A missing beacon costs discoverability, not correctness.
+    // Not awaited, and that is the whole point. A missing beacon costs
+    // discoverability, not correctness, but awaiting it made the cost total:
+    // with every transport unavailable the first announcement sits in a retry
+    // ladder behind an open breaker, and `ddrop connect` binds its local port
+    // only after `runtime.start()` resolves. So a caller got "connection
+    // refused" on a port that was never opened, with nothing in the log saying
+    // why. Peers join and quit whenever they like; a local server that waits
+    // for one to be reachable is a server that is down for a reason of its own
+    // making. The interval below re-announces every 30 seconds, so
+    // discoverability recovers on its own once a transport does.
+    void this.announce().catch((error: unknown) => {
       this.logger.warn('failed to publish presence beacon', { error: String(error) });
     });
     this.stopPresence = this.clock.setInterval(this.presenceIntervalMs, () => {

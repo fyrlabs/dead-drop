@@ -57,6 +57,8 @@ Restart=on-failure
 RestartSec=5
 ```
 
+Startup does not depend on any transport being reachable. A runtime binds its control plane, and `ddrop connect` binds its local port, whether or not a transport can carry anything; requests made in the meantime fail with `NO_TRANSPORT_AVAILABLE` (502 through an exposure) rather than the port being closed. The presence beacon is published in the background and retried every 30 seconds, so peers see each other once a transport comes back, with no restart.
+
 Shutdown on SIGINT/SIGTERM is graceful: pending requests are rejected with `CANCELLED`, the presence beacon is withdrawn, queued writes finish, and transports close.
 
 ## Metrics

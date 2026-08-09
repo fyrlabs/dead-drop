@@ -12,9 +12,9 @@
 # same way a revoked token or an unreachable remote does.
 #
 # One proxy client is started while everything is healthy and kept for the whole
-# file. That is the realistic shape of an outage — it begins during a session,
-# not before one — and it avoids a startup dependency documented at the bottom
-# of this file.
+# file, because that is the realistic shape of an outage: it begins during a
+# session, not before one. The last scenario starts a second proxy from inside a
+# total outage, which is the other half of the same question.
 
 FO="$WORK/failover"
 PRIMARY="$FO/primary"
@@ -43,6 +43,22 @@ fetches_content() {
 # attempt is bounded by the proxy's own request timeout anyway.
 fetches_content_within() { # $1 = attempts, $2 = seconds between
   wait_for "$1" "$2" fetches_content
+}
+
+# The second proxy, started during a total outage rather than before one. Same
+# shape as the pair above; kept separate so both can be live at once.
+marooned_fetches_content() {
+  [ "$(curl -s --max-time 20 "http://127.0.0.1:$MAROONED_PORT/index.txt" 2>/dev/null)" \
+    = "served-over-either" ]
+}
+marooned_fetches_content_within() { # $1 = attempts, $2 = seconds between
+  wait_for "$1" "$2" marooned_fetches_content
+}
+
+# 502 for a transport that cannot carry the message, 504 for a deadline reached
+# while trying. Either is an answer; the failure this guards against is silence.
+is_gateway_error() { # $1 = http status
+  case "$1" in 502 | 504) return 0 ;; *) return 1 ;; esac
 }
 
 primary_is_marked_down() {
@@ -160,14 +176,76 @@ can "recover once the transports come back, with no restart and no intervention"
   fetches_content_within 20 3
 ON_FAIL=""
 
+scenario "a local server starts while nobody is reachable"
+
+# The proxy above was started before anything broke, because until 0.3.1 one
+# started during an outage never finished starting at all: `ddrop connect` runs
+# a runtime in-process and binds its local port only after `runtime.start()`
+# resolves, and workspace start-up awaited the first presence announcement,
+# which sits in a retry ladder behind an open breaker. Nothing was printed and
+# no port was opened, so a caller got "connection refused" and no reason for it.
+#
+# Peers join and quit whenever they like, which is the whole premise of a
+# store-and-forward transport, so a local server that will not come up until a
+# remote one is reachable has turned somebody else's absence into its own
+# outage. The beacon is published in the background now and re-published every
+# 30 seconds, so discoverability catches up on its own.
+#
+# This client gets a third transport, first in its own failover order, whose
+# every operation fails after three seconds. A revoked directory fails in
+# microseconds, which is fast enough that the old code bound its port anyway, so
+# a scenario built only on the two above would pass either way and prove
+# nothing. Three seconds an attempt is what an unreachable network remote
+# actually costs, and it is what the bug was found on.
+chmod 000 "$PRIMARY" "$FALLBACK"
+
+MAROONED_TRANSPORTS="
+  { \"use\": \"memory\", \"name\": \"slow\", \"config\": { \"namespace\": \"marooned\", \"failureRate\": 1, \"latencyMs\": 3000 } },
+  $TRANSPORTS"
+write_config "$FO/marooned" "marooned" "$MAROONED_TRANSPORTS" "" \
+  '"policy": { "mode": "failover", "primary": "slow", "fallback": ["primary", "fallback"] }'
+
+MAROONED_PORT=$(free_port)
+marooned_started=$(date +%s)
+MAROONED_PID=$(start_connect "$FO/marooned" "server/site" "$MAROONED_PORT" "$FO/marooned.log" 15000)
+marooned_bind_elapsed=$(( $(date +%s) - marooned_started ))
+
+ON_FAIL="$FO/marooned.log"
+can "start a proxy with every transport unavailable and have it bind its port" \
+  port_accepts "$MAROONED_PORT"
+ON_FAIL=""
+
+# Awaiting the beacon put the whole retry ladder in front of the bind: measured
+# at 12s here against the 3s-per-attempt transport above, and at minutes against
+# a real remote behind an open breaker. Publishing it in the background brings
+# that back to 2s, which is the transport manager's own opening health sweep and
+# nothing else. The bound below sits between the two with room on either side.
+cannot "make a caller wait out a dead transport before the port opens (${marooned_bind_elapsed}s)" \
+  [ "$marooned_bind_elapsed" -le 8 ]
+
+marooned_code=$(http_code "http://127.0.0.1:$MAROONED_PORT/index.txt" "$FO/marooned-body.txt" 120)
+note "the marooned proxy answered http $marooned_code: $(cat "$FO/marooned-body.txt" 2>/dev/null)"
+
+cannot "leave a caller refused on a port that was never opened" \
+  [ "$marooned_code" != "000" ]
+
+ON_FAIL="$FO/marooned.log"
+can "answer a gateway error while it waits for a transport to come back" \
+  is_gateway_error "$marooned_code"
+ON_FAIL=""
+
+chmod 755 "$PRIMARY" "$FALLBACK"
+
+# The point of starting without a transport is being useful once there is one.
+# This is also what makes the background beacon safe: nothing here was told to
+# re-announce. The budget is wider than the pair above because every poll cycle
+# on this client still pays a three-second probe on the failing transport until
+# its breaker settles.
+ON_FAIL="$FO/marooned.log $FO/server.log"
+can "serve normally once a transport comes back, having never had one" \
+  marooned_fetches_content_within 30 3
+ON_FAIL=""
+
+stop_peer "$MAROONED_PID"
 stop_peer "$PROXY_PID"
 stop_peer "$SERVER_PID"
-
-# Worth writing down, because it is why the proxy client above is started before
-# anything is broken rather than during the outage: `ddrop connect` runs a
-# runtime in-process and waits for `runtime.start()` before it binds its local
-# port, and workspace start-up waits on the first presence announcement. With
-# every transport unavailable that announcement retries behind an open breaker,
-# so `ddrop connect` never finishes starting, never binds, and prints no error —
-# a caller sees "connection refused" on a port that was never opened. Starting
-# during a total outage is therefore not something this file can assert on.

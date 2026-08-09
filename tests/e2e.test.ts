@@ -434,6 +434,51 @@ describe('two runtimes over a shared directory', () => {
   }, 20_000);
 });
 
+describe('starting up', () => {
+  it('starts promptly when no transport can carry anything', async () => {
+    // Peers join and quit whenever they like, so a local runtime that waits for
+    // one to be reachable is down for a reason of its own making. Start-up used
+    // to await the first presence beacon, which sits in the full retry ladder
+    // when every transport is failing. `ddrop connect` binds its local port only
+    // after `runtime.start()` resolves, so the caller got "connection refused"
+    // on a port that was never opened, and nothing in the log said why.
+    //
+    // Every operation on this transport fails, and each failure costs 3s, so the
+    // ladder the beacon used to sit in runs about ten seconds; awaiting it here
+    // measured 5.2s even after the breaker cut the ladder short. Health is
+    // reported separately and stays instant, which keeps the assertion aimed at
+    // the announcement rather than at the health sweep.
+    const dataDir = await mkdtemp(join(tmpdir(), 'deaddrop-marooned-'));
+    cleanups.push(() => rm(dataDir, { recursive: true, force: true }));
+
+    const config = parseRuntimeConfig({
+      dataDir,
+      logLevel: 'silent',
+      workspaces: [
+        {
+          name: 'demo',
+          peerId: 'marooned-peer',
+          secrets: [SECRET],
+          transports: [
+            { use: 'memory', config: { namespace: 'marooned', failureRate: 1, latencyMs: 3_000 } },
+          ],
+          polling: { minIntervalMs: 50, maxIntervalMs: 200 },
+        },
+      ],
+    });
+
+    const runtime = new DeadDropRuntime({ config });
+    cleanups.push(() => runtime.stop());
+
+    const startedAt = Date.now();
+    await runtime.start();
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(elapsedMs).toBeLessThan(3_000);
+    expect(runtime.defaultWorkspace().stats().peerId).toBe('marooned-peer');
+  }, 30_000);
+});
+
 describe('control plane', () => {
   it('answers status, metrics, expose and call over the socket', async () => {
     const target = await startTargetServer(() => ({ status: 200, body: '{"ok":true}' }));

@@ -6,6 +6,10 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+### Fixed
+
+- A runtime now starts even when no transport is reachable. `ddrop connect` used to wait for the first presence beacon to be published before binding its local port, so during a transport outage it never bound and callers saw "connection refused" with nothing in the log. Peers come and go; a local server no longer waits for one.
+
 ## [0.3.0]
 
 ### Changed
