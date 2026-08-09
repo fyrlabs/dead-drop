@@ -6,6 +6,16 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+## [0.2.3]
+
+### Fixed
+
+- A transport that can never work now says so. A wrong `repo` on the github transport used to let the runtime report `runtime started` and `control plane listening`, then flap its circuit breaker forever while the transport's own actionable message ("repository X does not exist or is not visible to you") reached no log at any level. Non-retryable health failures are now logged at error level, once per change. Found by running the walkthrough against a real GitHub account.
+
+### Docs
+
+- The 0.1.0 notes claimed channel, peer and workspace names "never appear in clear text on a transport". That was false: object keys are `ws/<workspace>/inbox/<peer>/<id>.ddf` and carry those names in the clear, deliberately, as `docs/security-model.md` has always documented. Corrected the claim and `AGENTS.md` invariant 9. Frame contents were and are encrypted; only the keys are readable.
+
 ## [0.2.2]
 
 ### Fixed
@@ -52,7 +62,7 @@ First release.
 - Four transports: `filesystem` (any shared or synced directory), `git` (any remote `git clone` accepts), `github` (via the `gh` CLI, with rate-limit awareness), and `memory` (tests and examples).
 - Proxy mode. `ddrop expose --target http://localhost:3000` makes an unmodified local server reachable to peers; `ddrop connect peer/name` serves it back as an ordinary local URL. Static directory exposures too.
 - At-least-once delivery over plain object storage: framing, chunking, delete-as-acknowledgement, redelivery with backoff, dead letters, deduplication, retained broadcast topics, and polling that adapts to traffic.
-- AES-256-GCM encryption of the whole envelope, header included, so channel, peer and workspace names never appear in clear text on a transport.
+- AES-256-GCM encryption of the whole envelope, header included, so message contents and envelope metadata are unreadable on the transport. Object keys are deliberately readable: workspace, peer and broadcast channel names appear in clear text in the storage path, along with message sizes, counts and timing. See [docs/security-model.md](docs/security-model.md) for what that does and does not protect.
 - Multiple transports per workspace with health-based scoring, retry with jittered backoff, circuit breaking and failover.
 - Observability: structured JSON logs with credential redaction, Prometheus metrics, and tracing where a message id is its own trace id, so `ddrop trace <requestId>` works with the id a timeout error already returns.
 - A plugin contract for third-party transports, plus a framework-agnostic conformance suite. A `store` adapter is four methods.

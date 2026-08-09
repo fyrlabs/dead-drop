@@ -426,12 +426,28 @@ export class TransportManager {
             entry.health = { ...health, latencyMs: this.clock.now() - started };
           }
         } catch (error) {
+          const failure = DeadDropError.from(error);
+          const previousMessage = entry.health.message;
           entry.health = {
             status: 'unavailable',
-            message: DeadDropError.from(error).message,
+            message: failure.message,
             latencyMs: this.clock.now() - started,
           };
           entry.lastHealthCheckAt = this.clock.now();
+          // A non-retryable health failure is a misconfiguration, not a blip:
+          // retrying will never clear it. Surface it, because the only other
+          // signal is a flapping circuit breaker. A wrong `repo` used to look
+          // like a healthy start -- "runtime started", "control plane
+          // listening", then silence -- with the transport's own actionable
+          // message reaching no log at all. Logged only when the message
+          // changes, so a permanent fault does not repeat on every sweep.
+          if (!failure.retryable && previousMessage !== failure.message) {
+            this.logger.error('transport is unusable and will not recover on its own', {
+              transport: entry.name,
+              code: failure.code,
+              error: failure.message,
+            });
+          }
         }
         this.metrics.transportHealth.set(healthToNumber(entry.health.status), {
           transport: entry.name,

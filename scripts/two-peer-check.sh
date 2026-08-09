@@ -180,10 +180,22 @@ echo "--- the transport really is the medium ---"
 files=$(find "$SHARED" -type f | wc -l | tr -d ' ')
 [ "$files" -gt 0 ] && ok "shared store holds $files objects" || bad "shared store is empty"
 if find "$SHARED" -type f -exec grep -l "hello-from-peer-a" {} \; 2>/dev/null | grep -q .; then
-  bad "PLAINTEXT on the transport -- invariant 9 broken"
+  bad "PLAINTEXT payload on the transport -- invariant 9 broken"
 else
   ok "payload is not readable on the transport (ciphertext, invariant 9)"
 fi
+
+# Contents and keys are different promises. This check only covered contents,
+# so it passed while `ws/<workspace>/peers/<peer>.ddf` sat in the clear on a
+# real GitHub repo. Keys being readable is deliberate (docs/security-model.md),
+# so assert the documented shape rather than absence -- if keys ever stop
+# carrying these names, the security model doc is what needs updating.
+if find "$SHARED" -type f | grep -q "demo"; then
+  ok "object keys carry the workspace name in clear text, as security-model.md documents"
+else
+  bad "object keys no longer match the documented layout; update docs/security-model.md"
+fi
+echo "  note: keys are readable by design; only frame contents are encrypted"
 
 echo
 echo "================================"

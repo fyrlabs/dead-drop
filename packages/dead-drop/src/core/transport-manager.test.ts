@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { DeadDropError } from '../protocol/index.js';
 import type { StoreTransport, TransportRegistration } from '@fyrlabs/dead-drop-transport-sdk';
 
+import { defineTransport } from '@fyrlabs/dead-drop-transport-sdk';
+
 import { harness } from './testing.js';
 import { faultyTransport } from './testing.js';
 import { TransportManager, type TransportManagerOptions } from './transport-manager.js';
@@ -352,6 +354,81 @@ describe('TransportManager health', () => {
     const first = subject.get('alpha').lastHealthCheckAt;
     await clock.advance(2500);
     expect(subject.get('alpha').lastHealthCheckAt).toBeGreaterThan(first);
+    await subject.stop();
+  });
+});
+
+describe('TransportManager health reporting', () => {
+  function throwingHealth(error: DeadDropError): Array<TransportRegistration<never>> {
+    const factory = defineTransport<Record<string, never>>({
+      id: 'brokenfs',
+      capabilities: {
+        kind: 'store',
+        ordering: 'partition',
+        binaryPayloads: true,
+        delete: true,
+        watch: false,
+        orderedList: true,
+      },
+      create() {
+        return {
+          async put() {},
+          async get() {
+            return undefined;
+          },
+          async list() {
+            return { entries: [] };
+          },
+          async delete() {},
+          async health(): Promise<never> {
+            throw error;
+          },
+          async close() {},
+        } as unknown as StoreTransport;
+      },
+    });
+    return [factory({}) as unknown as TransportRegistration<never>];
+  }
+
+  it('logs a non-retryable health failure instead of only flapping the breaker', async () => {
+    // The bug this guards, found against a real GitHub repo: a wrong `repo`
+    // let the runtime report "started" and "control plane listening", then sit
+    // in a circuit-breaker loop forever. The transport's own actionable
+    // message reached no log at any level, so a typo looked like a healthy
+    // runtime that silently delivered nothing.
+    const { clock, logs, logger } = harness();
+    const subject = new TransportManager({
+      workspace: 'demo',
+      peerId: 'peer-a',
+      registrations: throwingHealth(
+        new DeadDropError('NOT_FOUND', 'repository o/r does not exist or is not visible to you.'),
+      ),
+      clock,
+      logger,
+    });
+
+    await subject.start();
+
+    const record = logs.find((r) => r.level === 'error');
+    expect(record?.message).toBe('transport is unusable and will not recover on its own');
+    expect(String(record?.fields?.error)).toContain('does not exist');
+    expect(record?.fields?.code).toBe('NOT_FOUND');
+    await subject.stop();
+  });
+
+  it('does not log a retryable health failure at error level', async () => {
+    const { clock, logs, logger } = harness();
+    const subject = new TransportManager({
+      workspace: 'demo',
+      peerId: 'peer-a',
+      registrations: throwingHealth(new DeadDropError('TIMEOUT', 'slow')),
+      clock,
+      logger,
+    });
+
+    await subject.start();
+
+    expect(logs.find((r) => r.level === 'error')).toBeUndefined();
     await subject.stop();
   });
 });
