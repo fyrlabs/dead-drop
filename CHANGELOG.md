@@ -6,6 +6,18 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+## [0.3.0]
+
+### Changed
+
+- **A request timeout now bounds the whole request, not just the wait for a reply.** It used to guard only the reply, so while transports were failing the send in front of it ran unbounded and a caller asking for 15 seconds could wait two minutes. Check your timeouts before upgrading: a transport that is legitimately slower than the deadline you set will now fail at the deadline instead of succeeding late. Raise `requestTimeoutMs`, or `--timeout` on `ddrop connect`, if you move large payloads over a slow remote.
+- Failing over to a healthy transport now takes seconds instead of minutes. A retry no longer backs off in front of a circuit breaker that is already open; the manager moves to the next transport immediately, which is why the fallback was configured.
+- `allowPeers` matches the caller's configured `peerId`. It used to match the address replies are sent to, which for a `ddrop connect` client is a per-process value that appears in no config file, so a hand-written list matched nobody and denied everyone.
+
+### Fixed
+
+- A peer id was doing two jobs at once: a mailbox address and an identity. They are now separate, so a short-lived session can take its own address without losing who it is.
+
 ## [0.2.6]
 
 ### Fixed
