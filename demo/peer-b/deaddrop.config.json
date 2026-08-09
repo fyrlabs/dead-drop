@@ -1,0 +1,14 @@
+{
+  "dataDir": ".deaddrop",
+  "workspaces": [
+    {
+      "name": "demo",
+      "peerId": "peer-b",
+      "secrets": ["${env:DEADDROP_SECRET}"],
+      "transports": [
+        { "use": "filesystem", "config": { "root": "../shared", "pollIntervalMs": 300 } }
+      ],
+      "exposures": []
+    }
+  ]
+}
