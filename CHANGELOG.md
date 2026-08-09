@@ -8,6 +8,7 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ### Fixed
 
+- **The git transport no longer takes over a repository its `workDir` sits inside.** Pointing `workDir` at a path within one of your own checkouts -- which the quick start invites, since it suggests a relative path -- made the transport treat that checkout as its own clone: it repointed `origin`, rewrote the commit name and email, and checked out its data branch over your work. It now uses the directory it was given, and nothing above it.
 - A runtime now starts even when no transport is reachable. `ddrop connect` used to wait for the first presence beacon to be published before binding its local port, so during a transport outage it never bound and callers saw "connection refused" with nothing in the log. Peers come and go; a local server no longer waits for one.
 - Presence beacons no longer pile up on a slow transport. Only one is published at a time and it is abandoned once it is too old to be believed, so a backend that is merely slow is not pushed into failing by its own presence records.
 - A transport that failed to start up once is no longer dead for good. The git and GitHub transports cached the failure from their first clone or authentication attempt and re-threw it for the life of the process, so a momentary network fault left a transport that could never recover, whatever its circuit breaker did.

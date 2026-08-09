@@ -115,6 +115,42 @@ describe('git transport specifics', () => {
     expect(branches.stdout).not.toContain('* main');
   }, 60_000);
 
+  it('does not hijack a repository that encloses its workDir', async () => {
+    // `git rev-parse --git-dir` succeeds from inside *any* enclosing repository,
+    // so a workDir nested in the user's own project used to be read as this
+    // store's clone. The transport then repointed that project's `origin`,
+    // rewrote its commit identity and checked out an orphan branch over the
+    // user's work. Reachable from the documented quick start, which suggests a
+    // relative `workDir` and is run inside a checkout.
+    const outer = await temp('deaddrop-git-outer-');
+    const inOuter = (args: string[]) => execFileAsync('git', args, { cwd: outer });
+    await execFileAsync('git', ['init', '--quiet', '--initial-branch=main', outer]);
+    await inOuter(['config', 'user.name', 'Outer Author']);
+    await inOuter(['config', 'user.email', 'outer@example.com']);
+    await inOuter(['remote', 'add', 'origin', 'git@example.com:outer/project.git']);
+    await writeFile(join(outer, 'source.txt'), 'work that must survive\n');
+    await inOuter(['add', '--', 'source.txt']);
+    await inOuter(['commit', '--quiet', '-m', 'initial']);
+    const headBefore = (await inOuter(['rev-parse', 'HEAD'])).stdout.trim();
+
+    const transport = await store(await bareRemote(), {
+      workDir: join(outer, '.deaddrop', 'git-work'),
+    });
+    await transport.put('inbox/peer-b/1.ddf', bytes('nested but harmless'));
+
+    expect((await inOuter(['remote', 'get-url', 'origin'])).stdout.trim()).toBe(
+      'git@example.com:outer/project.git',
+    );
+    expect((await inOuter(['symbolic-ref', 'HEAD'])).stdout.trim()).toBe('refs/heads/main');
+    expect((await inOuter(['rev-parse', 'HEAD'])).stdout.trim()).toBe(headBefore);
+    expect((await inOuter(['config', 'user.email'])).stdout.trim()).toBe('outer@example.com');
+    expect((await inOuter(['branch', '--list'])).stdout).not.toContain('deaddrop-data');
+
+    // The store is still a working clone in its own right, in its own directory.
+    const read = await transport.get('inbox/peer-b/1.ddf');
+    expect(read && Buffer.from(read).toString()).toBe('nested but harmless');
+  }, 60_000);
+
   it('shares objects between two clones of the same remote', async () => {
     const remote = await bareRemote();
     const writer = await store(remote);

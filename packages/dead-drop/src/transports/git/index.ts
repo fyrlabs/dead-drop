@@ -332,8 +332,18 @@ class GitStore implements StoreTransport {
   private async initialise(): Promise<void> {
     await this.claimWorkDir();
     await mkdir(this.workDir, { recursive: true });
-    const isRepo = await this.git.tryRun(['rev-parse', '--git-dir']);
-    if (isRepo.code !== 0) {
+    // Whether *this* directory is our clone, never whether git can find a
+    // repository somewhere above it. `rev-parse --git-dir` succeeds from inside
+    // any enclosing repository, so a `workDir` nested in a user's project --
+    // which the documented quick start suggests, since people run quick starts
+    // inside their own checkout -- read that project as this store's clone and
+    // repointed its `origin`, rewrote its commit identity and checked out an
+    // orphan branch over their work.
+    const isRepo = await stat(join(this.workDir, '.git')).then(
+      () => true,
+      () => false,
+    );
+    if (!isRepo) {
       await this.git.run(['init', '--quiet']);
       await this.git.run(['remote', 'add', 'origin', this.config.remote]);
     } else {
