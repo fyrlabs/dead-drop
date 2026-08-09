@@ -19,7 +19,15 @@ FAIL=0
 SCENARIO=""
 SCENARIO_CAN=0
 SCENARIO_CANNOT=0
+SCENARIO_STARTED_AT=0
 FAILED_SCENARIOS=""
+
+# Naming convention, and it is load-bearing rather than cosmetic: scenario files
+# are sourced into the runner's shell, so every variable is shared. Harness and
+# runner state is UPPER CASE; scenario files use lower case for their own
+# working variables. A scenario timing something with `started` once overwrote
+# the runner's own clock, and the suite reported the duration of that one
+# measurement as the duration of the whole tier.
 
 # Colour only when a human is watching. CI logs keep the escape codes out.
 if [ -t 1 ]; then
@@ -33,6 +41,7 @@ scenario() {
   SCENARIO="$1"
   SCENARIO_CAN=0
   SCENARIO_CANNOT=0
+  SCENARIO_STARTED_AT=$(date +%s)
   echo
   echo "${C_HEAD}scenario: $1${C_OFF}"
 }
@@ -46,6 +55,9 @@ finish_scenario() {
     FAIL=$((FAIL + 1))
     record_failure "$SCENARIO"
   fi
+  # Per-scenario timing, so the slow ones are obvious without a stopwatch.
+  local took=$(( $(date +%s) - SCENARIO_STARTED_AT ))
+  [ "$took" -ge 20 ] && note "that scenario took ${took}s"
   SCENARIO=""
 }
 

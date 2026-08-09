@@ -129,14 +129,18 @@ run_tier() { # $1 = tier directory
   done
 }
 
-started=$(date +%s)
+# Upper case on purpose. Scenario files are sourced into this shell, so every
+# name here is shared with them; a scenario setting `started` for its own timing
+# used to overwrite this one and the run reported the duration of its last
+# measurement instead of the whole tier.
+SUITE_STARTED_AT=$(date +%s)
 case "$TIER" in
   fast) run_tier fast ;;
   live) run_tier live ;;
   all)  run_tier fast; run_tier live ;;
 esac
 finish_scenario
-elapsed=$(( $(date +%s) - started ))
+elapsed=$(( $(date +%s) - SUITE_STARTED_AT ))
 
 echo
 echo "================================================"
