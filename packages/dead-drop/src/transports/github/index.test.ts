@@ -103,6 +103,34 @@ describe('github transport', () => {
     await expect(transport.get('inbox/peer-b/1.ddf')).rejects.toThrowError(/gh auth login/);
   });
 
+  it('recovers from a resolution that failed once', async () => {
+    // Resolution is memoised so concurrent callers do not each clone. Memoising
+    // a rejection is a different thing: one `gh` call that failed on a network
+    // blip used to disable the transport for the life of the process, because
+    // every later operation -- including the health probe the circuit breaker
+    // uses to decide the backend is well again -- got the cached error back.
+    // The breaker then had no way to close and the transport stayed dead with
+    // nothing wrong with it.
+    const remote = await bareRemote();
+    let attempts = 0;
+    const transport = await store(
+      fakeGh({
+        url: remote,
+        authStatus: async () =>
+          ++attempts === 1
+            ? { authenticated: false, message: 'temporary gh failure' }
+            : { authenticated: true, message: 'ok' },
+      }),
+    );
+
+    await expect(transport.get('inbox/peer-b/1.ddf')).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+    await transport.put('inbox/peer-b/1.ddf', new TextEncoder().encode('back again'));
+    const read = await transport.get('inbox/peer-b/1.ddf');
+    expect(read && Buffer.from(read).toString()).toBe('back again');
+  }, 60_000);
+
   it('explains what to do when the repository is missing', async () => {
     const transport = await store(fakeGh({ repoInfo: async () => undefined }));
     await expect(transport.get('inbox/peer-b/1.ddf')).rejects.toMatchObject({ code: 'NOT_FOUND' });

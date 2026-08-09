@@ -57,7 +57,9 @@ Restart=on-failure
 RestartSec=5
 ```
 
-Startup does not depend on any transport being reachable. A runtime binds its control plane, and `ddrop connect` binds its local port, whether or not a transport can carry anything; requests made in the meantime fail with `NO_TRANSPORT_AVAILABLE` (502 through an exposure) rather than the port being closed. The presence beacon is published in the background and retried every 30 seconds, so peers see each other once a transport comes back, with no restart.
+Startup does not depend on any transport being reachable. A runtime binds its control plane, and `ddrop connect` binds its local port, whether or not a transport can carry anything; requests made in the meantime fail with `NO_TRANSPORT_AVAILABLE` (502 through an exposure) rather than the port being closed. The presence beacon is published in the background and republished every 30 seconds, so peers see each other once a transport comes back, with no restart.
+
+One beacon is in flight at a time, and a beacon is abandoned once it is older than the expiry window (three intervals, so 90 seconds by default) because nothing would believe it by then. That matters on a slow backend: beacons are the one thing a runtime writes without being asked, so unbounded ones accumulate as extra writers and make the backend slower still. A peer that misses beacons disappears from `ddrop discover` and stays reachable, since delivery does not depend on discovery.
 
 Shutdown on SIGINT/SIGTERM is graceful: pending requests are rejected with `CANCELLED`, the presence beacon is withdrawn, queued writes finish, and transports close.
 

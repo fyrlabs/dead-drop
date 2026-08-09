@@ -74,8 +74,19 @@ class GitHubStore implements StoreTransport {
     this.gh = config.gh ?? new GhCli({ ...(config.ghPath ? { ghPath: config.ghPath } : {}) });
   }
 
+  /**
+   * Resolves the repository once, and lets a failed attempt be tried again.
+   *
+   * A cached rejection is permanent: one `gh` call that failed on a network
+   * blip left every later operation re-throwing it for the life of the process,
+   * with the breaker in front of it stuck open because its half-open probe came
+   * straight back here. The git delegate does the same for its clone.
+   */
   private store(): Promise<StoreTransport> {
-    this.ready ??= this.resolve();
+    this.ready ??= this.resolve().catch((error: unknown) => {
+      this.ready = undefined;
+      throw error;
+    });
     return this.ready;
   }
 

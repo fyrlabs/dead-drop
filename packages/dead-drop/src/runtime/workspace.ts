@@ -145,6 +145,7 @@ export class Workspace {
   private readonly exposureNames = new Set<string>();
   private readonly startedAt: number;
   private stopPresence: (() => void) | undefined;
+  private announcing: Promise<void> | undefined;
   private started = false;
 
   constructor(options: WorkspaceOptions) {
@@ -215,12 +216,8 @@ export class Workspace {
     // for one to be reachable is a server that is down for a reason of its own
     // making. The interval below re-announces every 30 seconds, so
     // discoverability recovers on its own once a transport does.
-    void this.announce().catch((error: unknown) => {
-      this.logger.warn('failed to publish presence beacon', { error: String(error) });
-    });
-    this.stopPresence = this.clock.setInterval(this.presenceIntervalMs, () => {
-      void this.announce().catch(() => undefined);
-    });
+    this.beacon(true);
+    this.stopPresence = this.clock.setInterval(this.presenceIntervalMs, () => this.beacon(false));
     this.logger.info('workspace started', {
       transports: this.manager.list().map((info) => info.name),
       exposures: [...this.exposureNames],
@@ -611,6 +608,38 @@ export class Workspace {
   }
 
   /** Writes this peer's beacon so other peers can discover it. */
+  /**
+   * Publishes one presence beacon, never more than one at a time.
+   *
+   * Nothing upstream bounds a beacon: it is fire-and-forget, so a slow
+   * transport keeps one alive for as long as its own deadline allows. Every
+   * interval used to start another regardless, which is only safe while the
+   * first one is guaranteed to have finished -- which is exactly what awaiting
+   * it in `start` used to guarantee. Publishing in the background removed that
+   * guarantee and left the interval unchanged, so on a cold transport, where
+   * the first beacon still has a clone and an authentication round trip in
+   * front of it, the second one starts on top of the first. Each is another
+   * writer on the same backend, each makes the next one slower, and a transport
+   * that was merely slow gets pushed into failing: the beacons become the load.
+   *
+   * One in flight is all discoverability needs. A stale record is replaced by
+   * the next beacon that lands, not by the number of attempts made.
+   */
+  private beacon(first: boolean): void {
+    if (this.announcing) return;
+    this.announcing = this.announce()
+      .catch((error: unknown) => {
+        // Loud once, quiet after: a transport that is down would otherwise warn
+        // every 30 seconds for as long as it stays down.
+        const message = 'failed to publish presence beacon';
+        if (first) this.logger.warn(message, { error: String(error) });
+        else this.logger.debug(message, { error: String(error) });
+      })
+      .finally(() => {
+        this.announcing = undefined;
+      });
+  }
+
   private async announce(): Promise<void> {
     const record: PeerRecord = {
       peerId: this.peerId,
@@ -632,8 +661,17 @@ export class Workspace {
     });
     const frame = await encodeFrame(envelope, { key: this.keys.primary });
     const key = peerKey(this.name, this.peerId);
-    await this.manager.run('put', (transport) =>
-      (transport as StoreTransport).put(key, frame, { contentType: 'application/octet-stream' }),
+    await this.manager.run(
+      'put',
+      (transport) =>
+        (transport as StoreTransport).put(key, frame, { contentType: 'application/octet-stream' }),
+      // The interval is the retry, and the expiry window is the deadline. A
+      // retry ladder here would spend the transport's budget republishing a
+      // record the next interval is about to supersede, and would hold the
+      // in-flight slot above while doing it. Past `presenceTtlMs` nobody would
+      // believe this beacon even if it landed, so there is nothing left to wait
+      // for; a transport slower than that is not one peers can be found over.
+      { timeoutMs: this.presenceTtlMs, retry: { maxAttempts: 1 } },
     );
   }
 

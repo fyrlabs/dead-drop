@@ -81,6 +81,29 @@ registerConformanceTests({ describe, it }, 'git', {
 });
 
 describe('git transport specifics', () => {
+  it('recovers from a clone that failed once', async () => {
+    // The clone is memoised so concurrent callers do not each run it. Memoising
+    // the *rejection* is what made a transient failure permanent: one
+    // unreachable remote at start-up and every later put, get, list and health
+    // probe re-threw that same error for the life of the process, so the
+    // circuit breaker in front of it could never close -- its half-open probe
+    // came straight back here and got the cached failure. The retry also has to
+    // survive the working-directory lock the failed attempt already took.
+    const parent = await temp('deaddrop-git-late-');
+    const remote = join(parent, 'remote.git');
+    const transport = await store(remote);
+
+    await expect(transport.put('inbox/peer-b/1.ddf', bytes('first'))).rejects.toMatchObject({
+      code: 'TRANSPORT_ERROR',
+    });
+
+    await execFileAsync('git', ['init', '--bare', '--quiet', '--initial-branch=main', remote]);
+
+    await transport.put('inbox/peer-b/1.ddf', bytes('second'));
+    const read = await transport.get('inbox/peer-b/1.ddf');
+    expect(read && Buffer.from(read).toString()).toBe('second');
+  }, 60_000);
+
   it('creates an orphan data branch on a fresh remote', async () => {
     const remote = await bareRemote();
     const transport = await store(remote);

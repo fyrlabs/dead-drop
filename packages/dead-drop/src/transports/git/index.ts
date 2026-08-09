@@ -156,6 +156,12 @@ class GitStore implements StoreTransport {
    * process's `reset --hard` with another's commit.
    */
   private async claimWorkDir(): Promise<void> {
+    // A retried `initialise` must not claim twice. The first attempt may have
+    // taken the lock and failed afterwards, and `takeDirLock` counts our own
+    // pid as a live owner on purpose, so re-running it would read the directory
+    // we already hold as somebody else's, clone into `.peers` instead, and
+    // leak the lock on the one we abandoned.
+    if (this.lock) return;
     this.lock = await takeDirLock(this.configuredWorkDir, () => this.context.now());
     if (this.lock) return;
 
@@ -304,8 +310,22 @@ class GitStore implements StoreTransport {
 
   // --------------------------------------------------------------- internals
 
+  /**
+   * Resolves the clone once, and lets a failed attempt be tried again.
+   *
+   * Memoising the promise is what stops concurrent callers from each cloning.
+   * Memoising a *rejected* one is a different thing entirely: one `git fetch`
+   * that hit its timeout, or one 502 from the host, and every later put, get,
+   * list and health probe re-threw that same error for the life of the process.
+   * The breaker in front of this then stayed open for good, because its
+   * half-open probe called straight back in here and got the cached failure.
+   * Clearing the slot is what makes "unavailable" a state this can leave.
+   */
   private ensureClone(): Promise<void> {
-    this.ready ??= this.initialise();
+    this.ready ??= this.initialise().catch((error: unknown) => {
+      this.ready = undefined;
+      throw error;
+    });
     return this.ready;
   }
 
