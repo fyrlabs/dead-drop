@@ -4,7 +4,7 @@ Notable changes to dead-drop. The format follows [Keep a Changelog](https://keep
 
 Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is the stable transport contract and versions independently; its changes are called out explicitly.
 
-## [Unreleased]
+## [0.4.0]
 
 ### Changed
 
@@ -14,6 +14,11 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 - Config values can now read a file with `${file:PATH}`, alongside `${env:NAME}`. Relative paths resolve against the config file, and surrounding whitespace is stripped, so a config can be committed with the secret sitting beside it rather than inside it.
 - A config still holding a `REPLACE-ME` placeholder fails at start-up naming the exact field, instead of starting a runtime that reaches nobody.
+
+### Docs
+
+- The README now opens with a quick start that runs on one machine: two peers, a folder between them, and a `curl` that returns. The SDK, services and package entry points moved to `docs/sdk.md`.
+- The README claimed channel, peer and workspace names "never appear in clear text", and listed object keys among the unprotected things two paragraphs later. The first was false. Keys read `ws/<workspace>/inbox/<peer>/<id>.ddf` on purpose, so an operator can look at a repository and understand it; frame contents were and are encrypted.
 
 ## [0.3.1]
 
