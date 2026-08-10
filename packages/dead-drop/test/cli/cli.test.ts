@@ -208,6 +208,121 @@ describe('ddrop init', () => {
     expect(await run(['init', '--config', path], io)).toBe(1);
     expect(io.stderr.join('\n')).toContain('refusing to overwrite');
   });
+
+  it('writes a github transport that needs no hand-editing afterwards', async () => {
+    const dir = await temp();
+    const path = join(dir, 'deaddrop.config.json');
+    const io = capture();
+    expect(await run(['init', '--config', path, '--github', 'acme/workspace'], io)).toBe(0);
+
+    const written = JSON.parse(await readFile(path, 'utf8')) as {
+      workspaces: Array<{ transports: Array<{ use: string; config: Record<string, unknown> }> }>;
+    };
+    const transport = written.workspaces[0]?.transports[0];
+    expect(transport?.use).toBe('github');
+    // The three fields the README used to tell people to paste in by hand. The
+    // forward slash in workDir matters for the same reason it does for the
+    // secret path: this config gets copied to the other machine.
+    expect(transport?.config).toEqual({
+      repo: 'acme/workspace',
+      workDir: './.deaddrop/github',
+      createIfMissing: true,
+    });
+    // `gh` owns the credentials, so the next step is an auth step, not a start.
+    expect(io.stderr.join('\n')).toContain('gh auth login');
+  });
+
+  it('rejects a repo that is not owner/repo, before writing anything', async () => {
+    const dir = await temp();
+    const path = join(dir, 'deaddrop.config.json');
+    const io = capture();
+    // A github transport resolves its repository lazily, so a typo here would
+    // otherwise start a runtime that logs "started" and reaches nobody.
+    expect(await run(['init', '--config', path, '--github', 'not-a-repo'], io)).toBe(1);
+    expect(io.stderr.join('\n')).toContain('<owner>/<repo>');
+    await expect(readFile(path, 'utf8')).rejects.toThrow();
+  });
+
+  it('refuses --root and --github together rather than silently preferring one', async () => {
+    const dir = await temp();
+    const path = join(dir, 'deaddrop.config.json');
+    const io = capture();
+    expect(await run(['init', '--config', path, '--github', 'a/b', '--root', '/srv'], io)).toBe(1);
+    expect(io.stderr.join('\n')).toContain('two different transports');
+  });
+
+  it('joins an existing workspace with the secret it is given, generating none', async () => {
+    const dir = await temp();
+    const path = join(dir, 'deaddrop.config.json');
+    const existing = generateWorkspaceSecret();
+    const io = capture();
+    expect(
+      await run(['init', '--config', path, '--root', '/srv/shared', '--secret', existing], io),
+    ).toBe(0);
+
+    // The point of the flag: the second peer must end up on the FIRST peer's
+    // secret. A generated one here is a workspace of one that looks healthy.
+    const written = (await readFile(join(dir, '.deaddrop', 'secret'), 'utf8')).trim();
+    expect(written).toBe(existing);
+    expect(io.stderr.join('\n')).toContain('Joined workspace');
+  });
+
+  it('reads the secret from stdin so it stays out of shell history', async () => {
+    const dir = await temp();
+    const path = join(dir, 'deaddrop.config.json');
+    const existing = generateWorkspaceSecret();
+    const io = { ...capture(), readStdin: async () => `${existing}\n` };
+    expect(await run(['init', '--config', path, '--root', '/srv', '--secret', '-'], io)).toBe(0);
+
+    expect((await readFile(join(dir, '.deaddrop', 'secret'), 'utf8')).trim()).toBe(existing);
+    // A literal warns; stdin has nothing to warn about.
+    expect(io.stderr.join('\n')).not.toContain('shell history');
+  });
+
+  it('warns that a secret passed as an argument is visible to the machine', async () => {
+    const dir = await temp();
+    const path = join(dir, 'deaddrop.config.json');
+    const io = capture();
+    await run(
+      ['init', '--config', path, '--root', '/srv', '--secret', generateWorkspaceSecret()],
+      io,
+    );
+    expect(io.stderr.join('\n')).toContain('shell history');
+  });
+
+  it('rejects a mistyped secret at init instead of at the first message', async () => {
+    const dir = await temp();
+    const path = join(dir, 'deaddrop.config.json');
+    const io = capture();
+    // Without this check the secret parses as base64url, derives a different
+    // key, and surfaces as DECODE_FAILED against a peer's first frame, which
+    // names nothing and reads as a protocol bug.
+    expect(
+      await run(['init', '--config', path, '--root', '/srv', '--secret', 'ddk1_short'], io),
+    ).toBe(1);
+    expect(io.stderr.join('\n')).toMatch(/32 bytes/);
+    await expect(readFile(path, 'utf8')).rejects.toThrow();
+  });
+
+  it('refuses to join when a different secret is already on disk', async () => {
+    const dir = await temp();
+    const path = join(dir, 'deaddrop.config.json');
+    await writeFile(join(dir, 'placeholder'), '');
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(join(dir, '.deaddrop'), { recursive: true });
+    await writeFile(join(dir, '.deaddrop', 'secret'), `${generateWorkspaceSecret()}\n`);
+
+    const io = capture();
+    // Silently keeping the old secret would report a successful join and leave
+    // the peer talking to nobody.
+    expect(
+      await run(
+        ['init', '--config', path, '--root', '/srv', '--secret', generateWorkspaceSecret()],
+        io,
+      ),
+    ).toBe(1);
+    expect(io.stderr.join('\n')).toContain('already holds a different secret');
+  });
 });
 
 describe('ddrop commands that need a runtime', () => {

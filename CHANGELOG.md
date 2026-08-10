@@ -6,6 +6,12 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+### Added
+
+- `ddrop init --github <owner>/<repo>` writes a ready-to-run GitHub transport. Setting one up used to mean running `init` with a `--root` you did not want and then hand-editing the config it had just written; now it is one command, and a repo name that is not `owner/repo` is refused up front instead of becoming a runtime that starts cleanly and reaches nobody.
+
+- `ddrop init --secret <value|->` joins an existing workspace instead of starting a new one. The second machine used to run `init`, get a fresh secret it could not use, and need the first machine's secret copied into place by hand. Now it is one command: `--secret -` reads from stdin, so the secret stays out of shell history. A mistyped secret is rejected there and then, rather than surfacing later as a decode failure against a peer's first message.
+
 ## [0.8.0]
 
 ### Changed

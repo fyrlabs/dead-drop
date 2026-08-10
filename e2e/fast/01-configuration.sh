@@ -53,6 +53,52 @@ secret=$($DDROP keygen 2>/dev/null | grep -c '^ddk1_')
 can "\`ddrop keygen\` mints a workspace secret in the documented format" \
   [ "$secret" = "1" ]
 
+# Joining, which is how the second machine in a workspace is meant to start.
+#
+# Reading the two secret files back and comparing them is not enough on its own.
+# The failure this replaces is two peers that each generated their own secret:
+# both configs look right, both runtimes start clean, and they never see each
+# other. So the assertion that matters is the discovery one below, and the file
+# comparison is only there to say why when it fails.
+JOIN="$WORK/join"
+mkdir -p "$JOIN/a" "$JOIN/b" "$JOIN/shared"
+( cd "$JOIN/a" && $DDROP init --name joined --peer join-a --root ../shared >/dev/null 2>&1 )
+( cd "$JOIN/b" && $DDROP init --name joined --peer join-b --root ../shared \
+    --secret - < "$JOIN/a/.deaddrop/secret" >/dev/null 2>&1 )
+
+joined_on_one_secret() {
+  [ "$(cat "$JOIN/a/.deaddrop/secret")" = "$(cat "$JOIN/b/.deaddrop/secret")" ]
+}
+can "join a workspace with \`--secret -\`, with no secret file copied into place" \
+  joined_on_one_secret
+
+JOIN_A_PID=$(start_peer "$JOIN/a" "$JOIN/a.log")
+JOIN_B_PID=$(start_peer "$JOIN/b" "$JOIN/b.log")
+ON_FAIL="$JOIN/b.log"
+joined_peers_find_each_other() {
+  wait_up "$JOIN/a" "$JOIN_A_PID" || return 1
+  wait_up "$JOIN/b" "$JOIN_B_PID" || return 1
+  wait_for 40 1 eval 'dd "$JOIN/b" discover --json | grep -q join-a'
+}
+can "reach the peer it joined, which is what a matching secret actually buys" \
+  joined_peers_find_each_other
+ON_FAIL=""
+stop_peer "$JOIN_A_PID"
+stop_peer "$JOIN_B_PID"
+
+# A mistyped secret has to fail here, at the one moment the user is looking at
+# it. Accepted, it derives a different key and surfaces much later as a decode
+# failure against a peer's first message, which names nothing.
+mkdir -p "$JOIN/typo"
+typo_err=$( cd "$JOIN/typo" && $DDROP init --name joined --root ../shared --secret ddk1_short 2>&1 )
+cannot "join with a secret that is not a workspace key, or be told so only later" \
+  grep -q '32 bytes' <<< "$typo_err"
+
+mkdir -p "$JOIN/both"
+both_err=$( cd "$JOIN/both" && $DDROP init --name joined --root ../shared --github a/b 2>&1 )
+cannot "name two transports at once and have one of them silently win" \
+  grep -q 'two different transports' <<< "$both_err"
+
 # Each of these is a real mistake someone makes on their first afternoon. The
 # assertion is on the message, not just the exit code: an exit code tells you
 # something is wrong, and the message is what tells you what to change.

@@ -42,9 +42,11 @@ mkdir -p try/a try/b try/shared try/site
 echo '<h1>it works</h1>' > try/site/index.html
 
 (cd try/a && ddrop init --name demo --peer peer-a --root ../shared)
-(cd try/b && ddrop init --name demo --peer peer-b --root ../shared)
-cp try/a/.deaddrop/secret try/b/.deaddrop/secret   # one secret per workspace
+(cd try/b && ddrop init --name demo --peer peer-b --root ../shared \
+               --secret - < ../a/.deaddrop/secret)
 ```
+
+The second command **joins** the first peer's workspace: `--secret -` reads the secret from stdin, so both peers share one and nothing has to be copied into place afterwards.
 
 `ddrop start` runs in the foreground, so give each peer its own shell, or background them:
 
@@ -67,14 +69,17 @@ Stop everything with `kill %1 %2 %3`, and delete `try/` when you are done.
 
 ## Two real machines
 
-The same thing, with the folder replaced by something both machines can reach and the secret carried across by hand.
+The same thing, with the folder replaced by something both machines can reach. One command each.
 
 ```bash
-# on each machine, with its own --peer name
+# machine A: starts the workspace, prints the secret's location
 ddrop init --name demo --peer machine-a --root ~/Dropbox/deaddrop
+
+# machine B: joins it, pasting the secret from machine A
+ddrop init --name demo --peer machine-b --root ~/Dropbox/deaddrop --secret -
 ```
 
-Then copy `.deaddrop/secret` from the first machine to the second, over a channel you trust. Holding that secret *is* membership in the workspace.
+`--secret -` reads from stdin, so paste the contents of machine A's `.deaddrop/secret` and press Ctrl-D. Send it over a channel you trust: holding that secret *is* membership in the workspace. A secret typed as `--secret ddk1_...` also works, and the command warns you, because an argument is visible in shell history and in the process list.
 
 To expose a real local server rather than a directory:
 
@@ -91,21 +96,15 @@ Data moves by pushing and pulling a dedicated branch. Authentication is whatever
 
 ```bash
 gh auth login && gh auth setup-git
-ddrop init --name demo --peer machine-a --root unused   # then edit the transport block:
+
+# machine A
+ddrop init --name demo --peer machine-a --github your-org/deaddrop-workspace
+
+# machine B
+ddrop init --name demo --peer machine-b --github your-org/deaddrop-workspace --secret -
 ```
 
-```json
-{
-  "use": "github",
-  "config": {
-    "repo": "your-org/deaddrop-workspace",
-    "workDir": "./.deaddrop/github",
-    "createIfMissing": true
-  }
-}
-```
-
-Objects go to a `deaddrop-data` orphan branch, so the repository's real history is untouched. Deleting that branch discards undelivered messages and nothing else.
+The repository is created for you if it does not exist, private by default. Objects go to a `deaddrop-data` orphan branch, so the repository's real history is untouched. Deleting that branch discards undelivered messages and nothing else.
 
 ## What this is, and what it is not
 
@@ -127,6 +126,8 @@ Read [docs/security-model.md](docs/security-model.md) before deciding this fits 
 
 ```text
 ddrop init [--root <folder>]        write a config, and a secret beside it
+           [--github <owner>/<repo>]  use a GitHub repo instead of a folder
+           [--secret -]               join an existing workspace, secret on stdin
 ddrop start                         run the runtime
 ddrop status                        runtime, workspaces, transports
 ddrop discover                      peers visible in the workspace

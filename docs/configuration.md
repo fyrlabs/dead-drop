@@ -16,6 +16,8 @@ In order: `--config <path>`, then `./deaddrop.config.json`, then `~/.deaddrop/co
 
 Both are expanded in a single pass, so whatever a reference expands to is data. A secret file whose contents happen to read `${env:...}`, or a variable holding `${file:...}`, is never followed as a second lookup.
 
+**Starting or joining.** `ddrop init` generates a new workspace secret. `ddrop init --secret <value|->` uses one you already have, which is how a second machine joins an existing workspace rather than founding a one-peer workspace of its own; `-` reads stdin so the secret stays out of shell history. `--github <owner>/<repo>` writes a GitHub transport block instead of a filesystem one, so neither transport needs the config hand-edited afterwards. `--root` and `--github` name two different transports and cannot be combined.
+
 **Placeholders.** `ddrop init` writes `REPLACE-ME` where it cannot choose for you. Any value still containing that text fails at load with the field named. It is deliberately not a default: the shared location is the one thing no default can guess, and the old behaviour -- a path under the local data directory -- let two machines each start cleanly, write into their own folder, and never see each other.
 
 **Path resolution.** A leading `~` expands to your home directory. Relative paths resolve against the config file's directory, not the working directory, so a config means the same thing wherever you run it from. Inside a transport's `config` block this applies to the keys `root`, `workDir`, `directory` and `path`.

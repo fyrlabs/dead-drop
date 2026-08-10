@@ -18,7 +18,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { VERSION } from '../version.js';
 import { dirname, resolve } from 'node:path';
 
-import { DeadDropError, generateWorkspaceSecret } from '../protocol/index.js';
+import { DeadDropError, generateWorkspaceSecret, parseWorkspaceSecret } from '../protocol/index.js';
 import { createLogger, prettySink, type LogRecord, type Span } from '../core/index.js';
 import {
   DeadDropRuntime,
@@ -38,6 +38,8 @@ export interface CliIo {
   err(line: string): void;
   /** Resolves when the process should exit. Injected so tests do not block. */
   waitForShutdown?(): Promise<void>;
+  /** Reads all of stdin, for `--secret -`. Injected so tests do not block. */
+  readStdin?(): Promise<string>;
 }
 
 const defaultIo: CliIo = {
@@ -49,6 +51,12 @@ const defaultIo: CliIo = {
       process.once('SIGINT', stop);
       process.once('SIGTERM', stop);
     }),
+  readStdin: async () => {
+    let data = '';
+    process.stdin.setEncoding('utf8');
+    for await (const chunk of process.stdin) data += chunk;
+    return data;
+  },
 };
 
 const USAGE = `ddrop — a transport-agnostic runtime for distributed applications
@@ -72,6 +80,8 @@ Usage
   ddrop metrics                              Prometheus metrics
   ddrop keygen                               print a new workspace secret
   ddrop init [--root <shared-folder>]        write a config, and a secret beside it
+             [--github <owner>/<repo>]       use a GitHub repository instead of a folder
+             [--secret <value|->]            join an existing workspace ("-" reads stdin)
              [--name <workspace>] [--peer <id>]
 
 Global options
@@ -99,6 +109,8 @@ export async function run(argv: string[], io: CliIo = defaultIo): Promise<number
         name: { type: 'string' },
         root: { type: 'string' },
         peer: { type: 'string' },
+        github: { type: 'string' },
+        secret: { type: 'string' },
         port: { type: 'string' },
         input: { type: 'string' },
         limit: { type: 'string' },
@@ -225,6 +237,11 @@ function keygen(values: Values, io: CliIo): number {
  * explicit, and the shared location is the single thing marked REPLACE-ME --
  * because it is the one value no default can guess. `--root` fills it in for
  * anyone who already knows where it goes.
+ *
+ * `--github` and `--secret` exist to delete the two manual steps the README used
+ * to spell out: hand-editing the transport block into the file this command just
+ * wrote, and copying `.deaddrop/secret` between machines. The second peer in a
+ * workspace now runs one command instead of running one and then repairing it.
  */
 async function init(values: Values, io: CliIo): Promise<number> {
   const name = typeof values.name === 'string' ? values.name : 'default';
@@ -239,10 +256,35 @@ async function init(values: Values, io: CliIo): Promise<number> {
   // works for both.
   const secretFile = `${dataDir}/secret`;
   const peerId = typeof values.peer === 'string' ? values.peer : defaultPeerId();
+  const repo = typeof values.github === 'string' ? values.github : undefined;
+
+  if (repo !== undefined && typeof values.root === 'string') {
+    throw new DeadDropError(
+      'CONFIG_INVALID',
+      '--root and --github name two different transports; pass one of them',
+    );
+  }
+  // Checked here rather than at first use, because the github transport resolves
+  // its repository lazily: a typo there starts a runtime that reports healthy and
+  // reaches nobody, which is the failure mode 0.4.0 was cut to remove.
+  if (repo !== undefined && !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(repo)) {
+    throw new DeadDropError('CONFIG_INVALID', `--github expects <owner>/<repo>, got "${repo}"`);
+  }
+
+  const secret = await resolveInitSecret(values, io);
   const root =
     typeof values.root === 'string'
       ? values.root
       : `REPLACE-ME (a folder every peer can reach, e.g. ~/Dropbox/${name})`;
+
+  // Forward slashes for the same reason `secretFile` uses them: this string is
+  // written into a config that gets copied between machines.
+  const transport = repo
+    ? {
+        use: 'github',
+        config: { repo, workDir: `./${dataDir}/github`, createIfMissing: true },
+      }
+    : { use: 'filesystem', config: { root } };
 
   const config = {
     dataDir,
@@ -252,7 +294,7 @@ async function init(values: Values, io: CliIo): Promise<number> {
         name,
         peerId,
         secrets: [`\${file:${secretFile}}`],
-        transports: [{ use: 'filesystem', config: { root } }],
+        transports: [transport],
         exposures: [],
       },
     ],
@@ -273,25 +315,86 @@ async function init(values: Values, io: CliIo): Promise<number> {
   // config cannot rotate a secret that peers are already using.
   await mkdir(resolve(dir, dataDir), { recursive: true });
   const secretPath = resolve(dir, secretFile);
-  await writeFile(secretPath, `${generateWorkspaceSecret()}\n`, { flag: 'wx', mode: 0o600 }).catch(
-    (error: NodeJS.ErrnoException) => {
+  await writeFile(secretPath, `${secret}\n`, { flag: 'wx', mode: 0o600 }).catch(
+    async (error: NodeJS.ErrnoException) => {
       if (error.code !== 'EEXIST') throw error;
+      // Keeping a pre-existing secret is right when we generated ours: it is the
+      // one peers already use. It is wrong when the caller named one, because
+      // then "joined the workspace" would be a lie told by a silent no-op.
+      if (values.secret === undefined) return;
+      const existing = (await readFile(secretPath, 'utf8')).trim();
+      if (existing !== secret) {
+        throw new DeadDropError(
+          'CONFIG_INVALID',
+          `${secretPath} already holds a different secret; remove it to join with the one you passed`,
+        );
+      }
     },
   );
 
   io.out(`Wrote ${path}`);
   io.out(`Wrote ${secretPath}`);
   io.err('');
-  io.err(`The secret in ${secretFile} is the workspace. Keep it out of version control,`);
-  io.err('and copy it to every other peer over a channel you trust.');
+  if (values.secret === undefined) {
+    io.err(`The secret in ${secretFile} is the workspace. Keep it out of version control.`);
+    io.err('Every other peer joins by passing it back:');
+    io.err('');
+    io.err(`  ddrop init --name ${name} --peer <other-id> ${joinHint(repo, values)} --secret -`);
+    io.err('');
+    io.err(`  (pipe it in: ddrop init ... --secret - < ${secretFile})`);
+  } else {
+    io.err(`Joined workspace "${name}". The secret is in ${secretFile}; keep it out of`);
+    io.err('version control.');
+  }
   io.err('');
-  if (typeof values.root === 'string') {
+  if (repo !== undefined) {
+    io.err(`Next: gh auth login && gh auth setup-git   (dead-drop never sees the token)`);
+    io.err('      then: ddrop start');
+  } else if (typeof values.root === 'string') {
     io.err('Next: ddrop start');
   } else {
     io.err(`Next: set "root" in ${path} to a folder every peer can reach, then: ddrop start`);
     io.err('      (or re-run with --root <path> against a fresh config)');
   }
   return 0;
+}
+
+/** The transport flag to repeat on the joining peer, so the printed line runs as shown. */
+function joinHint(repo: string | undefined, values: Values): string {
+  if (repo !== undefined) return `--github ${repo}`;
+  if (typeof values.root === 'string') return `--root ${values.root}`;
+  return '--root <shared-folder>';
+}
+
+/**
+ * The secret this peer will use: generated for a new workspace, or the caller's
+ * for one that already exists.
+ *
+ * A literal on the command line is accepted because it is what people reach for,
+ * and warned about because it lands in shell history and in the process table.
+ * `-` reads stdin, which does neither, and is what the printed join line uses.
+ */
+async function resolveInitSecret(values: Values, io: CliIo): Promise<string> {
+  if (typeof values.secret !== 'string') return generateWorkspaceSecret();
+
+  let raw = values.secret;
+  if (raw === '-') {
+    if (!io.readStdin) throw new DeadDropError('CONFIG_INVALID', 'stdin is not readable here');
+    raw = await io.readStdin();
+  } else {
+    io.err('warning: a secret passed as an argument is visible in shell history and in');
+    io.err('         the process list. Prefer "--secret -" and pipe it in.');
+  }
+
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    throw new DeadDropError('CONFIG_INVALID', '--secret was empty');
+  }
+  // Throws CONFIG_INVALID naming what is wrong with it. Validating here is the
+  // point of the flag: a mistyped secret otherwise surfaces as a DECODE_FAILED
+  // against the first message, which names nothing and looks like a protocol bug.
+  parseWorkspaceSecret(trimmed);
+  return trimmed;
 }
 
 /**
