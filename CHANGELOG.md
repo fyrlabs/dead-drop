@@ -6,6 +6,8 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+## [0.9.0]
+
 ### Added
 
 - `ddrop init --github <owner>/<repo>` writes a ready-to-run GitHub transport. Setting one up used to mean running `init` with a `--root` you did not want and then hand-editing the config it had just written; now it is one command, and a repo name that is not `owner/repo` is refused up front instead of becoming a runtime that starts cleanly and reaches nobody.
