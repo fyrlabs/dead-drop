@@ -33,7 +33,7 @@ git -C "$REMOTE" config user.email "e2e@example.invalid" 2>/dev/null
 fetches_content() { # $1 = client dir, $2 = log name
   local port pid body
   port=$(free_port)
-  pid=$(start_connect "$1" "keeper/site" "$port" "$GT/$2" 120000)
+  pid=$(start_connect "$1" "${3:-keeper/site}" "$port" "$GT/$2" 120000)
   body=$(curl -s --max-time 130 "http://127.0.0.1:$port/index.txt" 2>/dev/null)
   stop_peer "$pid"
   [ "$body" = "carried-by-git" ]
@@ -47,8 +47,8 @@ git_transport_healthy() { # $1 = peer dir
 }
 
 # Everything the data branch contains, one path per line.
-branch_contents() {
-  git -C "$REMOTE" ls-tree -r --name-only deaddrop-data 2>/dev/null
+branch_contents() { # $1 = remote, defaulting to the one most of this file uses
+  git -C "${1:-$REMOTE}" ls-tree -r --name-only deaddrop-data 2>/dev/null
 }
 
 # Only dead-drop's own object namespace and the README it writes to explain
@@ -61,9 +61,9 @@ branch_is_ciphertext() {
   ! git -C "$REMOTE" grep -q "carried-by-git" deaddrop-data 2>/dev/null
 }
 
-branch_holds_only_objects() {
+branch_holds_only_objects() { # $1 = remote (optional)
   local stray
-  stray=$(branch_contents | grep -v '^ws/' | grep -v '^README.md$')
+  stray=$(branch_contents "${1:-$REMOTE}" | grep -v '^ws/' | grep -v '^README.md$')
   [ -z "$stray" ] || note "unexpected paths on the data branch: $(printf '%s' "$stray" | tr '\n' ' ')"
   [ -z "$stray" ]
 }
@@ -134,3 +134,68 @@ can "still see a clean data branch after a second runtime joined" \
 stop_peer "$SECOND_PID"
 stop_peer "$KEEPER_PID"
 stop_peer "$READER_PID"
+
+scenario "a data branch that re-orphans itself while peers are using it"
+
+# Every send, response and delete is its own commit, so the history grows
+# without bound while the tree stays the size of the undelivered backlog. Past
+# `compactAfterCommits` a peer replaces the branch with a single parentless
+# commit holding that tree, under a compare-and-swap lease (ADR 0005).
+#
+# The transport's own tests cover the mechanics against real git. What only this
+# tier can show is the part that actually worries an operator: the branch being
+# rewritten underneath two live runtimes, mid-conversation, without losing a
+# message or wedging delivery.
+
+CREMOTE="$GT/compact.git"
+git init --bare --quiet --initial-branch=main "$CREMOTE" 2>/dev/null \
+  || git init --bare --quiet "$CREMOTE"
+git -C "$CREMOTE" config user.name "dead-drop e2e" 2>/dev/null
+git -C "$CREMOTE" config user.email "e2e@example.invalid" 2>/dev/null
+
+compact_transport() { # $1 = remote, $2 = work dir
+  printf '{ "use": "git", "config": { "remote": "%s", "workDir": "%s", "freshnessMs": 500, "batchWindowMs": 50, "compactAfterCommits": 4 } }' "$1" "$2"
+}
+
+# A compacted branch has nothing behind its root at all, so the root's subject
+# says which of the two ways the branch was last built. This is a fact about the
+# published branch rather than about any peer's clone.
+branch_root_subject() {
+  git -C "$CREMOTE" log --format=%s deaddrop-data 2>/dev/null | tail -1
+}
+has_compacted() {
+  [ "$(branch_root_subject)" = "chore: compact ddrop data branch" ]
+}
+
+write_config "$GT/packer" "packer" "$(compact_transport "$CREMOTE" "$GT/packer-work")" \
+  "{ \"name\": \"site\", \"type\": \"static\", \"directory\": \"$STATIC\" }"
+write_config "$GT/puller" "puller" "$(compact_transport "$CREMOTE" "$GT/puller-work")"
+
+PACKER_PID=$(start_peer "$GT/packer" "$GT/packer.log")
+PULLER_PID=$(start_peer "$GT/puller" "$GT/puller.log")
+
+ON_FAIL="$GT/packer.log"
+can "start a peer on a branch that compacts itself" wait_up "$GT/packer" "$PACKER_PID"
+ON_FAIL="$GT/puller.log"
+can "point a second peer at that same branch" wait_up "$GT/puller" "$PULLER_PID"
+ON_FAIL=""
+
+ON_FAIL="$GT/packer.log $GT/puller.log"
+can "answer a request before the branch has been rewritten" \
+  fetches_content "$GT/puller" "puller-first.log" "packer/site"
+
+can "re-orphan the branch once its history passes the threshold" \
+  wait_for 90 2 has_compacted
+note "the branch root is now \"$(branch_root_subject)\", over $(git -C "$CREMOTE" rev-list --count deaddrop-data 2>/dev/null) commit(s)"
+
+# The tree is carried over unchanged and every peer picks the new branch up
+# through the fetch-and-hard-reset it already does, so this must be invisible.
+can "answer a request afterwards, from peers whose history was just discarded" \
+  fetches_content "$GT/puller" "puller-second.log" "packer/site"
+ON_FAIL=""
+
+cannot "leave anything but objects on the branch it rewrote" \
+  branch_holds_only_objects "$CREMOTE"
+
+stop_peer "$PACKER_PID"
+stop_peer "$PULLER_PID"

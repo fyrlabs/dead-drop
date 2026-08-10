@@ -6,6 +6,12 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+### Changed
+
+- The `git` and `github` data branch no longer grows forever. Every message used to leave a commit behind for good, so joining a long-lived workspace kept getting slower and the repository crept toward its host's size limit. Past 500 commits, whichever peer notices first replaces the branch with a single commit holding the current data. Nothing is lost, and peers already running pick it up on their next poll.
+
+  `compactAfterCommits` on the transport changes the threshold, and `0` turns it off. Turn it off if the branch is protected against force-pushes, because compaction cannot work there. Compacting discards the branch's commit log, so it is not somewhere to look for a record of delivered messages.
+
 ## [0.7.0]
 
 ### Added

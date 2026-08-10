@@ -263,6 +263,81 @@ stop_peer "$CONNECT_PID"
 stop_peer "$A_PID"
 stop_peer "$B_PID"
 
+scenario "a data branch that re-orphans itself on a real host"
+
+# Compaction (ADR 0005) replaces the branch with a single parentless commit and
+# force-pushes it under a compare-and-swap lease. A force-push is the one
+# operation whose behaviour genuinely differs between a local bare repository
+# and a hosted one: the host applies the lease server side, keeps unreachable
+# objects on its own schedule, and can refuse the push outright. The transport's
+# own tests cover the mechanics against local git; only this tier sees GitHub.
+#
+# On its own branch, and only after the peers above have stopped, so nothing
+# else in this run ever sees a rewritten history. In particular the load
+# scenario's duration is the sensitive instrument for beacon-overlap
+# regressions, and it must not be measuring compaction as well.
+#
+# The threshold is low on purpose: the default is 500 and a whole live run makes
+# roughly 195 commits, so at the default this would never fire.
+
+CBRANCH="deaddrop-compact-e2e"
+compact_transport() { # $1 = work dir
+  printf '{ "use": "github", "config": { "repo": "%s", "workDir": "%s", "branch": "%s", "createIfMissing": false, "rateLimitIntervalMs": 5000, "compactAfterCommits": 4 } }' \
+    "$REPO" "$1" "$CBRANCH"
+}
+
+# Read the published branch through a clone of our own rather than through a
+# runtime's working tree, which has a single owner and is not ours to poke.
+OBS="$GH/compact-observer"
+git init --quiet "$OBS" 2>/dev/null
+git -C "$OBS" remote add origin "$(gh repo view "$REPO" --json url --jq .url 2>/dev/null)" 2>/dev/null
+
+observed() { git -C "$OBS" fetch --quiet --force origin "$CBRANCH" 2>/dev/null; }
+# A compacted branch has nothing behind its root, so the root's subject says
+# which of the two ways the branch was last built.
+compact_root() { git -C "$OBS" log --format=%s FETCH_HEAD 2>/dev/null | tail -1; }
+has_compacted() {
+  observed || return 1
+  [ "$(compact_root)" = "chore: compact ddrop data branch" ]
+}
+
+write_config "$GH/c" "peer-c" "$(compact_transport "$GH/c/work")" \
+  "{ \"name\": \"site\", \"type\": \"static\", \"directory\": \"$STATIC\" }" "$POLLING"
+write_config "$GH/d" "peer-d" "$(compact_transport "$GH/d/work")" "" "$POLLING"
+
+C_PID=$(start_peer "$GH/c" "$GH/c.log")
+D_PID=$(start_peer "$GH/d" "$GH/d.log")
+
+ON_FAIL="$GH/c.log"
+can "start a peer on a branch that compacts itself" wait_up "$GH/c" "$C_PID"
+ON_FAIL="$GH/d.log"
+can "point a second peer at that same branch" wait_up "$GH/d" "$D_PID"
+ON_FAIL="$GH/c.log $GH/d.log"
+can "resolve the repository on the compacting branch" \
+  wait_for 40 3 transport_is_usable "$GH/c"
+
+can "re-orphan the branch on GitHub once its history passes the threshold" \
+  wait_for 60 5 has_compacted
+observed
+note "the branch root is now \"$(compact_root)\", over $(git -C "$OBS" rev-list --count FETCH_HEAD 2>/dev/null) commit(s)"
+
+# The lease held and the tree carried over, so peers that were mid-conversation
+# when the history was discarded must not notice.
+CPORT=$(free_port)
+CCONNECT_PID=$(start_connect "$GH/d" "peer-c/site" "$CPORT" "$GH/c-connect.log" 300000)
+cbody=$(curl -s --max-time 300 "http://127.0.0.1:$CPORT/index.txt" 2>/dev/null)
+can "answer a request afterwards, from peers whose history GitHub just discarded" \
+  [ "$cbody" = "hello-over-github" ]
+
+can "keep the transport usable after a force-push it did not initiate" \
+  transport_is_usable "$GH/d"
+ON_FAIL=""
+
+stop_peer "$CCONNECT_PID"
+stop_peer "$C_PID"
+stop_peer "$D_PID"
+note "$REPO also keeps its $CBRANCH branch, which this scenario force-pushes"
+
 RL_END=$(gh api rate_limit --jq '.resources.core.remaining' 2>/dev/null)
 note "core rate limit at end: $RL_END of $RL_LIMIT, $(( RL_START - RL_END )) spent over the whole run"
 note "$REPO keeps its deaddrop-data branch; the repository is yours to delete"

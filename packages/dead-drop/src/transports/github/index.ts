@@ -52,6 +52,12 @@ export interface GitHubTransportConfig {
   timeoutMs?: number;
   batchWindowMs?: number;
   freshnessMs?: number;
+  /**
+   * Commits on the data branch that trigger compacting it back to one. Default
+   * 500. Set to 0 to never compact, which a branch protected against
+   * force-pushes needs, since compaction cannot succeed there.
+   */
+  compactAfterCommits?: number;
   /** Test seam: an alternative `gh` implementation. Not settable from JSON. */
   gh?: GhClient;
   /** Test seam: build the underlying store from a resolved git config. */
@@ -129,6 +135,9 @@ class GitHubStore implements StoreTransport {
         ? { batchWindowMs: this.config.batchWindowMs }
         : {}),
       ...(this.config.freshnessMs !== undefined ? { freshnessMs: this.config.freshnessMs } : {}),
+      ...(this.config.compactAfterCommits !== undefined
+        ? { compactAfterCommits: this.config.compactAfterCommits }
+        : {}),
     };
 
     this.delegate = this.config.createStore

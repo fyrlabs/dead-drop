@@ -8,7 +8,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -22,6 +22,7 @@ import { isNonFastForward, isRetryableGitError, redactUrl } from './git.js';
 
 const execFileAsync = promisify(execFile);
 const dirs: string[] = [];
+const opened: StoreTransport[] = [];
 
 async function temp(prefix: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), prefix));
@@ -53,7 +54,7 @@ async function store(
   overrides: Partial<Parameters<typeof gitTransport>[0]> = {},
   ctx: TransportContext = context(),
 ): Promise<StoreTransport> {
-  return gitTransport.definition.create(
+  const created = gitTransport.definition.create(
     {
       remote,
       workDir: await temp('deaddrop-git-work-'),
@@ -65,9 +66,18 @@ async function store(
     },
     ctx,
   ) as StoreTransport;
+  opened.push(created);
+  return created;
 }
 
 afterEach(async () => {
+  // Close before deleting, or the directory is removed out from under git.
+  // A resolved `put` does not mean the store is idle: compaction deliberately
+  // runs *after* the write resolves, so the caller never waits on housekeeping,
+  // and it is still shelling out to git when the test body ends. `close` is
+  // what waits for the flush lock, and deleting `.git/objects` while git is
+  // writing into it fails with ENOTEMPTY, intermittently and only sometimes.
+  await Promise.all(opened.splice(0).map((transport) => transport.close().catch(() => undefined)));
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -377,6 +387,161 @@ describe('git transport specifics', () => {
     ).toThrowError(/branch name is invalid/);
     expect(() => gitTransport('nope' as never)).toThrowError(/must be an object/);
   });
+});
+
+describe('data branch compaction', () => {
+  it('keeps the history bounded by the threshold, and every live object', async () => {
+    const remote = await bareRemote();
+    const transport = await store(remote, { compactAfterCommits: 5 });
+
+    for (let i = 0; i < 10; i++) {
+      await transport.put(`inbox/peer-b/${i}.ddf`, bytes(`payload ${i}`));
+    }
+
+    // Uncompacted this is 11 commits: the branch marker plus one per write.
+    // The threshold is the rule being asserted, not the resulting number.
+    expect(await commitCount(remote)).toBeLessThanOrEqual(5);
+    const listed = await transport.list('inbox/peer-b');
+    expect(listed.entries).toHaveLength(10);
+    expect(Buffer.from((await transport.get('inbox/peer-b/0.ddf'))!).toString()).toBe('payload 0');
+  }, 120_000);
+
+  it('drops an object the branch no longer holds, rather than resurrecting it', async () => {
+    const remote = await bareRemote();
+    const transport = await store(remote, { compactAfterCommits: 3 });
+
+    await transport.put('inbox/peer-b/gone.ddf', bytes('delivered'));
+    await transport.delete('inbox/peer-b/gone.ddf');
+    for (let i = 0; i < 6; i++) {
+      await transport.put(`inbox/peer-b/${i}.ddf`, bytes(`payload ${i}`));
+    }
+
+    // Compaction snapshots the tree, so a delete stays a delete. Snapshotting
+    // anything else would hand a delivered message back to the mailbox.
+    expect(await transport.get('inbox/peer-b/gone.ddf')).toBeUndefined();
+  }, 120_000);
+
+  it('never compacts when it is switched off', async () => {
+    const remote = await bareRemote();
+    const transport = await store(remote, { compactAfterCommits: 0 });
+
+    for (let i = 0; i < 10; i++) {
+      await transport.put(`inbox/peer-b/${i}.ddf`, bytes(`payload ${i}`));
+    }
+
+    expect(await commitCount(remote)).toBe(11);
+  }, 120_000);
+
+  it('leaves a peer holding the replaced history able to read and write', async () => {
+    const remote = await bareRemote();
+    const alpha = await store(remote, { compactAfterCommits: 4 });
+    const beta = await store(remote);
+
+    await alpha.put('inbox/peer-b/first.ddf', bytes('first'));
+    // beta clones the pre-compaction history and holds it.
+    expect(Buffer.from((await beta.get('inbox/peer-b/first.ddf'))!).toString()).toBe('first');
+
+    for (let i = 0; i < 8; i++) await alpha.put(`inbox/peer-b/${i}.ddf`, bytes(`payload ${i}`));
+    expect(await commitCount(remote)).toBeLessThanOrEqual(4);
+
+    // beta's history is now unreachable on the remote, and beta needs no repair
+    // code to survive that: `sync` is a fetch plus a hard reset, and a hard
+    // reset adopts an unrelated history as readily as a descendant one.
+    expect(Buffer.from((await beta.get('inbox/peer-b/first.ddf'))!).toString()).toBe('first');
+    await beta.put('inbox/peer-b/after.ddf', bytes('after'));
+    expect(Buffer.from((await alpha.get('inbox/peer-b/after.ddf'))!).toString()).toBe('after');
+  }, 120_000);
+
+  it('preserves a workspace sharing the branch under another prefix', async () => {
+    const remote = await bareRemote();
+    const alpha = await store(remote, { prefix: 'alpha', compactAfterCommits: 4 });
+    const beta = await store(remote, { prefix: 'beta' });
+
+    await beta.put('inbox/peer-b/keep.ddf', bytes('beta data'));
+    for (let i = 0; i < 8; i++) await alpha.put(`inbox/peer-b/${i}.ddf`, bytes(`payload ${i}`));
+    expect(await commitCount(remote)).toBeLessThanOrEqual(4);
+
+    // alpha compacts the whole branch tree, never its own prefix subtree, or it
+    // would drop every other workspace in the repository on the floor.
+    expect(Buffer.from((await beta.get('inbox/peer-b/keep.ddf'))!).toString()).toBe('beta data');
+  }, 120_000);
+
+  // Needs an executable wrapper script, so it cannot run on Windows. The
+  // property it guards is platform-independent, and CI covers it everywhere else.
+  it.skipIf(process.platform === 'win32')(
+    'refuses to compact over a write that landed after its snapshot',
+    async () => {
+      const remote = await bareRemote();
+      const transport = await store(remote, { compactAfterCommits: 4 });
+      await transport.put('inbox/peer-b/first.ddf', bytes('first'));
+
+      // A second clone, standing in for a peer that writes in the window
+      // between the snapshot and the compaction push.
+      const side = await temp('deaddrop-git-side-');
+      await execFileAsync('git', ['init', '--quiet', side]);
+      await execFileAsync('git', ['remote', 'add', 'origin', remote], { cwd: side });
+      await execFileAsync('git', ['fetch', '--quiet', 'origin', 'deaddrop-data'], { cwd: side });
+      await execFileAsync('git', ['checkout', '--quiet', '-B', 'deaddrop-data', 'origin/deaddrop-data', '--'], { cwd: side }); // prettier-ignore
+      await execFileAsync('git', ['config', 'user.email', 'side@localhost'], { cwd: side });
+      await execFileAsync('git', ['config', 'user.name', 'side'], { cwd: side });
+
+      // A git that lands that peer's commit on the first `commit-tree` it sees,
+      // which is the one command only compaction runs.
+      // Both live in a directory the suite cleans up. A fire-once flag written
+      // anywhere longer-lived makes the *second* run of this test a no-op.
+      const wrapDir = await temp('deaddrop-git-wrap-');
+      const fired = join(wrapDir, 'race-fired');
+      const wrapper = join(wrapDir, 'git-racing.cjs');
+      await writeFile(
+        wrapper,
+        `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (args[0] === 'commit-tree' && !fs.existsSync(${JSON.stringify(fired)})) {
+  fs.writeFileSync(${JSON.stringify(fired)}, 'fired');
+  const side = ${JSON.stringify(side)};
+  // Catch up first: the store has pushed since this clone was made, and a
+  // stale peer's write would be refused for the ordinary reason instead.
+  spawnSync('git', ['fetch', '--quiet', 'origin', 'deaddrop-data'], { cwd: side });
+  spawnSync('git', ['reset', '--quiet', '--hard', 'origin/deaddrop-data'], { cwd: side });
+  fs.writeFileSync(side + '/raced.ddf', 'a message written in the window');
+  spawnSync('git', ['add', '--all', '--', '.'], { cwd: side });
+  spawnSync('git', ['commit', '--quiet', '-m', 'ddrop: 1 object'], { cwd: side });
+  const push = spawnSync('git', ['push', '--quiet', 'origin', 'HEAD:deaddrop-data'], { cwd: side });
+  fs.writeFileSync(${JSON.stringify(fired)} + '.code', String(push.status));
+}
+const r = spawnSync('git', args, { encoding: 'utf8' });
+process.stdout.write(r.stdout || '');
+process.stderr.write(r.stderr || '');
+process.exit(r.status === null ? 1 : r.status);
+`,
+      );
+      await chmod(wrapper, 0o755);
+
+      const racing = await store(remote, { compactAfterCommits: 4, gitPath: wrapper });
+      for (let i = 0; i < 6; i++) await racing.put(`inbox/peer-b/${i}.ddf`, bytes(`payload ${i}`));
+
+      // Without this the test could pass by never racing at all.
+      expect(await readFile(`${fired}.code`, 'utf8').catch(() => 'never fired')).toBe('0');
+
+      // The lease carries the tip the tree was read from, so a branch that
+      // moved in the window refuses the push. With a bare `--force-with-lease`
+      // or a plain `--force`, the raced message is destroyed instead: this
+      // assertion is the whole reason the expected value is spelled out.
+      const survived = await execFileAsync('git', ['cat-file', '-e', 'deaddrop-data:raced.ddf'], {
+        cwd: remote,
+      }).then(
+        () => true,
+        () => false,
+      );
+      expect(survived).toBe(true);
+      // The branch is left exactly as it was, which is a state that works.
+      expect(await commitCount(remote)).toBeGreaterThan(1);
+      expect(Buffer.from((await racing.get('inbox/peer-b/0.ddf'))!).toString()).toBe('payload 0');
+    },
+    120_000,
+  );
 });
 
 describe('git helpers', () => {

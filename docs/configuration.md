@@ -128,6 +128,7 @@ Built-in short names: `memory`, `filesystem` (also `fs`), `git`, `github`. All f
 | `freshnessMs` | number | no | `5000` | How stale a local read may be before a fetch is forced. |
 | `batchWindowMs` | number | no | `50` | How long to wait for other writes before committing, so concurrent sends become one commit. |
 | `pushRetries` | number | no | `5` | Attempts to resolve a push race before giving up. |
+| `compactAfterCommits` | number | no | `500` | Commits on the branch that trigger compacting it back to one. `0` never compacts. |
 | `authorName`, `authorEmail` | string | no | git's own config | Identity on the generated commits. |
 | `gitPath` | string | no | `git` | Path to the git binary. |
 | `timeoutMs` | number | no | `120000` | Per-git-command timeout. |
@@ -136,9 +137,13 @@ A git working tree has one writer, so only one runtime uses `workDir` itself. Th
 
 You do not need to configure anything for this, and a single-runtime setup is laid out exactly as it was and never re-clones. Giving each runtime its own `workDir` explicitly is still the tidier arrangement when you are writing the config by hand.
 
+**The data branch is compacted, not grown forever.** Every send, response and delete is its own commit, so the history would otherwise grow without bound while the tree stays the size of the undelivered backlog. Once the branch passes `compactAfterCommits`, whichever peer notices first replaces it with a single commit holding the current tree and force-pushes that, under a compare-and-swap lease so a message written in the same moment cannot be lost. Nothing is dropped: the tree is carried over unchanged, and peers still holding the old history pick the new one up on their next poll with no intervention.
+
+Two consequences worth knowing. The branch's commit log is discarded, so it is not somewhere to look for a record of delivered messages. And if the branch is protected against force-pushes, compaction cannot succeed there: set `compactAfterCommits` to `0` to stop it trying, and expect the history to grow instead.
+
 ### `github`
 
-A thin layer over `git`: it resolves the clone url through `gh`, then delegates. It forwards `branch`, `prefix`, `gitPath`, `timeoutMs`, `batchWindowMs` and `freshnessMs` to the git transport, and takes these of its own:
+A thin layer over `git`: it resolves the clone url through `gh`, then delegates. It forwards `branch`, `prefix`, `gitPath`, `timeoutMs`, `batchWindowMs`, `freshnessMs` and `compactAfterCommits` to the git transport, and takes these of its own:
 
 | Field | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |

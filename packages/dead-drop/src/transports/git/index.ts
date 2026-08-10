@@ -17,6 +17,10 @@
  *   - **A dedicated orphan branch.** dead-drop data never shares history with the
  *     repository's code, so a `ddrop` branch can be force-pruned or deleted
  *     without touching anything a human cares about.
+ *   - **The branch is periodically re-orphaned.** Every mutation is a commit, so
+ *     history grows without bound while the tree stays the size of the
+ *     undelivered backlog. Past a threshold the branch is replaced by a single
+ *     parentless commit holding that tree. See ADR 0005.
  */
 
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
@@ -74,6 +78,11 @@ export interface GitTransportConfig {
   batchWindowMs?: number;
   /** Attempts to resolve a push race before giving up. Default 5. */
   pushRetries?: number;
+  /**
+   * Commits on the data branch that trigger compacting it back to one. Default
+   * 500. Set to 0 to never compact, which lets the history grow without bound.
+   */
+  compactAfterCommits?: number;
   authorName?: string;
   authorEmail?: string;
   gitPath?: string;
@@ -97,7 +106,10 @@ const MAX_OBJECT_BYTES = 40 * 1024 * 1024;
 class GitStore implements StoreTransport {
   readonly kind = 'store' as const;
   private readonly config: Required<
-    Pick<GitTransportConfig, 'branch' | 'prefix' | 'freshnessMs' | 'batchWindowMs' | 'pushRetries'>
+    Pick<
+      GitTransportConfig,
+      'branch' | 'prefix' | 'freshnessMs' | 'batchWindowMs' | 'pushRetries' | 'compactAfterCommits'
+    >
   > &
     GitTransportConfig;
   private readonly context: TransportContext;
@@ -115,6 +127,8 @@ class GitStore implements StoreTransport {
   private lastSuccessAt: number | undefined;
   private closed = false;
   private lastError: string | undefined;
+  /** History depth below which compaction is not attempted again. */
+  private compactFloor = 0;
 
   constructor(config: GitTransportConfig, context: TransportContext) {
     this.config = {
@@ -123,6 +137,7 @@ class GitStore implements StoreTransport {
       freshnessMs: 5000,
       batchWindowMs: 50,
       pushRetries: 5,
+      compactAfterCommits: 500,
       ...config,
     };
     this.context = context;
@@ -435,11 +450,103 @@ class GitStore implements StoreTransport {
     if (batch.length === 0) return;
     try {
       await this.applyBatch(batch);
-      for (const mutation of batch) mutation.resolve();
-      this.lastSuccessAt = this.context.now();
     } catch (error) {
       for (const mutation of batch) mutation.reject(error);
+      return;
     }
+    for (const mutation of batch) mutation.resolve();
+    this.lastSuccessAt = this.context.now();
+    // After the writes resolve, never before. Compaction is maintenance, and a
+    // caller waiting to hear that its message is durable should not also wait
+    // on a housekeeping push. It runs here rather than on a timer because this
+    // is inside the flush lock, which is what keeps it from interleaving with
+    // `applyBatch`'s own commit-and-push in this process.
+    await this.maybeCompact().catch(() => undefined);
+  }
+
+  /**
+   * Replaces the data branch with a single parentless commit holding its
+   * current tree, once the history has grown past `compactAfterCommits`.
+   *
+   * Best effort throughout, and never allowed to fail a write that has already
+   * succeeded: the caller has been told its message is durable, and it is.
+   * Every failure path here leaves the branch exactly as it was, which is the
+   * state the transport works in today.
+   *
+   * See ADR 0005 for why this is safe for peers that hold the old history: they
+   * need no new code, because `sync` is already a fetch followed by a hard
+   * reset, and both rejections this can provoke in another peer are already
+   * matched by `isNonFastForward`.
+   */
+  private async maybeCompact(): Promise<void> {
+    if (this.closed || this.config.compactAfterCommits <= 0) return;
+    const branch = this.config.branch;
+
+    const counted = await this.git.tryRun(['rev-list', '--count', 'HEAD']);
+    if (counted.code !== 0) return;
+    const depth = Number.parseInt(counted.stdout.trim(), 10);
+    if (!Number.isInteger(depth)) return;
+    if (depth < this.config.compactAfterCommits || depth < this.compactFloor) return;
+
+    // The lease is compared against this exact commit and the tree is read from
+    // it, so the two can never disagree about which state is being replaced.
+    const tip = await this.git.tryRun(['rev-parse', `origin/${branch}`]);
+    if (tip.code !== 0) return;
+    const at = tip.stdout.trim();
+    // The whole branch tree, never `prefix`. One repository can host several
+    // workspaces on one branch, and compacting a subtree would drop every other
+    // workspace's objects on the floor.
+    const tree = await this.git.tryRun(['rev-parse', `${at}^{tree}`]);
+    if (tree.code !== 0) return;
+    // No `-p`, so the commit has no parents and the history it replaces becomes
+    // unreachable. Reusing the tree object means the content is carried over
+    // rather than rebuilt, so this cannot corrupt or drop a message.
+    const created = await this.git.tryRun([
+      'commit-tree',
+      tree.stdout.trim(),
+      '-m',
+      'chore: compact ddrop data branch',
+    ]);
+    if (created.code !== 0) return;
+    const compacted = created.stdout.trim();
+
+    const pushed = await this.git.tryRun([
+      'push',
+      '--quiet',
+      // The explicit expected value is the whole safety of this operation, and
+      // a bare `--force-with-lease` would not do: it leases against the
+      // remote-tracking ref, which `sync` refreshes in the background. A poll
+      // landing in this window would move `origin/<branch>`, the lease would
+      // then agree with itself, and the compare-and-swap would quietly become
+      // an unconditional force-push that deletes other peers' undelivered
+      // messages. Do not simplify this to `--force`.
+      `--force-with-lease=${branch}:${at}`,
+      'origin',
+      `${compacted}:${branch}`,
+    ]);
+
+    if (pushed.code !== 0) {
+      // Somebody wrote or compacted inside the window, or the branch refuses
+      // force-pushes. Either way the branch is left alone and the work either
+      // is already done or never can be, so this is not retried: without the
+      // floor, a protected branch would spend a push on every single flush.
+      this.compactFloor = depth + this.config.compactAfterCommits;
+      this.context.logger.debug('compaction did not take, leaving the branch as it is', {
+        branch,
+        reason: redactUrl(pushed.stderr.trim()).slice(0, 200),
+      });
+      return;
+    }
+
+    this.compactFloor = 0;
+    await this.git.tryRun(['fetch', '--quiet', 'origin', branch]);
+    const reset = await this.git.tryRun(['reset', '--quiet', '--hard', `origin/${branch}`]);
+    if (reset.code === 0) this.lastFetchAt = this.context.now();
+    this.context.logger.info('compacted the data branch', {
+      branch,
+      from: depth,
+      commit: compacted.slice(0, 8),
+    });
   }
 
   private async applyBatch(batch: PendingMutation[]): Promise<void> {
@@ -651,6 +758,15 @@ export const gitTransport = defineTransport<GitTransportConfig>({
       throw new DeadDropError('CONFIG_INVALID', 'git transport branch name is invalid');
     }
     if (config.prefix !== undefined && config.prefix !== '') assertValidPrefix(config.prefix);
+    if (
+      config.compactAfterCommits !== undefined &&
+      (!Number.isInteger(config.compactAfterCommits) || config.compactAfterCommits < 0)
+    ) {
+      throw new DeadDropError(
+        'CONFIG_INVALID',
+        'git transport "compactAfterCommits" must be a non-negative integer',
+      );
+    }
     return config;
   },
   create(config, context) {

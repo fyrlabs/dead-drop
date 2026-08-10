@@ -1,6 +1,6 @@
 # ADR 0005: the data branch is compacted by re-orphaning it, under a lease
 
-**Status:** proposed
+**Status:** accepted
 
 ## Context
 
@@ -37,7 +37,9 @@ Four rules govern how it is invoked.
 
 **Compaction runs inside the existing flush lock, after a successful flush.** It must not interleave with `applyBatch` in our own process, and the flush lock is the mechanism that already serialises writes.
 
-**The trigger is local history depth, and it must stay rare relative to the push-retry budget.** `git rev-list --count HEAD` is a local read. A proposed `compactAfterCommits` config field, defaulting to 500 with 0 to disable, keeps compaction roughly two orders of magnitude rarer than the `pushRetries` budget of 5 that absorbs its collisions.
+**The trigger is local history depth, and it must stay rare relative to the push-retry budget.** `git rev-list --count HEAD` is a local read. The `compactAfterCommits` config field, defaulting to 500 with 0 to disable, keeps compaction roughly two orders of magnitude rarer than the `pushRetries` budget of 5 that absorbs its collisions.
+
+**A refused compaction is not retried until the history has grown by another full threshold.** A lost lease means somebody else is compacting; a branch protected against force-pushes will refuse the next attempt too. Without that floor, either case would spend a wasted push on every single flush, which is a throughput regression paid forever in exchange for nothing.
 
 ## Rationale
 
