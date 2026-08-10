@@ -106,6 +106,24 @@ ddrop init --name demo --peer machine-b --github your-org/deaddrop-workspace --s
 
 The repository is created for you if it does not exist, private by default. Objects go to a `deaddrop-data` orphan branch, so the repository's real history is untouched. Deleting that branch discards undelivered messages and nothing else.
 
+### More than one transport
+
+A workspace can list several, and the runtime chooses between them. Your application never names one.
+
+```json
+"transports": [
+  { "use": "filesystem", "name": "office-nas",
+    "config": { "root": "/Volumes/share/deaddrop", "forcePolling": true } },
+  { "use": "github", "name": "remote",
+    "config": { "repo": "your-org/deaddrop-workspace", "workDir": "~/.deaddrop/clones/demo" } }
+],
+"policy": { "mode": "failover", "primary": "office-nas", "fallback": ["remote"] }
+```
+
+On the LAN the shared folder carries everything. Unmount it and the runtime works out that it is gone, moves the traffic to GitHub, and moves it back when the folder returns. No restart, no config change, and the caller sees a slow request rather than an error.
+
+Give every peer the same list. Writes go to one transport, but every peer polls all of the ones it has, so a message written over a transport somebody else has not configured is a message that peer never receives. [Transport policy](docs/configuration.md#policy) has the modes and the trade-offs.
+
 ## What this is, and what it is not
 
 Useful when two machines need to talk and the network between them is the problem. It is a real runtime: encryption, retries, failover, deduplication, health-based routing, observability.

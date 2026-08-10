@@ -6,6 +6,12 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+### Documentation
+
+- Running a workspace over more than one transport is documented. It has always worked, and the README and the configuration reference now show a two-transport setup, a shared folder with GitHub behind it, and explain what happens when one of them goes down.
+
+- Corrected the description of `policy.mode: "parallel"`. The docs said it wrote each message through every healthy transport; it does not, and behaves exactly like the default `score` mode. Nothing changed in the code. If you configured `parallel` expecting a copy on every transport, you were never getting one.
+
 ## [0.10.0]
 
 ### Changed

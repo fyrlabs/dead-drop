@@ -69,7 +69,9 @@ Every transport is scored 0..1 on health (45%), recent reliability (25%), latenc
 
 An operation is retried on its chosen transport with exponential backoff and full jitter, then moved to the next. Failover is skipped for caller-side errors, which fail identically everywhere.
 
-Policy modes: `score` (default, healthiest wins), `failover` (the operator's declared order is respected even when it is objectively slower), `parallel` (write through everything; receiver deduplication makes it safe).
+Policy modes: `score` (default, healthiest wins), `failover` (the operator's declared order is respected even when it is objectively slower), `parallel` (accepted, and currently identical to `score`: the manager can fan a write out across every healthy transport, but nothing in the runtime asks it to).
+
+Selection governs writes only. The mailbox polls every store transport each cycle, and so do discovery and queue depth, so a message is found wherever it was written.
 
 ## Request/response
 

@@ -185,13 +185,66 @@ In-process, for tests and examples. `namespace` (default `default`) decides whic
 
 Controls which transport carries a message when a workspace has more than one.
 
+Only writes are affected. Receiving, discovery and `ddrop queues` read every store transport on every cycle, whatever the policy says. That asymmetry is what makes a second transport worth configuring: a message written over whichever transport was healthy at the time is still found by a peer polling both.
+
 | Field | Type | Notes |
 | --- | --- | --- |
 | `mode` | string | `failover`, `parallel` or `score`. Anything else is rejected. |
 | `primary` | string | Transport instance name to prefer. |
 | `fallback` | string[] | Instance names to try, in order, when the primary is unavailable. |
 
-Names here are transport `name` values, defaulting to the adapter's own id.
+Names here are transport `name` values, defaulting to the adapter's own id. Two entries that resolve to the same name are rejected at start-up, so two instances of one adapter need an explicit `name` each. A `primary` or `fallback` naming a transport that is not configured is a start-up error too, listing the names that are.
+
+### A worked example: a folder on the LAN, with GitHub behind it
+
+```json
+{
+  "workspaces": [
+    {
+      "name": "demo",
+      "peerId": "machine-a",
+      "secrets": ["${file:.deaddrop/secret}"],
+      "transports": [
+        {
+          "use": "filesystem",
+          "name": "office-nas",
+          "config": { "root": "/Volumes/share/deaddrop", "forcePolling": true }
+        },
+        {
+          "use": "github",
+          "name": "remote",
+          "config": {
+            "repo": "your-org/deaddrop-workspace",
+            "workDir": "~/.deaddrop/clones/demo"
+          }
+        }
+      ],
+      "policy": { "mode": "failover", "primary": "office-nas", "fallback": ["remote"] }
+    }
+  ]
+}
+```
+
+Every machine in the workspace gets both transports and the same policy, with only `peerId` differing. A peer reads only the transports it has configured, so one that is missing `remote` never sees anything sent while the folder was down. `forcePolling` is set here because the folder is a network mount, where `fs.watch` events are silently unreliable.
+
+While the folder is mounted it carries everything: it is first in the declared order, and nothing else is tried. Unmount it, or let the VPN drop, and the first write to notice exhausts its retries on the folder and then moves to `remote` inside the same request, so the caller sees a slow request rather than an error. After `breaker.failureThreshold` consecutive failures the breaker opens and later writes skip the folder immediately instead of paying that retry ladder again. When it returns, one probe through the open breaker succeeds, `breaker.successThreshold` of them closes it, and the primary carries traffic again. No application code named either transport at any point.
+
+**What is already on a transport when it goes down stays there.** A message written to the folder is not copied to GitHub afterwards; it waits until the folder is readable again, and its recipient collects it on the next poll. Nothing is lost, but "sent" does not mean "reachable over the surviving transport". A request is bounded either way, because its TTL is its timeout: one stranded on a transport that dies expires rather than arriving long after the caller gave up.
+
+### Choosing a mode
+
+`score`, the default, picks the healthiest transport for each operation, ranking on health (45%), recent reliability (25%), latency (20%) and rate-limit headroom (10%). An open breaker scores zero, so it is chosen only when nothing else is left. Use it when the transports are interchangeable and you want whichever one is well right now. Among healthy transports latency usually decides, so a local folder beats a git remote nearly always.
+
+`failover` uses the declared order verbatim: `primary`, then each of `fallback` in turn, then any transport the policy does not name, best score first. It ignores the scores among the named ones, and that is the point. An operator who puts a slower or cheaper transport first means it. Use it when the transports are not interchangeable, for example when one of them spends API quota or money.
+
+`parallel` is accepted by the parser but currently behaves exactly like `score`: one transport carries each message. It is named here so the word does not read as a feature. Do not configure it expecting a copy on every transport.
+
+`ddrop transport list` prints the scores and breaker states behind the current choice, which is what to read when that choice surprises you:
+
+```text
+office-nas       filesystem     healthy      breaker closed     score 0.94  2ms  errors 0%
+remote           github         degraded     breaker closed     score 0.71  240ms  errors 0%
+```
 
 ## Exposures
 
