@@ -54,12 +54,13 @@ The second command **joins** the first peer's workspace: `--secret -` reads the 
 (cd try/a && exec ddrop start) &
 (cd try/b && exec ddrop start) &
 
-(cd try/a && ddrop expose ../site --name site)
-(cd try/b && ddrop discover)                       # peer-a shows up here
+(cd try/a && ddrop expose ../site)                 # named "site", after the directory
 (cd try/b && exec ddrop connect peer-a/site --port 8080) &
 
 curl http://127.0.0.1:8080/index.html              # <h1>it works</h1>
 ```
+
+`expose` prints the exact command the other side runs, so you never have to go and look up your own peer id.
 
 The `exec` matters: without it you background a shell that starts the runtime and exits, so `kill` reaps the wrapper and leaves the runtime serving.
 
@@ -85,6 +86,8 @@ To expose a real local server rather than a directory:
 
 ```bash
 ddrop expose --target http://localhost:3000 --name my-api   # machine A
+# prints: Peers reach it with: ddrop connect machine-a/my-api
+
 ddrop connect machine-a/my-api                              # machine B
 ```
 
@@ -154,7 +157,7 @@ ddrop discover                      peers visible in the workspace
 ddrop queues                        messages waiting in each peer's inbox
 ddrop dashboard [--no-open]         the same, in a browser on 127.0.0.1
 ddrop expose --target <url> --name <n>
-ddrop expose <dir> --name <n>
+ddrop expose <dir> [--name <n>]     named after the directory by default
 ddrop connect <peer>/<exposure>
 ddrop call <peer> <channel> --input '{"a":1}'
 ddrop publish <channel> --input '{...}'

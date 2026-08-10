@@ -16,9 +16,14 @@ import { hostname } from 'node:os';
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { VERSION } from '../version.js';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 
-import { DeadDropError, generateWorkspaceSecret, parseWorkspaceSecret } from '../protocol/index.js';
+import {
+  DeadDropError,
+  generateWorkspaceSecret,
+  isValidName,
+  parseWorkspaceSecret,
+} from '../protocol/index.js';
 import { createLogger, prettySink, type LogRecord, type Span } from '../core/index.js';
 import {
   DeadDropRuntime,
@@ -71,7 +76,7 @@ Usage
   ddrop transport list [--json]              show transports and their scores
   ddrop transport health [--json]            re-probe transports and show health
   ddrop expose --target <url> --name <name>  expose a local http server
-  ddrop expose <dir> --name <name>           expose a directory of static files
+  ddrop expose <dir> [--name <name>]         expose a directory (named after it by default)
   ddrop connect <peer>/<exposure> [--port n] serve a remote exposure locally
   ddrop call <peer> <channel> [--input json] make an rpc call
   ddrop publish <channel> [--input json]     broadcast an event
@@ -669,9 +674,28 @@ async function expose(args: string[], values: Values, io: CliIo): Promise<number
     io.err('ddrop: expose needs --target <url> or a directory argument');
     return 2;
   }
-  const name = typeof values.name === 'string' ? values.name : undefined;
+  // A directory names itself. `ddrop expose ./site` meaning the exposure "site"
+  // is what people write first anyway, and requiring --name for it made the
+  // shortest path through this tool two flags long. A url has no such noun, so
+  // --name stays required there rather than inventing "localhost-3000".
+  const name =
+    typeof values.name === 'string'
+      ? values.name
+      : directory
+        ? basename(resolve(directory))
+        : undefined;
   if (!name) {
-    io.err('ddrop: expose needs --name <name>');
+    io.err(
+      target
+        ? 'ddrop: expose needs --name <name> when the target is a url'
+        : 'ddrop: expose needs --name <name>',
+    );
+    return 2;
+  }
+  if (!isValidName(name)) {
+    io.err(
+      `ddrop: "${name}" cannot be an exposure name (letters, digits, and . _ - only). Pass --name <name>.`,
+    );
     return 2;
   }
   const body = target
@@ -679,12 +703,22 @@ async function expose(args: string[], values: Values, io: CliIo): Promise<number
     : { name, type: 'static', directory: resolve(directory as string) };
   const result = await (
     await client(values)
-  ).request<{ name: string; channel: string }>('POST', `/expose${buildQuery(values)}`, body);
-  io.out(
-    values.json
-      ? JSON.stringify(result, null, 2)
-      : `Exposed ${target ?? directory} as "${result.name}" on channel ${result.channel}`,
+  ).request<{ name: string; channel: string; peerId?: string }>(
+    'POST',
+    `/expose${buildQuery(values)}`,
+    body,
   );
+  if (values.json) {
+    io.out(JSON.stringify(result, null, 2));
+    return 0;
+  }
+  io.out(`Exposed ${target ?? directory} as "${result.name}" on channel ${result.channel}`);
+  // The step this used to leave to the reader. Knowing the exposure existed was
+  // never the hard part; knowing what to type on the other machine was, and it
+  // meant going and finding this peer's own id first.
+  if (result.peerId) {
+    io.out(`Peers reach it with: ddrop connect ${result.peerId}/${result.name}`);
+  }
   return 0;
 }
 

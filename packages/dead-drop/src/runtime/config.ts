@@ -422,10 +422,7 @@ function parseWorkspace(raw: unknown, index: number, baseDir?: string): Workspac
     workspace.concurrency = source.concurrency;
   }
   if (source.polling !== undefined) {
-    if (typeof source.polling !== 'object' || source.polling === null) {
-      fail(`workspace ${label}: polling must be an object`);
-    }
-    workspace.polling = source.polling as WorkspaceConfig['polling'];
+    workspace.polling = parsePolling(source.polling, label);
   }
   if (source.retry !== undefined) {
     workspace.retry = parseRetry(source.retry, label);
@@ -493,16 +490,59 @@ function parseBreaker(raw: unknown, label: string): WorkspaceConfig['breaker'] {
   ]);
 }
 
+function parsePolling(raw: unknown, label: string): WorkspaceConfig['polling'] {
+  const polling = parseTuning<NonNullable<WorkspaceConfig['polling']>>(raw, label, 'polling', [
+    'minIntervalMs',
+    'maxIntervalMs',
+  ]);
+  // A minimum above the maximum is not a typo the runtime can absorb: the
+  // mailbox starts at the minimum and then clamps every backoff to the maximum,
+  // so it would poll at the value the operator wrote as their ceiling and
+  // nothing would say why.
+  if (
+    polling.minIntervalMs !== undefined &&
+    polling.maxIntervalMs !== undefined &&
+    polling.minIntervalMs > polling.maxIntervalMs
+  ) {
+    fail(
+      `workspace ${label}: polling.minIntervalMs (${polling.minIntervalMs}) ` +
+        `must not be greater than polling.maxIntervalMs (${polling.maxIntervalMs})`,
+    );
+  }
+  return polling;
+}
+
 function parsePolicy(raw: unknown, label: string): WorkspaceConfig['policy'] {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     fail(`workspace ${label}: policy must be an object`);
   }
   const source = raw as Record<string, unknown>;
+  for (const key of Object.keys(source)) {
+    if (!['mode', 'primary', 'fallback'].includes(key)) {
+      fail(`workspace ${label}: policy.${key} is not a known option`);
+    }
+  }
   if (
     source.mode !== undefined &&
     !['failover', 'parallel', 'score'].includes(source.mode as string)
   ) {
     fail(`workspace ${label}: policy.mode must be failover, parallel or score`);
+  }
+  // A transport name that is not a string can never match a configured one, so
+  // the manager's own check would reject it later with a message about an
+  // unknown transport rather than about a mistyped field.
+  if (source.primary !== undefined && typeof source.primary !== 'string') {
+    fail(`workspace ${label}: policy.primary must be a transport name`);
+  }
+  if (source.fallback !== undefined) {
+    if (!Array.isArray(source.fallback)) {
+      fail(`workspace ${label}: policy.fallback must be an array of transport names`);
+    }
+    for (const name of source.fallback) {
+      if (typeof name !== 'string') {
+        fail(`workspace ${label}: policy.fallback must contain only transport names`);
+      }
+    }
   }
   return source as WorkspaceConfig['policy'];
 }

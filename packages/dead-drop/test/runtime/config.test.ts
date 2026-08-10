@@ -391,6 +391,48 @@ describe('parseRuntimeConfig', () => {
       { workspaces: [{ ...valid.workspaces[0], policy: { mode: 'random' } }] },
       /policy.mode must be/,
     ],
+    // `polling` and `policy` were checked for shape and then trusted, which is
+    // the one place this parser did not hold to its own standard: a mistyped
+    // knob failed somewhere else later, or silently did nothing.
+    [
+      'a polling interval that is not a number',
+      { workspaces: [{ ...valid.workspaces[0], polling: { minIntervalMs: '250' } }] },
+      /polling.minIntervalMs must be a number/,
+    ],
+    [
+      'a misspelled polling option',
+      { workspaces: [{ ...valid.workspaces[0], polling: { intervalMs: 250 } }] },
+      /polling.intervalMs is not a known option/,
+    ],
+    [
+      'a polling minimum above its maximum',
+      {
+        workspaces: [
+          { ...valid.workspaces[0], polling: { minIntervalMs: 15_000, maxIntervalMs: 250 } },
+        ],
+      },
+      /must not be greater than polling.maxIntervalMs/,
+    ],
+    [
+      'a policy primary that is not a transport name',
+      { workspaces: [{ ...valid.workspaces[0], policy: { primary: 7 } }] },
+      /policy.primary must be a transport name/,
+    ],
+    [
+      'a policy fallback that is not an array',
+      { workspaces: [{ ...valid.workspaces[0], policy: { fallback: 'other' } }] },
+      /policy.fallback must be an array/,
+    ],
+    [
+      'a policy fallback holding something that is not a name',
+      { workspaces: [{ ...valid.workspaces[0], policy: { fallback: ['a', 3] } }] },
+      /policy.fallback must contain only transport names/,
+    ],
+    [
+      'a misspelled policy option',
+      { workspaces: [{ ...valid.workspaces[0], policy: { primaries: 'a' } }] },
+      /policy.primaries is not a known option/,
+    ],
   ];
 
   it.each(rejections)('rejects %s', (_label, input, pattern) => {

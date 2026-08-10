@@ -350,6 +350,13 @@ describe('ddrop commands that need a runtime', () => {
     expect(await run(['expose', '--name', 'api'], missingTarget)).toBe(2);
     expect(missingTarget.stderr.join('\n')).toContain('--target');
 
+    // A directory names itself, so this one is rejected for the name it would
+    // have derived rather than for having none. Exposure names become path
+    // segments in object keys, so the rule is the protocol's, not the CLI's.
+    const unusableName = capture();
+    expect(await run(['expose', join(await temp(), 'my site')], unusableName)).toBe(2);
+    expect(unusableName.stderr.join('\n')).toContain('cannot be an exposure name');
+
     const badConnect = capture();
     expect(await run(['connect', 'just-a-peer'], badConnect)).toBe(2);
     expect(badConnect.stderr.join('\n')).toContain('<peer>/<exposure>');

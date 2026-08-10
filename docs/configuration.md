@@ -47,7 +47,7 @@ A Unix socket path cannot exceed 104 bytes. When `<dataDir>/deaddrop.sock` would
 | `exposures` | array | no | none | Local applications made reachable to peers. See below. |
 | `subscribe` | string[] | no | none | Broadcast channels joined at start-up. |
 | `requestTimeoutMs` | number | no | `30000` | Default request timeout for this workspace. Must be positive. |
-| `polling` | object | no | | `minIntervalMs` (default `250`) and `maxIntervalMs` (default `15000`). The mailbox backs off between these two while a workspace is idle and drops back to the minimum as soon as it sees traffic. |
+| `polling` | object | no | | `minIntervalMs` (default `250`) and `maxIntervalMs` (default `15000`), both positive numbers, and the minimum may not exceed the maximum. The mailbox backs off between these two while a workspace is idle and drops back to the minimum as soon as it sees traffic. |
 | `retry` | object | no | see below | How a failed transport operation is retried. |
 | `breaker` | object | no | see below | When a failing transport is taken out of rotation, and when it is probed again. |
 | `healthIntervalMs` | number | no | `30000` | How often every transport is probed for health. Must be positive. See below. |
@@ -274,10 +274,6 @@ Static exposures serve `GET` and `HEAD` only, fall back to `index.html` for a di
 `allowPeers` matches the caller's configured `peerId`, not the address its replies go to. Those differ for a `ddrop connect` client: it runs a runtime of its own and takes a per-process mailbox address so it never polls the same inbox as an already-running peer sharing the config file. Write the list against the `peerId` in the caller's config and it matches either way.
 
 It is a guardrail, not a security boundary. Every peer holding the workspace secret can write any peer id it likes, so `allowPeers` keeps honest peers out of an exposure that is not for them. It does not defend against a workspace member who has decided to lie. Use a separate workspace and a separate secret when the boundary has to hold.
-
-## Two gaps worth knowing
-
-`polling` and `policy` are checked for shape but their inner fields are not type-checked: `polling.minIntervalMs` is accepted as a string, and `policy.primary` is accepted as a number. Both would fail later rather than at start-up, which is not the standard the rest of this parser holds itself to. Neither is exploitable, and both are on the list to fix.
 
 ## Environment variables
 

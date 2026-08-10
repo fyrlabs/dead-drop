@@ -149,7 +149,10 @@ export async function startControlPlane(options: ControlPlaneOptions): Promise<C
       const body = await readJson(request, maxBodyBytes);
       const workspace = resolveWorkspace(runtime, url);
       const handle = runtime.addExposure(workspace.name, body as never);
-      send(response, 201, { name: handle.name, channel: handle.channel });
+      // `peerId` so the caller can print the command the other side runs.
+      // Finding it used to mean a second command, and it is the address peers
+      // actually write to, which is the same string `ddrop discover` lists.
+      send(response, 201, { name: handle.name, channel: handle.channel, peerId: workspace.peerId });
       return;
     }
     if (method === 'POST' && path === '/publish') {

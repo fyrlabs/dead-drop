@@ -8,7 +8,7 @@
  * `call`, `publish`, `logs` and `metrics` can actually talk to.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -266,6 +266,70 @@ describe('ddrop start and the commands that talk to it', () => {
     expect(await clientRun).toBe(0);
     expect(await serverRun).toBe(0);
     await new Promise<void>((resolve) => target.close(() => resolve()));
+  }, 60_000);
+
+  it('prints a connect command that works, from an exposure it named itself', async () => {
+    // Asserting the line exists would prove very little. The peer id it names
+    // is this runtime's mailbox address rather than its configured identity,
+    // and those differ for some runtimes, so the only honest check is to run
+    // what it printed and fetch through it.
+    const dir = await temp();
+    const secret = generateWorkspaceSecret();
+    const store = join(dir, 'store');
+    const site = join(dir, 'brochure');
+    await mkdir(site, { recursive: true });
+    await writeFile(join(site, 'index.html'), '<h1>named itself</h1>');
+
+    const workspace = (peerId: string, extra: Record<string, unknown> = {}) => ({
+      name: 'demo',
+      peerId,
+      secrets: [secret],
+      transports: [{ use: 'filesystem', config: { root: store } }],
+      polling: { minIntervalMs: 100, maxIntervalMs: 400 },
+      ...extra,
+    });
+    const serverConfig = join(dir, 'server.json');
+    await writeFile(
+      serverConfig,
+      JSON.stringify({
+        dataDir: join(dir, 'server-state'),
+        logLevel: 'warn',
+        workspaces: [workspace('server-peer')],
+      }),
+    );
+    const clientConfig = join(dir, 'client.json');
+    await writeFile(
+      clientConfig,
+      JSON.stringify({
+        dataDir: join(dir, 'client-state'),
+        logLevel: 'warn',
+        workspaces: [workspace('client-peer', { requestTimeoutMs: 20_000 })],
+      }),
+    );
+
+    const server = capture(true);
+    const serverRun = run(['start', '--config', serverConfig], server);
+    await waitFor(() => server.stderr.some((line) => line.includes('runtime listening')), 15_000);
+
+    // No --name: the directory is called "brochure", so the exposure is too.
+    const exposed = capture();
+    expect(await run(['expose', site, '--config', serverConfig], exposed)).toBe(0);
+    expect(exposed.stdout.join('\n')).toContain('as "brochure"');
+
+    const printed = exposed.stdout.find((line) => line.startsWith('Peers reach it with:'));
+    expect(printed).toBeDefined();
+    const spec = (printed as string).replace('Peers reach it with: ddrop connect ', '').trim();
+    expect(spec).toBe('server-peer/brochure');
+
+    const client = capture(true);
+    const clientRun = run(['connect', spec, '--config', clientConfig], client);
+    await waitFor(() => client.stdout.length > 0, 15_000);
+    const response = await fetch(`${client.stdout[0] as string}/index.html`);
+    expect(await response.text()).toBe('<h1>named itself</h1>');
+
+    for (const stop of shutdowns.splice(0)) stop();
+    expect(await clientRun).toBe(0);
+    expect(await serverRun).toBe(0);
   }, 60_000);
 });
 
