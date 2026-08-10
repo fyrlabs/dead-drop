@@ -49,7 +49,7 @@ Scenarios live one file per subject under `e2e/fast/` and `e2e/live/`, with the 
 
 ### The fast tier
 
-No network, no credentials, safe for CI, and it runs before every release. Around three minutes. The slowest files are `07-failover.sh`, which waits for real circuit breakers to trip, and `06-key-rotation.sh`, which restarts peers.
+No network, no credentials, safe for CI, and it runs before every release. Under four minutes. The slowest files are `07-failover.sh`, which waits for real circuit breakers to trip, `06-key-rotation.sh`, which restarts peers, and `10-reaping.sh`, which has to outlast a retention window.
 
 | File | What it establishes |
 | --- | --- |
@@ -61,6 +61,8 @@ No network, no credentials, safe for CI, and it runs before every release. Aroun
 | `06-key-rotation.sh` | Two-stage rotation with no downtime, and a peer left on the retired key failing closed |
 | `07-failover.sh` | A transport dying under a running peer, and recovery when it comes back |
 | `08-git-transport.sh` | The git transport against a local bare repository, including two runtimes sharing one `workDir` |
+| `09-dashboard.sh` | The dashboard binds where it was told, renders with no network, only reads, and starts no runtime |
+| `10-reaping.sh` | Mail for a peer that comes back survives its window; mail for one that never existed is reclaimed, and running peers' beacons are not |
 
 ### The live tier
 
