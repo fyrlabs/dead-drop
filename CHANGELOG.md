@@ -6,6 +6,8 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+## [0.8.0]
+
 ### Changed
 
 - The `git` and `github` data branch no longer grows forever. Every message used to leave a commit behind for good, so joining a long-lived workspace kept getting slower and the repository crept toward its host's size limit. Past 500 commits, whichever peer notices first replaces the branch with a single commit holding the current data. Nothing is lost, and peers already running pick it up on their next poll.
