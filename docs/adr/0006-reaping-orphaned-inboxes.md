@@ -11,7 +11,7 @@ Nothing ever deletes a message from a peer's inbox except that peer. Verified in
 - `reapTopics` (`mailbox.ts:700`) covers broadcast topics only.
 - `inboxRoot`, the all-peers prefix, is listed by exactly one caller: the read-only `queues()` diagnostic at `runtime/workspace.ts:575`, which deletes nothing.
 
-So a message addressed to a peer that never comes back is unreachable garbage that no process will ever remove. This is not theoretical. After compacting `sathvikc/dead-drop-trial-2` from 3,075 commits and 433 MB down to a single commit, **60 MB survived for a live tree of 17 files**, almost entirely two abandoned 30 MiB payloads in the inboxes of dead ephemeral peers (`peer-b-c2192`, `peer-b-c14c9e`) plus stale presence beacons.
+So a message addressed to a peer that never comes back is unreachable garbage that no process will ever remove. This is not theoretical. After compacting a trial workspace repository from 3,075 commits and 433 MB down to a single commit, **60 MB survived for a live tree of 17 files**, almost entirely two abandoned 30 MiB payloads in the inboxes of dead ephemeral peers (`peer-b-c2192`, `peer-b-c14c9e`) plus stale presence beacons.
 
 It bites because of how the product is normally used. Every `ddrop connect` runs its own runtime under an ephemeral `<configured>-c<pid-hex>` identity, so each invocation can strand whatever was in flight when it exited. Compaction does not help, and that is deliberate: [ADR 0005](0005-compacting-the-data-branch.md) preserves the live tree by design, so an orphaned object is carried into the compacted commit intact.
 
