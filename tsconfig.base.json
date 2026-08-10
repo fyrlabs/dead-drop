@@ -21,6 +21,10 @@
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "#dead-drop/*": ["./packages/dead-drop/src/*"],
+      "#transport-sdk/*": ["./packages/transport-sdk/src/*"]
+    }
   }
 }

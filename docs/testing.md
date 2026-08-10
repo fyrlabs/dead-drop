@@ -12,17 +12,19 @@ Everything runs with no network, no credentials and no external services. The gi
 
 | Area | Where |
 | --- | --- |
-| Envelope validation, framing, encryption, chunking, HTTP mapping | `packages/protocol/src/*.test.ts` |
-| Tamper detection, key rotation, cross-workspace key isolation | `packages/protocol/src/frame.test.ts` |
+| Envelope validation, framing, encryption, chunking, HTTP mapping | `packages/dead-drop/test/protocol/*.test.ts` |
+| Tamper detection, key rotation, cross-workspace key isolation | `packages/dead-drop/test/protocol/frame.test.ts` |
 | Transport contract, for every store transport | conformance suite, run per transport |
-| Retry, jitter, circuit breaker, deduplication, fake clock | `packages/core/src/reliability/*.test.ts` |
-| Transport scoring, retry, failover, breaker, health | `packages/core/src/transport-manager.test.ts` |
-| Delivery, acknowledgement, redelivery, dead letters, topics, chunk reassembly, adaptive polling | `packages/core/src/mailbox.test.ts` |
-| Config parsing, plugin loading, path traversal | `packages/runtime/src/config.test.ts` |
-| CLI argument handling and failure messages | `packages/cli/src/cli.test.ts` |
-| Two real runtimes over a real transport | `tests/e2e.test.ts` |
-| Real git: clone, push, fetch, push races, batching | `packages/transports/git/src/index.test.ts` |
-| GitHub logic against a scripted `gh` | `packages/transports/github/src/index.test.ts` |
+| Retry, jitter, circuit breaker, deduplication, fake clock | `packages/dead-drop/test/core/reliability/*.test.ts` |
+| Transport scoring, retry, failover, breaker, health | `packages/dead-drop/test/core/transport-manager.test.ts` |
+| Delivery, acknowledgement, redelivery, dead letters, topics, chunk reassembly, adaptive polling | `packages/dead-drop/test/core/mailbox.test.ts` |
+| Config parsing, plugin loading, path traversal | `packages/dead-drop/test/runtime/config.test.ts` |
+| CLI argument handling and failure messages | `packages/dead-drop/test/cli/cli.test.ts` |
+| Two real runtimes over a real transport | `test/e2e.test.ts` |
+| Real git: clone, push, fetch, push races, batching | `packages/dead-drop/test/transports/git/index.test.ts` |
+| GitHub logic against a scripted `gh` | `packages/dead-drop/test/transports/github/index.test.ts` |
+
+Each package keeps its tests in a `test/` tree mirroring `src/`, so the subject of `test/core/mailbox.test.ts` is `src/core/mailbox.ts`. Nothing under `src/` is a test. Shared test doubles live in `packages/dead-drop/test/core/testing.ts`.
 
 The end-to-end suite is the one that answers "does it work". It runs two independent runtimes against a shared directory and proxies real HTTP through them. One of its tests reads every byte the transport ever held and asserts that no application data, query string or exposure name appears in clear text.
 
@@ -33,17 +35,17 @@ Time is injected everywhere through a `Clock`, so retry and backoff suites run i
 Unit tests answer "does this function behave". The scenario suite answers "can a user do this, and is it stopped from doing what it should not". Every bug found during the 0.2.x series was invisible to the unit suite because it only existed once real processes, real sockets, real files and real restarts were involved.
 
 ```bash
-scripts/e2e.sh fast                    # no network, no credentials
-scripts/e2e.sh live <owner>/<repo>     # a real GitHub repository, opt-in
-scripts/e2e.sh all <owner>/<repo>      # both
-scripts/e2e.sh fast --npm 0.2.5        # a published version instead of this tree
-scripts/e2e.sh fast --only broadcast   # one file
-scripts/e2e.sh --list                  # what is in each tier
+e2e/run.sh fast                        # no network, no credentials
+e2e/run.sh live <owner>/<repo>         # a real GitHub repository, opt-in
+e2e/run.sh all <owner>/<repo>          # both
+e2e/run.sh fast --npm 0.2.5            # a published version instead of this tree
+e2e/run.sh fast --only broadcast       # one file
+e2e/run.sh --list                      # what is in each tier
 ```
 
 Every scenario is written as what a user **can** do and what a user **cannot** do, and both halves are required: the runner fails a scenario that declares only one kind, because a capability nobody has bounded is a capability nobody understands. The `PASS CAN` / `PASS CANNOT` lines are the documentation.
 
-Scenarios live one file per subject under `scripts/e2e/fast/` and `scripts/e2e/live/`, with the shared harness in `scripts/e2e/lib.sh`. Adding one means adding a file; the runner picks it up.
+Scenarios live one file per subject under `e2e/fast/` and `e2e/live/`, with the shared harness in `e2e/lib.sh`. Adding one means adding a file; the runner picks it up.
 
 ### The fast tier
 
@@ -66,7 +68,7 @@ Real credentials, a real repository, about fifteen minutes. It writes a `deaddro
 
 ```bash
 gh repo create <owner>/dead-drop-trial --private
-scripts/e2e.sh live <owner>/dead-drop-trial
+e2e/run.sh live <owner>/dead-drop-trial
 ```
 
 It covers authentication failure, discovery, a real round trip, fifty concurrent requests, and a 30 MiB object through git. This is the tier that found the `git push` exit-code bug: nothing local reproduced it, because a local push is too fast to interleave.

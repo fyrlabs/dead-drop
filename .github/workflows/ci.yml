@@ -71,7 +71,7 @@ jobs:
           git config --global init.defaultBranch main
       # The fast tier only. The live tier needs credentials and writes to a real
       # repository, so it stays a human decision.
-      - run: scripts/e2e.sh fast
+      - run: e2e/run.sh fast
 
   windows:
     name: verify (windows)

@@ -10,10 +10,21 @@ const src = (path: string): string => fileURLToPath(new URL(`./packages/${path}`
  * The aliases mirror the published `exports` map. Root tests and examples
  * import the package the way a consumer does, so a subpath that is exported
  * but not wired here fails the same way it would for a user.
+ *
+ * Each package keeps its tests in a `test` tree mirroring `src`, and they reach
+ * their subject by relative path. Coverage is measured over `src` alone, so
+ * test files and the shared doubles in `test/core/testing.ts` fall outside it
+ * by location rather than by an exclude rule.
  */
 export default defineConfig({
   resolve: {
     alias: {
+      // Tests address their subject from the package root, never by walking up
+      // out of `test/`. `#dead-drop/core/mailbox.js` says what it reaches for;
+      // `../../src/core/mailbox.js` only says how far away it is, and it has to
+      // be recounted every time a file moves.
+      '#dead-drop': src('dead-drop/src'),
+      '#transport-sdk': src('transport-sdk/src'),
       '@fyrlabs/dead-drop-transport-sdk/testing': src('transport-sdk/src/testing/index.ts'),
       '@fyrlabs/dead-drop-transport-sdk': src('transport-sdk/src/index.ts'),
       '@fyrlabs/dead-drop/transports/filesystem': src(
@@ -31,7 +42,12 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['packages/**/*.test.ts', 'tests/**/*.test.ts'],
+    // Deliberately wider than the layout: tests live in `packages/*/test/` and
+    // the root `test/`, but a stray `.test.ts` anywhere under `packages/` still
+    // runs. A file that stops matching this glob vanishes from the run with no
+    // failure, so the glob errs towards collecting too much rather than too
+    // little. Check the test count, not just a green suite, after moving files.
+    include: ['packages/**/*.test.ts', 'test/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     environment: 'node',
     testTimeout: 30_000,

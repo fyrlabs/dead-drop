@@ -37,10 +37,12 @@ Two published packages. `packages/transport-sdk` is the contract; `packages/dead
 | `packages/dead-drop/src/sdk` | Client over the control socket. |
 | `packages/dead-drop/src/cli` | The `ddrop` command. |
 | `packages/dead-drop/src/transports/*` | filesystem, git, github, memory. |
-| `tests/` | Cross-package end-to-end and CLI tests. |
+| `packages/*/test/` | Unit tests, mirroring that package's `src/` tree. No test file lives in `src/`. |
+| `test/` | Cross-package end-to-end and CLI tests. |
+| `e2e/` | The scenario suite: `run.sh`, the `lib.sh` harness, and one file per subject under `fast/` and `live/`. |
 | `docs/adr/` | Decision records for anything that deviates from the original design. |
 
-Each layer is a subpath export of `@fyrlabs/dead-drop` (`./core`, `./runtime`, and so on). Layering is enforced by `no-restricted-imports` in `eslint.config.js`, not by package boundaries, in the direction protocol <- core <- runtime <- {sdk, cli}. Two documented exceptions: `runtime/plugins.ts` owns the transport table, and the github transport delegates to git. Test files are exempt.
+Each layer is a subpath export of `@fyrlabs/dead-drop` (`./core`, `./runtime`, and so on). Layering is enforced by `no-restricted-imports` in `eslint.config.js`, not by package boundaries, in the direction protocol <- core <- runtime <- {sdk, cli}. Two documented exceptions: `runtime/plugins.ts` owns the transport table, and the github transport delegates to git. Tests are exempt because every layering rule scopes itself to `src/` and no test lives there.
 
 ## Invariants. Breaking one of these is a bug even if tests pass
 
@@ -93,4 +95,4 @@ The checklist and the notes body are in [.github/RELEASE_TEMPLATE.md](.github/RE
 
 **A tag is not a release.** `release.yml` publishes when a GitHub release is published, so tags are cheap and reversible: cut and push as many as are useful, and publish only the ones that earn it. Pushing `vX.Y.Z` marks a candidate and does nothing else; `gh release create vX.Y.Z` is what puts it on npm. A candidate that the following changes prove bad is simply never released, and the tag can be dropped with `git push origin :refs/tags/vX.Y.Z`. If a release exists but its publish run failed, re-run the workflow with `gh workflow run release.yml -f ref=vX.Y.Z` rather than re-tagging.
 
-**Throwaway GitHub repositories for testing are fine to create without asking**, and fine to leave behind. Make them private (`gh repo create <owner>/<name> --private`), reuse one across sessions where that is simpler, and do not interrupt anyone to request cleanup; deleting them needs a `delete_repo` scope that is deliberately not granted. `scripts/e2e.sh live` takes the repository as its argument for this reason.
+**Throwaway GitHub repositories for testing are fine to create without asking**, and fine to leave behind. Make them private (`gh repo create <owner>/<name> --private`), reuse one across sessions where that is simpler, and do not interrupt anyone to request cleanup; deleting them needs a `delete_repo` scope that is deliberately not granted. `e2e/run.sh live` takes the repository as its argument for this reason.

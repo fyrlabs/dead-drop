@@ -36,7 +36,10 @@ export default tseslint.config(
   },
   {
     // Tests may reach for the loose escape hatches the runtime code may not.
-    files: ['**/*.test.ts', '**/testing/**/*.ts'],
+    // Everything under a `test/` directory counts, not only `*.test.ts`, so the
+    // shared doubles in `packages/dead-drop/test/core/testing.ts` get the same
+    // latitude as the suites they exist for.
+    files: ['**/test/**/*.ts', '**/*.test.ts', '**/testing/**/*.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',
@@ -54,8 +57,10 @@ export default tseslint.config(
     // one package, only this rule stops the direction of dependency inverting.
     // The order is protocol <- core <- runtime <- {sdk, cli}; transports sit on
     // protocol and the transport SDK. See AGENTS.md.
+    //
+    // Every layering rule below scopes itself to `src/`, which is what exempts
+    // the tests: they live in `packages/*/test/` and reach across layers freely.
     files: ['packages/dead-drop/src/protocol/**/*.ts'],
-    ignores: ['**/*.test.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -73,7 +78,6 @@ export default tseslint.config(
   },
   {
     files: ['packages/dead-drop/src/core/**/*.ts'],
-    ignores: ['**/*.test.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -91,7 +95,7 @@ export default tseslint.config(
   },
   {
     files: ['packages/dead-drop/src/runtime/**/*.ts'],
-    ignores: ['packages/dead-drop/src/runtime/plugins.ts', '**/*.test.ts'],
+    ignores: ['packages/dead-drop/src/runtime/plugins.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -109,7 +113,7 @@ export default tseslint.config(
   },
   {
     files: ['packages/dead-drop/src/transports/**/*.ts'],
-    ignores: ['packages/dead-drop/src/transports/github/**/*.ts', '**/*.test.ts'],
+    ignores: ['packages/dead-drop/src/transports/github/**/*.ts'],
     rules: {
       'no-restricted-imports': [
         'error',

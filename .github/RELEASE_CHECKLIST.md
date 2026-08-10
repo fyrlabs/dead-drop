@@ -31,8 +31,8 @@ The two packages **do not share a version**. `@fyrlabs/dead-drop` churns; `@fyrl
 
 ## 4. The thing that is never done and always should be
 
-- [ ] `scripts/e2e.sh fast` is green. No network, no credentials, about ten minutes. It runs real runtimes against real transports and asserts what a user can and cannot do, which is where every bug in the 0.2.x series was found.
-- [ ] `scripts/e2e.sh live <owner>/<throwaway-repo>` is green, in about fifteen minutes. Everything GitHub-specific is otherwise tested only against a scripted fake `gh` and a local bare repo, so real auth, rate limits, latency and large-repo behaviour are unverified without it. (0.2.4 fixed a silent message loss that only this found: it lost 10 of 50 concurrent requests, and nothing in the suite could see it.)
+- [ ] `e2e/run.sh fast` is green. No network, no credentials, about ten minutes. It runs real runtimes against real transports and asserts what a user can and cannot do, which is where every bug in the 0.2.x series was found.
+- [ ] `e2e/run.sh live <owner>/<throwaway-repo>` is green, in about fifteen minutes. Everything GitHub-specific is otherwise tested only against a scripted fake `gh` and a local bare repo, so real auth, rate limits, latency and large-repo behaviour are unverified without it. (0.2.4 fixed a silent message loss that only this found: it lost 10 of 50 concurrent requests, and nothing in the suite could see it.)
 
 ## 5. Tag and publish
 
