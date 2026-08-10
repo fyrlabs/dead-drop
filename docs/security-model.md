@@ -10,6 +10,7 @@ This is a deliberate simplification, and it is the single most important thing t
 
 - Any workspace member can impersonate any other workspace member.
 - Any workspace member can read every message in the workspace, including ones addressed to other peers.
+- Any workspace member can delete every message in the workspace, including ones addressed to other peers. Authorisation over the store belongs to the transport, not to dead-drop.
 - Removing a peer means rotating the secret. Nothing else revokes access.
 
 If you need peers that can send but not read, or an audit trail that survives a malicious member, dead-drop as it stands is the wrong tool. That would need per-peer keypairs and signed envelopes, which is a protocol change, not a configuration change.
@@ -83,6 +84,14 @@ dead-drop bounds what it will accept, because the transport is shared and a peer
 | Deduplication entries | 10 000, 1 hour | `DedupeStore` options |
 
 A gzip bomb fails as `PAYLOAD_TOO_LARGE` rather than exhausting memory. An undecodable object is deleted rather than re-read forever.
+
+## Reaping another peer's mail
+
+Every peer deletes mail addressed to peers that are gone: older than `inboxOrphanMs` (7 days by default) **and** with no presence beacon, or a beacon older than the same window. Without it a message addressed to a peer that never returns is storage nothing reclaims, because only its recipient ever empties an inbox.
+
+This grants no privilege that a member did not already have. Every member holds the workspace secret, so every member can already read any inbox, and every member already has unrestricted `delete` on the store. A hostile member could clear every inbox in the workspace before this existed and can do exactly as much afterwards.
+
+What it does change is that **correct** peers now delete data they did not author. So the risk to weigh is accidental loss, not privilege: a peer offline for longer than `inboxOrphanMs` loses its mail. Set `inboxOrphanMs` to `0` to turn it off. Deciding costs a listing only, since age is read from the message id in the key; nothing is downloaded and nothing is decrypted, and a message's real TTL is unreadable from outside anyway. [ADR 0006](adr/0006-reaping-orphaned-inboxes.md) has the reasoning, [docs/configuration.md](configuration.md) the setting.
 
 ## Replay
 

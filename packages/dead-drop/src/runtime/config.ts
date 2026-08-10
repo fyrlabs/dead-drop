@@ -104,6 +104,29 @@ export interface WorkspaceConfig {
    * API call or a commit, that is the price to weigh.
    */
   presenceIntervalMs?: number;
+  /**
+   * How long an undelivered message may sit in an absent peer's inbox before
+   * any other peer may delete it. Default 604800000 (7 days). `0` disables
+   * reaping entirely and restores the behaviour of releases before 0.10.0.
+   *
+   * Nothing but a peer itself ever empties its own inbox, so a message
+   * addressed to a peer that never comes back is storage no process reclaims.
+   * That is not hypothetical: every `ddrop connect` session runs under its own
+   * short-lived mailbox address, and whatever was in flight when it exited
+   * stays behind forever. Compaction does not help, because preserving the live
+   * tree is the point of it.
+   *
+   * **A peer offline for longer than this can lose mail.** That is the cost,
+   * and it is why the default sits far beyond a closed laptop. Deletion also
+   * requires the owning peer to have no presence beacon, or a beacon older than
+   * this window, so being merely offline for an afternoon costs nothing. See
+   * [ADR 0006](../../docs/adr/0006-reaping-orphaned-inboxes.md).
+   *
+   * This is not the per-message TTL. A message's real TTL lives in its
+   * encrypted header, which only its recipient can read, so this window applies
+   * to every message including one that asked for no expiry at all.
+   */
+  inboxOrphanMs?: number;
   /** Default request timeout for this workspace. Default 30000. */
   requestTimeoutMs?: number;
   /**
@@ -378,6 +401,15 @@ function parseWorkspace(raw: unknown, index: number, baseDir?: string): Workspac
       fail(`workspace ${label}: presenceIntervalMs must be a positive number`);
     }
     workspace.presenceIntervalMs = source.presenceIntervalMs;
+  }
+  if (source.inboxOrphanMs !== undefined) {
+    // Zero is meaningful here, unlike every interval above it: it is how a
+    // deployment that would rather leak storage than ever lose a late message
+    // turns reaping off.
+    if (typeof source.inboxOrphanMs !== 'number' || source.inboxOrphanMs < 0) {
+      fail(`workspace ${label}: inboxOrphanMs must be zero or a positive number`);
+    }
+    workspace.inboxOrphanMs = source.inboxOrphanMs;
   }
   if (source.concurrency !== undefined) {
     if (

@@ -17,7 +17,16 @@ import type {
 } from '@fyrlabs/dead-drop-transport-sdk';
 import { defineTransport, type TransportRegistration } from '@fyrlabs/dead-drop-transport-sdk';
 
-import { createMessageId, DeadDropError } from '#dead-drop/protocol/index.js';
+import {
+  createEnvelope,
+  createMessageId,
+  DeadDropError,
+  encodeFrame,
+  encodeJson,
+  JSON_CONTENT_TYPE,
+  KeyRing,
+} from '#dead-drop/protocol/index.js';
+import { peerKey } from '#dead-drop/core/keys.js';
 import { TestClock } from '#dead-drop/core/clock.js';
 import { createLogger, MemoryLogSink } from '#dead-drop/core/observability/logger.js';
 
@@ -100,6 +109,72 @@ class ListingStore implements StoreTransport {
   }
 
   async delete(): Promise<void> {}
+
+  async health(): Promise<TransportHealth> {
+    return { status: 'healthy', latencyMs: 1 };
+  }
+
+  async close(): Promise<void> {}
+}
+
+/**
+ * A store that really holds what is put in it.
+ *
+ * `ListingStore` above answers from a fixed set and its `delete` is a no-op,
+ * which is fine for counting a queue and useless for testing a reaper: the
+ * question is which objects survive.
+ */
+class MutableStore implements StoreTransport {
+  readonly kind = 'store' as const;
+  readonly objects = new Map<string, Uint8Array>();
+  /** Keys actually removed, in order. */
+  readonly deleted: string[] = [];
+  /** Deletes tried, successful or not: what a backoff has to hold down. */
+  deleteAttempts = 0;
+  failListWith: DeadDropError | undefined;
+  failDeleteWith: DeadDropError | undefined;
+  failPutWith: DeadDropError | undefined;
+  /**
+   * A prefix that lists as empty. Used only to hide a peer's own inbox from its
+   * mailbox poll while leaving it visible to a listing of the inbox root, which
+   * is the one way to watch the reaper decide about an object the delivery loop
+   * would otherwise have consumed before it ever got there.
+   */
+  hidePrefix: string | undefined;
+
+  async put(key: string, data: Uint8Array): Promise<{ key: string }> {
+    if (this.failPutWith) throw this.failPutWith;
+    this.objects.set(key, data);
+    return { key };
+  }
+
+  async get(key: string): Promise<Uint8Array | undefined> {
+    return this.objects.get(key);
+  }
+
+  async list(prefix: string, options: ListOptions = {}): Promise<ListResult> {
+    if (this.failListWith) throw this.failListWith;
+    if (this.hidePrefix !== undefined && prefix === this.hidePrefix) return { entries: [] };
+    const under = [...this.objects.entries()]
+      .filter(([key]) => key.startsWith(`${prefix}/`))
+      .map(([key, data]) => ({ key, size: data.byteLength }))
+      .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    const after = options.cursor ?? options.startAfter;
+    const start = after ? under.findIndex((entry) => entry.key > after) : 0;
+    const from = start < 0 ? under.length : start;
+    const page = under.slice(from, from + (options.limit ?? under.length));
+    const result: ListResult = { entries: page };
+    if (from + page.length < under.length && page.length > 0) {
+      result.cursor = page[page.length - 1]!.key;
+    }
+    return result;
+  }
+
+  async delete(key: string): Promise<void> {
+    this.deleteAttempts += 1;
+    if (this.failDeleteWith) throw this.failDeleteWith;
+    if (this.objects.delete(key)) this.deleted.push(key);
+  }
 
   async health(): Promise<TransportHealth> {
     return { status: 'healthy', latencyMs: 1 };
@@ -374,5 +449,242 @@ describe('delivery concurrency', () => {
   it('defaults to one, which is the serial behaviour', () => {
     const clock = new TestClock();
     expect(workspace(new HangingStore(), clock).stats().mailbox.concurrency).toBe(1);
+  });
+});
+
+/**
+ * Orphaned inbox reaping, ADR 0006.
+ *
+ * Nothing but a peer itself ever empties its own inbox, so mail addressed to a
+ * peer that never returns is storage no process reclaims. The whole difficulty
+ * is telling "gone" from "not looking right now", which is why the offline case
+ * is the first test here: the happy path passes just as well against a reaper
+ * that deletes indiscriminately, and proves nothing on its own.
+ */
+describe('reaping orphaned inboxes', () => {
+  const NOW = 1_800_000_000_000;
+  const DAY = 24 * 60 * 60_000;
+  /** One presence interval, which is when the first maintenance pass runs. */
+  const TICK = 30_000;
+
+  async function planted(store: MutableStore, peerId: string, createdAt: number): Promise<string> {
+    const id = createMessageId(createdAt);
+    await store.put(`ws/demo/inbox/${peerId}/${id}.ddf`, new Uint8Array(1024));
+    return `ws/demo/inbox/${peerId}/${id}.ddf`;
+  }
+
+  /** A beacon as `announce()` writes one, at an announce time of our choosing. */
+  async function plantBeacon(store: MutableStore, peerId: string, announcedAt: number) {
+    const keys = KeyRing.fromSecrets('demo', [SECRET]);
+    const envelope = createEnvelope({
+      workspace: 'demo',
+      kind: 'control',
+      channel: 'presence',
+      from: peerId,
+      contentType: JSON_CONTENT_TYPE,
+      ts: announcedAt,
+      payload: encodeJson({
+        peerId,
+        services: [],
+        exposures: [],
+        announcedAt,
+        startedAt: announcedAt,
+        version: 'test',
+      }),
+    });
+    await store.put(peerKey('demo', peerId), await encodeFrame(envelope, { key: keys.primary }));
+  }
+
+  it('keeps every message for a peer that is merely offline', async () => {
+    // The discriminating case. peer-b has a fresh beacon and a week-old
+    // backlog: it is running and has not drained, which is precisely the
+    // situation a mailbox exists to survive. Age alone would delete this.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const first = await planted(store, 'peer-b', NOW - 8 * DAY);
+    const second = await planted(store, 'peer-b', NOW - 9 * DAY);
+    await plantBeacon(store, 'peer-b', NOW);
+
+    const ws = workspace(store, clock);
+    await ws.start();
+    await clock.advance(TICK);
+
+    expect(store.objects.has(first)).toBe(true);
+    expect(store.objects.has(second)).toBe(true);
+    expect(store.deleted).toEqual([]);
+
+    await ws.stop();
+  });
+
+  it('reaps an inbox whose owner left no beacon behind', async () => {
+    // The measured leak: `stop()` withdraws the beacon, so a peer that exited
+    // cleanly with mail in flight leaves no beacon and a populated inbox.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const orphan = await planted(store, 'peer-b', NOW - 8 * DAY);
+
+    const ws = workspace(store, clock);
+    await ws.start();
+    await clock.advance(TICK);
+
+    expect(store.objects.has(orphan)).toBe(false);
+    expect(store.deleted).toEqual([orphan]);
+
+    await ws.stop();
+  });
+
+  it('keeps recent messages for a peer that has not announced yet', async () => {
+    // Absence of a beacon is not enough on its own. A peer that has just been
+    // sent something and has not started yet has no beacon at all.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const fresh = await planted(store, 'peer-b', NOW - 60_000);
+
+    const ws = workspace(store, clock);
+    await ws.start();
+    await clock.advance(TICK);
+
+    expect(store.objects.has(fresh)).toBe(true);
+
+    await ws.stop();
+  });
+
+  it('deletes nothing when a store could not be listed', async () => {
+    // A store that did not answer holds beacons we would otherwise read as
+    // absence, so acting on a partial view turns an outage into data loss.
+    const store = new MutableStore();
+    const blind = new MutableStore();
+    blind.failListWith = new DeadDropError('UNAUTHORIZED', 'clone is gone');
+    const clock = new TestClock(NOW);
+    const orphan = await planted(store, 'peer-b', NOW - 8 * DAY);
+
+    const ws = workspace(store, clock, {}, [blind]);
+    await ws.start();
+    await clock.advance(TICK);
+
+    expect(store.objects.has(orphan)).toBe(true);
+    expect(store.deleted).toEqual([]);
+
+    await ws.stop();
+  });
+
+  it('does nothing at all when inboxOrphanMs is zero', async () => {
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const orphan = await planted(store, 'peer-b', NOW - 8 * DAY);
+    await plantBeacon(store, 'peer-b', NOW - 8 * DAY);
+
+    const ws = workspace(store, clock, { inboxOrphanMs: 0 });
+    await ws.start();
+    await clock.advance(TICK);
+
+    expect(store.objects.has(orphan)).toBe(true);
+    expect(store.deleted).toEqual([]);
+
+    await ws.stop();
+  });
+
+  it('treats a beacon it cannot decode as liveness', async () => {
+    // A frame from a key era we do not hold tells us nothing about its owner,
+    // who may be alive and republishing it. Its existence is the signal.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const orphan = await planted(store, 'peer-b', NOW - 8 * DAY);
+    await store.put(peerKey('demo', 'peer-b'), new Uint8Array([1, 2, 3, 4]));
+
+    const ws = workspace(store, clock);
+    await ws.start();
+    await clock.advance(TICK);
+
+    expect(store.objects.has(orphan)).toBe(true);
+
+    await ws.stop();
+  });
+
+  it('reaps a beacon that has gone stale', async () => {
+    // Beacons get the aggressive horizon because they are self-healing: a live
+    // peer rewrites its own every interval, so a wrong delete costs one
+    // interval of invisibility and repairs itself.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const key = peerKey('demo', 'peer-b');
+    await plantBeacon(store, 'peer-b', NOW - DAY);
+
+    const ws = workspace(store, clock);
+    await ws.start();
+    await clock.advance(TICK);
+
+    expect(store.objects.has(key)).toBe(false);
+
+    await ws.stop();
+  });
+
+  it('keeps a stale beacon while its owner still has mail waiting', async () => {
+    // The beacon is the only evidence that the backlog is worth keeping, so
+    // reaping it first would let the next pass see "no beacon" and delete mail
+    // on age alone. Both survive; once the mail goes, so does the beacon.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const key = peerKey('demo', 'peer-b');
+    const fresh = await planted(store, 'peer-b', NOW - 60_000);
+    await plantBeacon(store, 'peer-b', NOW - DAY);
+
+    const ws = workspace(store, clock);
+    await ws.start();
+    await clock.advance(TICK);
+
+    expect(store.objects.has(key)).toBe(true);
+    expect(store.objects.has(fresh)).toBe(true);
+
+    await ws.stop();
+  });
+
+  it('never reaps its own inbox, even with no beacon of its own to prove it', async () => {
+    // In every ordinary state this peer's own fresh beacon already protects its
+    // inbox, so the explicit skip looks redundant. It is not: a transport that
+    // refuses writes leaves this peer with no beacon at all, and then it would
+    // meet its own orphan test. What it must do instead is deliver from that
+    // inbox, which is a peer's own business and nobody else's schedule.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const mine = await planted(store, 'peer-a', NOW - 8 * DAY);
+    // Beacons cannot land, so nothing announces peer-a as alive.
+    store.failPutWith = new DeadDropError('UNAUTHORIZED', 'read-only mirror');
+    // The delivery loop would consume this object long before the reaper looked
+    // at it, and consuming it is correct. Hiding it from that one prefix is
+    // what leaves the reaper's decision the only thing under test.
+    store.hidePrefix = 'ws/demo/inbox/peer-a';
+
+    const ws = workspace(store, clock);
+    await ws.start();
+    await clock.advance(TICK);
+
+    expect(store.objects.has(mine)).toBe(true);
+    expect(store.deleted).toEqual([]);
+
+    await ws.stop();
+  });
+
+  it('backs off instead of retrying a refused delete every pass', async () => {
+    // A refused delete leaves the condition that triggered it true. Without a
+    // floor the pass retries at full rate for the life of the process, which is
+    // the bug compaction already shipped once.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    await planted(store, 'peer-b', NOW - 8 * DAY);
+    store.failDeleteWith = new DeadDropError('UNAUTHORIZED', 'read-only mirror');
+
+    const ws = workspace(store, clock);
+    await ws.start();
+    await clock.advance(TICK);
+    const attempted = store.deleteAttempts;
+    expect(attempted).toBeGreaterThan(0);
+
+    // One normal interval later the pass is still backed off, so nothing is
+    // retried. Without the backoff this would attempt the same delete again.
+    await clock.advance(15 * 60_000);
+    expect(store.deleteAttempts).toBe(attempted);
+
+    await ws.stop();
   });
 });

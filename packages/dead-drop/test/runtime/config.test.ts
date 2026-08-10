@@ -234,6 +234,22 @@ describe('parseRuntimeConfig', () => {
     expect(config.workspaces[0]?.presenceIntervalMs).toBe(5000);
   });
 
+  it('carries the orphaned-inbox window through to the workspace', () => {
+    const config = parseRuntimeConfig({
+      workspaces: [{ ...valid.workspaces[0], inboxOrphanMs: 86_400_000 }],
+    });
+    expect(config.workspaces[0]?.inboxOrphanMs).toBe(86_400_000);
+  });
+
+  it('accepts an orphaned-inbox window of zero, which turns reaping off', () => {
+    // Zero is a real setting here, unlike every interval beside it: it is how a
+    // deployment says it would rather leak storage than ever lose late mail.
+    const config = parseRuntimeConfig({
+      workspaces: [{ ...valid.workspaces[0], inboxOrphanMs: 0 }],
+    });
+    expect(config.workspaces[0]?.inboxOrphanMs).toBe(0);
+  });
+
   it('carries delivery concurrency through to the workspace', () => {
     const config = parseRuntimeConfig({
       workspaces: [{ ...valid.workspaces[0], concurrency: 4 }],
@@ -275,6 +291,11 @@ describe('parseRuntimeConfig', () => {
       'a presence interval of zero, which would beacon forever',
       { workspaces: [{ ...valid.workspaces[0], presenceIntervalMs: 0 }] },
       /presenceIntervalMs must be a positive number/,
+    ],
+    [
+      'a negative orphan window, which would reap every message on sight',
+      { workspaces: [{ ...valid.workspaces[0], inboxOrphanMs: -1 }] },
+      /inboxOrphanMs must be zero or a positive number/,
     ],
     [
       'a health interval of zero, which would sweep forever',

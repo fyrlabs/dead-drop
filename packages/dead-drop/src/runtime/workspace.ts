@@ -30,6 +30,7 @@ import {
   TransportManager,
   inboxRoot,
   parseInboxKey,
+  parsePeerKey,
   peersPrefix,
   peerKey,
   systemClock,
@@ -125,6 +126,31 @@ export interface QueueReport {
 const QUEUE_PAGE_SIZE = 1000;
 const QUEUE_SCAN_LIMIT = 10_000;
 
+/** Default window before an absent peer's inbox may be reaped. See ADR 0006. */
+const DEFAULT_INBOX_ORPHAN_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * How often maintenance runs, and how stale a beacon gets before any peer may
+ * delete it, both as multiples of `presenceTtlMs`.
+ *
+ * A beacon is self-healing: its owner rewrites it every `presenceIntervalMs`,
+ * so deleting one wrongly costs a single interval of invisibility and repairs
+ * itself. Ten expiry windows is thirty missed announcements at the defaults,
+ * which is dead rather than slow. Messages get a horizon four orders of
+ * magnitude longer, because deleting one wrongly is not recoverable.
+ */
+const STALE_BEACON_TTLS = 10;
+
+/**
+ * Longest gap between maintenance passes when deletes keep failing.
+ *
+ * A refused delete leaves the condition that triggered it true, so without a
+ * floor the pass retries forever at full rate. Compaction shipped exactly that
+ * bug once. Doubling to this cap turns a permanently unwritable store into a
+ * few wasted listings a day instead of a few hundred.
+ */
+const REAP_BACKOFF_CAP = 32;
+
 export interface WorkspaceOptions {
   config: WorkspaceConfig;
   registrations: ReadonlyArray<TransportRegistration<never>>;
@@ -144,6 +170,8 @@ export interface WorkspaceOptions {
   presenceIntervalMs?: number;
   /** Beacons older than this are treated as gone. Default 3x the interval. */
   presenceTtlMs?: number;
+  /** Orphaned inbox retention. Default 7 days, `0` disables reaping. */
+  inboxOrphanMs?: number;
   version?: string;
 }
 
@@ -183,11 +211,15 @@ export class Workspace {
   private readonly controller = new AbortController();
   private readonly presenceIntervalMs: number;
   private readonly presenceTtlMs: number;
+  private readonly inboxOrphanMs: number;
   private readonly version: string;
   private readonly exposureNames = new Set<string>();
   private readonly startedAt: number;
   private stopPresence: (() => void) | undefined;
   private announcing: Promise<void> | undefined;
+  private reaping: Promise<void> | undefined;
+  private nextReapAt = 0;
+  private reapBackoff = 1;
   private started = false;
 
   constructor(options: WorkspaceOptions) {
@@ -205,6 +237,8 @@ export class Workspace {
     this.presenceIntervalMs =
       options.presenceIntervalMs ?? options.config.presenceIntervalMs ?? 30_000;
     this.presenceTtlMs = options.presenceTtlMs ?? this.presenceIntervalMs * 3;
+    this.inboxOrphanMs =
+      options.inboxOrphanMs ?? options.config.inboxOrphanMs ?? DEFAULT_INBOX_ORPHAN_MS;
     this.version = options.version ?? VERSION;
     this.startedAt = this.clock.now();
 
@@ -270,7 +304,17 @@ export class Workspace {
     // making. The interval below re-announces every 30 seconds, so
     // discoverability recovers on its own once a transport does.
     this.beacon(true);
-    this.stopPresence = this.clock.setInterval(this.presenceIntervalMs, () => this.beacon(false));
+    // Maintenance rides the presence tick rather than owning a timer: it needs
+    // the beacons anyway, and its own throttle is what actually decides how
+    // often it runs. It is deliberately absent from the line above -- start-up
+    // already moved the first beacon off its critical path for latency, and a
+    // pass that lists every inbox on every transport is far heavier than one
+    // put. A process too short-lived to reach the first tick contributes
+    // nothing to the leak either way.
+    this.stopPresence = this.clock.setInterval(this.presenceIntervalMs, () => {
+      this.beacon(false);
+      this.maintain();
+    });
     this.logger.info('workspace started', {
       transports: this.manager.list().map((info) => info.name),
       exposures: [...this.exposureNames],
@@ -287,6 +331,11 @@ export class Workspace {
       pending.reject(new DeadDropError('CANCELLED', 'workspace is shutting down'));
     }
     this.pending.clear();
+    // A maintenance pass holds store references and deletes in a loop. Leaving
+    // one running past `manager.stop()` means deletes firing at closed
+    // transports, so let it finish first: it never rejects, and the throttle
+    // means it is almost never in flight.
+    await this.reaping;
     await this.withdraw().catch(() => undefined);
     await this.mailbox.stop();
     await this.manager.stop();
@@ -513,13 +562,36 @@ export class Workspace {
    * themselves yet" and exited 0 while the truth was that it could not look.
    */
   async discoverPeers(options: { includeStale?: boolean } = {}): Promise<PeerReport> {
-    const stores = this.manager.stores();
-    const seen = new Map<string, PeerRecord>();
+    const { records, unreadable, read } = await this.listBeacons();
     const cutoff = this.clock.now() - this.presenceTtlMs;
+    const peers = [...records.values()]
+      .filter((record) => options.includeStale === true || record.announcedAt >= cutoff)
+      .sort((a, b) => (a.peerId < b.peerId ? -1 : 1));
+    return { peers, unreadable, read };
+  }
+
+  /**
+   * Every beacon object in the workspace, decoded where possible.
+   *
+   * `found` carries the objects as they were listed, including ones that did
+   * not decode, and `records` carries only the ones that did. The reaper needs
+   * both: a beacon whose frame we cannot read belongs to a key era we do not
+   * hold, and its owner may be perfectly alive, so its mere existence has to
+   * count as liveness even though its contents tell us nothing.
+   */
+  private async listBeacons(): Promise<{
+    records: Map<string, PeerRecord>;
+    found: Array<{ store: StoreTransport; transport: string; peerId: string; key: string }>;
+    unreadable: PeerReport['unreadable'];
+    read: number;
+  }> {
+    const records = new Map<string, PeerRecord>();
+    const found: Array<{ store: StoreTransport; transport: string; peerId: string; key: string }> =
+      [];
     const unreadable: PeerReport['unreadable'] = [];
     let read = 0;
 
-    for (const entry of stores) {
+    for (const entry of this.manager.stores()) {
       const store = entry.transport as StoreTransport;
       let listed;
       try {
@@ -537,20 +609,20 @@ export class Workspace {
       }
       read += 1;
       for (const item of listed.entries) {
+        const peerId = parsePeerKey(this.name, item.key);
+        if (peerId === undefined) continue;
+        found.push({ store, transport: entry.name, peerId, key: item.key });
         const raw = await store.get(item.key).catch(() => undefined);
         if (!raw) continue;
         const record = await this.decodePeerRecord(raw);
         if (!record) continue;
-        if (!options.includeStale && record.announcedAt < cutoff) continue;
-        const existing = seen.get(record.peerId);
-        if (!existing || existing.announcedAt < record.announcedAt) seen.set(record.peerId, record);
+        const existing = records.get(record.peerId);
+        if (!existing || existing.announcedAt < record.announcedAt) {
+          records.set(record.peerId, record);
+        }
       }
     }
-    return {
-      peers: [...seen.values()].sort((a, b) => (a.peerId < b.peerId ? -1 : 1)),
-      unreadable,
-      read,
-    };
+    return { records, found, unreadable, read };
   }
 
   /** Peers that have published a beacon recently. Use `discoverPeers` to tell an
@@ -846,6 +918,175 @@ export class Workspace {
     await Promise.allSettled(
       this.manager.stores().map((entry) => (entry.transport as StoreTransport).delete(key)),
     );
+  }
+
+  /** Runs one maintenance pass, never more than one at a time. See `reap`. */
+  private maintain(): void {
+    if (this.reaping) return;
+    this.reaping = this.reap()
+      .catch((error: unknown) => {
+        this.logger.debug('maintenance pass failed', { error: String(error) });
+      })
+      .finally(() => {
+        this.reaping = undefined;
+      });
+  }
+
+  /**
+   * Deletes stale presence beacons and inbox objects addressed to peers that
+   * are gone. [ADR 0006](../../docs/adr/0006-reaping-orphaned-inboxes.md).
+   *
+   * Nothing but a peer itself ever empties its own inbox, so without this a
+   * message addressed to a peer that never returns is storage no process ever
+   * reclaims. Reaping is not a new privilege: every member already holds the
+   * workspace secret and already has unrestricted `delete` on the store, so a
+   * hostile member could clear every inbox today. What changes is that
+   * *correct* peers now delete data they did not author, which makes accidental
+   * loss the risk to design against, and that is what sets the two horizons.
+   *
+   * Age comes from the message id in the key, never from the frame. The objects
+   * worth reaping are the large ones, so deciding by download would mean
+   * fetching the entire leak in order to decide to delete it, and `modifiedAt`
+   * is optional in the store contract besides. This is emphatically **not** the
+   * per-message TTL: that lives in the encrypted header and only the recipient
+   * can read it, so a message that asked for no expiry is still subject to this.
+   */
+  private async reap(): Promise<void> {
+    if (this.inboxOrphanMs <= 0) return;
+    const now = this.clock.now();
+    if (now < this.nextReapAt) return;
+
+    const beacons = await this.listBeacons();
+    // Absence of a beacon is the whole liveness signal, so a store that did not
+    // answer is indistinguishable from a workspace where nobody is alive. Act
+    // on a partial view and a transient outage becomes permanent data loss.
+    if (beacons.read === 0 || beacons.unreadable.length > 0) {
+      this.scheduleNextReap(now, false);
+      return;
+    }
+
+    const present = new Set(beacons.found.map((beacon) => beacon.peerId));
+    const orphanCutoff = now - this.inboxOrphanMs;
+    const beaconCutoff = now - this.presenceTtlMs * STALE_BEACON_TTLS;
+    let failed = false;
+    // Set when the inbox view is incomplete, which makes `withMail` a subset of
+    // the peers that really have a backlog. Reaping messages on a partial view
+    // is safe -- every object considered was really seen -- but reaping beacons
+    // is not, because a beacon is protected by mail we may not have looked at.
+    let partial = false;
+
+    const withMail = new Set<string>();
+    for (const entry of this.manager.stores()) {
+      const store = entry.transport as StoreTransport;
+      let reaped = 0;
+      let bytes = 0;
+      const peers = new Set<string>();
+      try {
+        let cursor: string | undefined;
+        let scanned = 0;
+        do {
+          const page = await store.list(inboxRoot(this.name), {
+            limit: QUEUE_PAGE_SIZE,
+            ...(cursor ? { cursor } : {}),
+          });
+          for (const item of page.entries) {
+            const parsed = parseInboxKey(this.name, item.key);
+            if (!parsed) continue;
+            // This peer's own inbox is reaped by delivering from it.
+            if (parsed.peerId === this.peerId) continue;
+            withMail.add(parsed.peerId);
+            const announcedAt = present.has(parsed.peerId)
+              ? (beacons.records.get(parsed.peerId)?.announcedAt ?? Number.POSITIVE_INFINITY)
+              : undefined;
+            // Offline is not orphaned. A peer with a fresh beacon and a backlog
+            // is one that has not drained yet, and its mail is exactly what a
+            // mailbox exists to hold. Both conditions have to hold.
+            if (announcedAt !== undefined && announcedAt >= orphanCutoff) continue;
+            const createdAt = idTime(parsed.messageId);
+            if (createdAt === undefined || createdAt >= orphanCutoff) continue;
+            try {
+              await store.delete(item.key);
+            } catch (error) {
+              failed = true;
+              this.logger.debug('failed to reap orphaned message', {
+                key: item.key,
+                error: String(error),
+              });
+              continue;
+            }
+            this.metrics.messagesDropped.inc({ reason: 'orphaned' });
+            reaped += 1;
+            bytes += item.size;
+            peers.add(parsed.peerId);
+          }
+          scanned += page.entries.length;
+          cursor = page.cursor;
+          if (cursor && scanned >= QUEUE_SCAN_LIMIT) {
+            // Whatever is left is reaped by a later pass. The cap exists so one
+            // enormous inbox cannot hold the maintenance loop open forever.
+            partial = true;
+            break;
+          }
+        } while (cursor);
+      } catch (error) {
+        partial = true;
+        this.logger.debug('inbox listing failed during reap', {
+          transport: entry.name,
+          error: String(error),
+        });
+      }
+      if (reaped > 0) {
+        // Warn, not info: this deletes another peer's data unattended, so it
+        // has to be visible in `ddrop logs` without turning debug on.
+        this.logger.warn('reaped orphaned inbox messages', {
+          transport: entry.name,
+          peers: [...peers].sort(),
+          count: reaped,
+          bytes,
+        });
+      }
+    }
+
+    for (const beacon of partial ? [] : beacons.found) {
+      if (beacon.peerId === this.peerId) continue;
+      // A beacon is the only evidence that its owner's backlog is worth
+      // keeping, so leave it standing while there is a backlog to protect.
+      // Once the mail is gone the beacon goes on a later pass.
+      if (withMail.has(beacon.peerId)) continue;
+      const record = beacons.records.get(beacon.peerId);
+      // A beacon we cannot decode belongs to a key era we do not hold. Its
+      // owner may be alive and republishing it; we simply cannot read it.
+      if (!record || record.announcedAt >= beaconCutoff) continue;
+      try {
+        await beacon.store.delete(beacon.key);
+        this.logger.warn('reaped stale presence beacon', {
+          transport: beacon.transport,
+          peer: beacon.peerId,
+          announcedAt: record.announcedAt,
+        });
+      } catch (error) {
+        failed = true;
+        this.logger.debug('failed to reap stale beacon', {
+          key: beacon.key,
+          error: String(error),
+        });
+      }
+    }
+
+    this.scheduleNextReap(now, failed);
+  }
+
+  /**
+   * Sets the earliest time the next pass may run.
+   *
+   * A refused delete leaves the condition that triggered it true, so a pass
+   * that keeps failing would otherwise retry at full rate for the life of the
+   * process. Backing off turns a permanently unwritable store into a handful of
+   * wasted listings a day, and one clean pass restores the normal cadence.
+   */
+  private scheduleNextReap(now: number, failed: boolean): void {
+    this.reapBackoff = failed ? Math.min(this.reapBackoff * 2, REAP_BACKOFF_CAP) : 1;
+    this.nextReapAt = now + this.presenceTtlMs * STALE_BEACON_TTLS * this.reapBackoff;
   }
 
   private async decodePeerRecord(raw: Uint8Array): Promise<PeerRecord | undefined> {

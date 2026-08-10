@@ -66,6 +66,23 @@ export function messageIdFromKey(key: string): string | undefined {
  * so a listing of the whole inbox root can be read without trusting the store
  * to hold only what dead-drop put there.
  */
+/**
+ * Recovers the peer a beacon belongs to, or `undefined` if the key is not one.
+ *
+ * The counterpart to `parseInboxKey`, and it exists for the same reason: a
+ * listing of `ws/<workspace>/peers` has to be readable without trusting the
+ * store to hold only what dead-drop put there. Whether a beacon object *exists*
+ * is a liveness signal on its own, separate from whether its frame decodes.
+ */
+export function parsePeerKey(workspace: string, key: string): string | undefined {
+  const root = `${peersPrefix(workspace)}/`;
+  if (!key.startsWith(root)) return undefined;
+  const rest = key.slice(root.length);
+  if (rest.includes('/') || !rest.endsWith(FRAME_EXTENSION)) return undefined;
+  const peerId = rest.slice(0, -FRAME_EXTENSION.length);
+  return peerId.length > 0 ? peerId : undefined;
+}
+
 export function parseInboxKey(
   workspace: string,
   key: string,

@@ -111,7 +111,7 @@ Each poll costs one listing per store transport, which on `git` and `github` mea
 | --- | --- |
 | `deaddrop_transport_health` | Below 1 for a sustained period. 0.5 is degraded, 0 is unavailable. |
 | `deaddrop_failovers_total` | Rising steadily means the primary transport is unwell. |
-| `deaddrop_messages_dropped_total` | By `reason`. `dead-letter` and `undecodable` always deserve attention. |
+| `deaddrop_messages_dropped_total` | By `reason`. `dead-letter` and `undecodable` always deserve attention. `orphaned` counts mail deleted from an absent peer's inbox, so a peer you expected to be running is not; the matching `reaped orphaned inbox messages` warning names it. |
 | `deaddrop_transport_rate_limit_remaining` | Approaching zero on a GitHub transport. |
 | `deaddrop_request_duration_ms` | p95 rising means the transport, not your application. |
 | `deaddrop_poll_interval_ms` | Pinned at maximum means nothing is arriving. |

@@ -1,6 +1,6 @@
 # ADR 0006: any member may reap an orphaned inbox, on age plus absence
 
-**Status:** proposed
+**Status:** accepted, implemented in 0.10.0
 
 ## Context
 
@@ -82,10 +82,20 @@ Age on its own would be wrong. A peer offline over a holiday, or one with a slow
 - A failed or refused delete must not be retried every cycle. This is the trap ADR 0005 hit: a maintenance condition that stays true after a failure turns into a wasted network call on every single poll, forever.
 - Clock skew between peers shifts the effective horizon by the skew. At a 7 day horizon the skew would have to be extraordinary to matter, which is another reason not to reuse this mechanism for short windows.
 
-## Open question for whoever implements it
+## How it was settled
 
-**Where the reaper lives.** `reapTopics` sits in `MailboxEngine` (core), which owns the poll loop and the throttle, but the liveness signal comes from beacons, which `Workspace` (runtime) owns. Core must not depend on runtime, so the choice is either to pass a liveness callback down into the engine, or to put the reaper in `Workspace` beside `queues()`.
+**The reaper lives in `Workspace`**, as recommended: `Workspace.reap()`, beside `queues()`, whose listing and key parsing it reuses. Core stays pure mechanism and gains no dependency on the runtime.
 
-**Recommend `Workspace`.** `queues()` already lists `inboxRoot` and already parses the keys, so the listing half is proven code, and it keeps a destructive policy decision out of the layer that is meant to be pure mechanism.
+That moved the trigger. "The same poll cycle as `reapTopics`" was a `MailboxEngine` idea, and the engine's poll is not visible from `Workspace`, so the pass rides the presence interval instead and carries its own throttle. Both reapers still share one throttle, as decided above, and keep their asymmetric horizons. The throttle is ten `presenceTtlMs`, fifteen minutes at the defaults, which is what makes the pass cheap: on the git and github transports a listing reads the working tree the mailbox poll is already keeping fresh.
 
-**The test that has to discriminate**, in the style this repo already requires: a peer that is merely offline, with a fresh beacon and old messages, must keep every message. Write that one before the happy path, because the happy path passes just as well against a reaper that deletes indiscriminately.
+**The pass does not run during `start()`.** Start-up had already moved the first beacon off its critical path for latency, and a pass that lists every inbox on every transport is much heavier than one put. The first one runs on the first interval tick.
+
+Three things the design above did not say, all found while writing it:
+
+**A partial view is not a view.** Absence of a beacon is the entire liveness signal, so a store that failed to answer is indistinguishable from a workspace where nobody is alive. The pass deletes nothing unless every store answered. Without that, one transient outage on a multi-transport workspace clears every inbox.
+
+**A beacon that does not decode counts as liveness.** `discoverPeers` skips beacons it cannot read, which belong to a key era this peer does not hold. Their owners may be perfectly alive, so the existence of the object is the signal and its contents are not required. This is why `listBeacons` returns the objects it found separately from the records it decoded.
+
+**Reaping a beacon destroys the evidence protecting the inbox under it.** A beacon goes stale in fifteen minutes and mail lives for seven days, so the beacon reaper would routinely delete the one thing telling the next pass that a peer's backlog belongs to someone recently alive. A stale beacon is therefore kept while its owner still has mail waiting; once the mail is reaped the beacon follows on a later pass.
+
+**The discriminating test came first**, as required: a peer with a fresh beacon and week-old messages keeps every message. Each of the eight guards in `reap()` was then confirmed by removing it and watching a named test fail, because the happy path passes against a reaper that deletes indiscriminately and proves nothing on its own.

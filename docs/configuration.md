@@ -52,6 +52,7 @@ A Unix socket path cannot exceed 104 bytes. When `<dataDir>/deaddrop.sock` would
 | `breaker` | object | no | see below | When a failing transport is taken out of rotation, and when it is probed again. |
 | `healthIntervalMs` | number | no | `30000` | How often every transport is probed for health. Must be positive. See below. |
 | `presenceIntervalMs` | number | no | `30000` | How often this peer republishes its presence beacon. Must be positive. See below. |
+| `inboxOrphanMs` | number | no | `604800000` | How long mail for an absent peer survives before any peer may delete it. `0` turns reaping off. See below. |
 | `concurrency` | number | no | `1` | How many inbound messages this workspace handles at once. Must be a whole number of at least 1. See below. |
 
 ### `retry`
@@ -90,6 +91,22 @@ Lower it when a probe is nearly free and detection speed matters, which is the c
 Every peer writes one small object per interval saying it is alive, what services it answers and what exposures it offers. A peer is treated as gone once its beacon is three intervals old, so at the default of 30 seconds `ddrop discover` can be up to 90 seconds behind reality in both directions: a peer that just started may not be listed, and one that just left may still be.
 
 Lower it where a write is cheap and discovery should feel immediate, which is the case for `filesystem`. Leave it alone, or raise it, on `git` and `github`, where every beacon is a commit and a push: the cost is one object per peer per interval, forever, and it is also history that never goes away on the git transports.
+
+### `inboxOrphanMs`
+
+Only the peer a message is addressed to ever takes it out of its inbox. So when a peer stops coming back, whatever was waiting for it stays waiting forever, and compacting the store does not help: preserving the live tree is the point of compaction, so an abandoned object is carried into every compacted commit intact. This is measurable rather than theoretical. One trial repository compacted from 433 MB down to a single commit still held 60 MB, nearly all of it two abandoned payloads addressed to `ddrop connect` sessions that had exited.
+
+Every `ddrop connect` session takes its own short-lived mailbox address, so that shape of leak is the normal one, not an exotic failure.
+
+Past this window, **any** peer may delete such a message, and it needs two things to be true at once: the message is older than `inboxOrphanMs`, and the peer it is addressed to has published no presence beacon, or one older than the same window. Being merely offline for an afternoon costs nothing, because the beacon is what separates "gone" from "not looking right now". Age comes from the message id in the key, so deciding costs a listing and nothing is downloaded or decrypted.
+
+**A peer offline for longer than this loses its mail.** That is the real cost of the setting, and it is why the default sits far beyond a closed laptop and far below "forever". Raise it if peers in your workspace routinely disappear for weeks. Set it to `0` to turn reaping off completely and go back to a store that only ever grows.
+
+This is not the per-message TTL, and the two are not interchangeable. A message's real TTL lives in its encrypted header, which only its recipient can read, so honouring it from outside would mean decrypting every candidate. `inboxOrphanMs` therefore applies to every message including one that asked for no expiry at all.
+
+Letting any member delete another member's mail grants no privilege that member did not already have: everyone in a workspace holds the same secret and already has unrestricted `delete` on the store. The reasoning is in [ADR 0006](adr/0006-reaping-orphaned-inboxes.md), and the boundary itself in [docs/security-model.md](security-model.md).
+
+Stale presence beacons are reaped on the same schedule but far more aggressively, with no setting of their own. A beacon repairs itself: its owner rewrites it every `presenceIntervalMs`, so deleting one wrongly costs a single interval of that peer being invisible to `ddrop discover`. A message has no such second chance, which is the whole reason for the two horizons.
 
 ### `concurrency`
 

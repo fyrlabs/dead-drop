@@ -6,6 +6,12 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+### Changed
+
+- Mail for peers that never come back is no longer kept forever. Only the peer a message is addressed to ever empties its inbox, so anything left for a peer that has gone was storage nothing reclaimed, and compacting the store did not help. One trial repository squashed to a single commit still held 60 MB of it. Now any peer deletes such a message once it is more than 7 days old **and** the peer it is for has stopped publishing a presence beacon. Both conditions have to hold, so a peer that is simply offline for a few days keeps everything waiting for it.
+
+  `inboxOrphanMs` on the workspace changes the window, and `0` turns it off. A peer offline for longer than the window does lose its mail, which is the trade: turn it off if that matters more to you than the storage. Stale presence beacons are cleaned up alongside, and much sooner, because a running peer republishes its own within a minute.
+
 ## [0.9.0]
 
 ### Added
