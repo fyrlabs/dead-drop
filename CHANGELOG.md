@@ -6,6 +6,8 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+## [0.11.0]
+
 ### Fixed
 
 - `"policy": { "mode": "parallel" }` now does what it always claimed: every message and every presence beacon goes to all of your transports, and the recipient takes whichever copy reaches it first. It used to be accepted and then quietly ignored, picking one transport like the default mode, so nobody who set it ever got a second copy.
