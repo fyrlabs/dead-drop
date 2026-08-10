@@ -131,6 +131,7 @@ ddrop start                         run the runtime
 ddrop status                        runtime, workspaces, transports
 ddrop discover                      peers visible in the workspace
 ddrop queues                        messages waiting in each peer's inbox
+ddrop dashboard [--no-open]         the same, in a browser on 127.0.0.1
 ddrop expose --target <url> --name <n>
 ddrop expose <dir> --name <n>
 ddrop connect <peer>/<exposure>

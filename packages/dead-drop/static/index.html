@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>dead-drop dashboard</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <header>
+      <h1>dead-drop</h1>
+      <p class="meta">
+        <span data-bind="version"></span> · up <span data-bind="uptime"></span> · peer
+        <span data-bind="peerId"></span>
+      </p>
+      <div class="controls">
+        <label>
+          workspace
+          <select id="workspace"></select>
+        </label>
+        <button id="refresh" type="button">Refresh</button>
+        <span class="status" id="connection" data-bind="connection"></span>
+      </div>
+    </header>
+
+    <p class="banner error" data-hidden="hideConnectionError" id="connection-error">
+      <span data-bind="connectionError"></span>
+    </p>
+
+    <main>
+      <section aria-labelledby="overview-heading">
+        <h2 id="overview-heading">Now</h2>
+        <ul class="cards">
+          <li><span class="figure" data-bind="waiting"></span><span>messages waiting</span></li>
+          <li><span class="figure" data-bind="inflight"></span><span>in flight</span></li>
+          <li><span class="figure" data-bind="retrying"></span><span>retrying</span></li>
+          <li><span class="figure" data-bind="peerCount"></span><span>peers seen</span></li>
+          <li>
+            <span class="figure" data-bind="transportSummary"></span><span>transports up</span>
+          </li>
+          <li><span class="figure" data-bind="pollInterval"></span><span>poll interval</span></li>
+        </ul>
+        <p class="note" data-bind="mailboxNote"></p>
+      </section>
+
+      <section aria-labelledby="queues-heading">
+        <h2 id="queues-heading">Waiting for each peer</h2>
+        <p class="banner warn" data-hidden="hideQueuesProblem" data-bind="queuesProblem"></p>
+        <p class="note" data-hidden="hideQueuesTruncated">
+          A listing hit its scan cap, so every count below is a lower bound.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>peer</th>
+              <th class="num">waiting</th>
+              <th class="num">size</th>
+              <th>oldest</th>
+            </tr>
+          </thead>
+          <tbody id="queues"></tbody>
+        </table>
+        <p class="empty" data-hidden="hideQueuesEmpty">Nothing is queued.</p>
+      </section>
+
+      <section aria-labelledby="peers-heading">
+        <h2 id="peers-heading">Peers</h2>
+        <p class="banner warn" data-hidden="hidePeersProblem" data-bind="peersProblem"></p>
+        <table>
+          <thead>
+            <tr>
+              <th>peer</th>
+              <th>services</th>
+              <th>exposures</th>
+              <th>last seen</th>
+            </tr>
+          </thead>
+          <tbody id="peers"></tbody>
+        </table>
+        <p class="empty" data-hidden="hidePeersEmpty">No peer has announced itself yet.</p>
+      </section>
+
+      <section aria-labelledby="transports-heading">
+        <h2 id="transports-heading">Transports</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>name</th>
+              <th>kind</th>
+              <th>health</th>
+              <th>breaker</th>
+              <th class="num">score</th>
+              <th class="num">latency</th>
+              <th class="num">errors</th>
+            </tr>
+          </thead>
+          <tbody id="transports"></tbody>
+        </table>
+      </section>
+
+      <section aria-labelledby="logs-heading">
+        <h2 id="logs-heading">Recent log</h2>
+        <ol class="log" id="logs"></ol>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Read-only. It shows what <code>ddrop status</code>, <code>discover</code>,
+        <code>queues</code> and <code>logs</code> already return, and can publish, call or cancel
+        nothing.
+      </p>
+      <p class="note">
+        Polls every 5s while this tab is visible. Last read
+        <span data-bind="updatedAt"></span>.
+      </p>
+    </footer>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

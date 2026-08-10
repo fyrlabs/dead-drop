@@ -3,7 +3,14 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', 'coverage/**', '**/*.d.ts'],
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      'coverage/**',
+      '**/*.d.ts',
+      // Vendored, minified and not ours to lint.
+      'packages/dead-drop/static/lume.min.mjs',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -116,6 +123,17 @@ export default tseslint.config(
           ],
         },
       ],
+    },
+  },
+  {
+    // The dashboard page. Browser code, so the Node-oriented rules below do not
+    // describe it: `document` and `fetch` are ambient rather than undefined, and
+    // there is no injected Clock in a browser to prefer over a timer.
+    files: ['packages/dead-drop/static/**/*.js'],
+    languageOptions: { sourceType: 'module', ecmaVersion: 2023 },
+    rules: {
+      'no-undef': 'off',
+      'no-restricted-globals': 'off',
     },
   },
   {

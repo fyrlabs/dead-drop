@@ -13,6 +13,7 @@
 
 import { parseArgs } from 'node:util';
 import { hostname } from 'node:os';
+import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { VERSION } from '../version.js';
 import { dirname, resolve } from 'node:path';
@@ -29,6 +30,8 @@ import {
   startControlPlane,
   type RuntimeConfig,
 } from '../runtime/index.js';
+
+import { DEFAULT_DASHBOARD_PORT, browserOpenCommand, startDashboard } from './dashboard.js';
 
 export interface CliIo {
   out(line: string): void;
@@ -56,6 +59,7 @@ Usage
   ddrop list                                 list workspaces
   ddrop discover [--json] [--stale]          list peers visible in the workspace
   ddrop queues [--json]                      messages waiting in each peer's inbox
+  ddrop dashboard [--port n] [--no-open]     read-only web view on 127.0.0.1
   ddrop transport list [--json]              show transports and their scores
   ddrop transport health [--json]            re-probe transports and show health
   ddrop expose --target <url> --name <name>  expose a local http server
@@ -102,6 +106,10 @@ export async function run(argv: string[], io: CliIo = defaultIo): Promise<number
         timeout: { type: 'string' },
         json: { type: 'boolean' },
         stale: { type: 'boolean' },
+        // parseArgs has no `--no-x` negation, so the negative form is its own
+        // option. Opening a browser is the default, and this is the way out of
+        // it on a headless machine.
+        'no-open': { type: 'boolean' },
         pretty: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
         version: { type: 'boolean', short: 'v' },
@@ -160,6 +168,8 @@ async function dispatch(
       return discover(values, io);
     case 'queues':
       return queues(values, io);
+    case 'dashboard':
+      return dashboard(values, io);
     case 'transport':
       return transport(args, values, io);
     case 'expose':
@@ -442,6 +452,75 @@ async function queues(values: Values, io: CliIo): Promise<number> {
   return 0;
 }
 
+/**
+ * A browser view of everything the read routes of the control plane already
+ * return, and nothing else.
+ *
+ * It binds a TCP port, which at a glance contradicts invariant 3. It does not:
+ * the control plane keeps its socket, and this is one more client of it, in the
+ * same category as `status` and `queues`. It builds no runtime, so it clones no
+ * working directory, announces no phantom peer and writes no beacon commits.
+ * See ADR 0004, which is also where the argument for keeping it read-only is.
+ */
+async function dashboard(values: Values, io: CliIo): Promise<number> {
+  const port = dashboardPort(values.port);
+  if (port === undefined) {
+    io.err('ddrop: --port takes a whole number from 0 to 65535 (0 lets the OS choose)');
+    return 2;
+  }
+  const socketPath = await socketPathFor(values);
+
+  // Not fatal, and deliberately so: a dashboard opened before `ddrop start`, or
+  // left open across a restart, is a reasonable thing to do and the page reports
+  // the runtime being away on its own. Saying it here as well means a typo in
+  // --config does not present as an empty dashboard.
+  await new ControlPlaneClient(socketPath).request('GET', '/health').catch((error: unknown) => {
+    io.err(`ddrop: ${DeadDropError.from(error).message}`);
+    io.err('ddrop: starting anyway; the page will fill in once the runtime is reachable.');
+  });
+
+  const handle = await startDashboard({ socketPath, port });
+  // Printed before the open is attempted, never after. `open` needs a desktop
+  // session, and dead-drop runs on headless machines as an ordinary deployment,
+  // where it fails or hangs; with the URL already on screen that is cosmetic.
+  io.out(handle.url);
+  io.err(`ddrop: read-only dashboard for ${socketPath}. Ctrl-C to stop.`);
+  if (values['no-open'] !== true) openBrowser(handle.url, io);
+  try {
+    await (io.waitForShutdown?.() ?? Promise.resolve());
+  } finally {
+    await handle.close();
+  }
+  return 0;
+}
+
+/** The requested port, or `undefined` if it is not one. */
+function dashboardPort(value: string | boolean | undefined): number | undefined {
+  if (typeof value !== 'string') return DEFAULT_DASHBOARD_PORT;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) return undefined;
+  return port;
+}
+
+/**
+ * Hands the URL to the desktop's browser, and never fails the command for it.
+ *
+ * Detached with its stdio closed so a browser that has to start does not hold
+ * the dashboard's own process open, or write over its output.
+ */
+function openBrowser(url: string, io: CliIo): void {
+  const { command, args } = browserOpenCommand(process.platform, url);
+  try {
+    const child = spawn(command, args, { stdio: 'ignore', detached: true });
+    child.on('error', () =>
+      io.err(`ddrop: could not run ${command}; open the URL above yourself.`),
+    );
+    child.unref();
+  } catch {
+    io.err(`ddrop: could not run ${command}; open the URL above yourself.`);
+  }
+}
+
 async function transport(args: string[], values: Values, io: CliIo): Promise<number> {
   const sub = args[0] ?? 'list';
   if (sub !== 'list' && sub !== 'health') {
@@ -721,11 +800,16 @@ async function metrics(values: Values, io: CliIo): Promise<number> {
  * without one listens on the default path.
  */
 async function client(values: Values): Promise<ControlPlaneClient> {
-  if (typeof values.socket === 'string') return new ControlPlaneClient(values.socket);
+  return new ControlPlaneClient(await socketPathFor(values));
+}
+
+/** The path itself, which `ddrop dashboard` reports and reuses. */
+async function socketPathFor(values: Values): Promise<string> {
+  if (typeof values.socket === 'string') return values.socket;
   const path = await findConfigPath(values);
-  if (path === undefined) return new ControlPlaneClient(defaultSocketPath(DEFAULT_DATA_DIR));
+  if (path === undefined) return defaultSocketPath(DEFAULT_DATA_DIR);
   const config = await loadRuntimeConfig(path);
-  return new ControlPlaneClient(config.controlSocket ?? defaultSocketPath(config.dataDir));
+  return config.controlSocket ?? defaultSocketPath(config.dataDir);
 }
 
 function buildQuery(values: Values, extra: Record<string, string> = {}): string {

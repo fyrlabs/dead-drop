@@ -81,6 +81,28 @@ Two things to know before scripting it:
 - Each call lists every store transport once, which on `git` and `github` means a fetch. Fine for a dashboard poll, not for a tight loop.
 - `read` in `--json` counts the transports that answered. When it is zero the command exits 1 and prints nothing to stdout, because "nothing is queued" and "I could not look" are different answers. `unreadable` names the transports that failed, and `truncated` marks counts as lower bounds when a listing hit its 10,000-object scan cap.
 
+## Dashboard
+
+`ddrop dashboard` opens a web page showing everything above at once: peers, transports and their health, queued depth per peer, mailbox counters and the recent log.
+
+```bash
+ddrop dashboard                 # http://127.0.0.1:7373, and opens a browser
+ddrop dashboard --port 9000     # a port you choose
+ddrop dashboard --no-open       # print the URL and stop there
+```
+
+It runs in the foreground and stops with Ctrl-C. The URL is printed before a browser is opened, and a failed open never fails the command, so it is usable over ssh on a machine with no desktop.
+
+Three things about it are deliberate, and [ADR 0004](adr/0004-dashboard-binds-tcp-and-holds-no-runtime.md) has the reasoning:
+
+- **It is read-only.** It shows what `status`, `discover`, `queues`, `logs`, `trace` and `metrics` already return. There is no route that publishes, calls, exposes, cancels or retries anything, and that is what makes a browser-reachable port an acceptable trade rather than a second door into the workspace.
+- **It starts no runtime.** It is a client of the control socket, exactly like `ddrop status`. It clones no working directory, claims no peer id and writes no presence beacon, so leaving it open all day costs the transport nothing.
+- **It binds `127.0.0.1` and nothing else**, answers only requests whose `Host` is the loopback interface, and fails on a port already in use rather than moving to a free one. Anything with local access can read workspace metadata from it while it is open, so run it while you are looking at it, not as a service.
+
+It needs no network: the page and the one library it uses ship inside the package.
+
+Each poll costs one listing per store transport, which on `git` and `github` means a fetch. The page polls every five seconds and stops while its tab is hidden.
+
 ## Metrics
 
 `ddrop metrics` emits Prometheus text. The ones worth alerting on:

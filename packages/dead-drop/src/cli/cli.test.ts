@@ -380,3 +380,38 @@ describe('ddrop commands that need a runtime', () => {
     expect(io.stderr.join('\n')).toMatch(/cannot read config file/);
   });
 });
+
+describe('ddrop dashboard', () => {
+  it('prints the url on stdout, and prints it before opening anything', async () => {
+    const socket = await fakeControlPlane({ ok: true, version: VERSION });
+    const io = capture();
+    // Port 0 rather than the default: a fixed port would collide with whatever
+    // else is listening on the machine running the suite.
+    expect(await run(['dashboard', '--socket', socket, '--port', '0', '--no-open'], io)).toBe(0);
+    // One line, the URL, so `ddrop dashboard --no-open | pbcopy` is a sensible
+    // thing to type. Everything else is commentary on stderr.
+    expect(io.stdout).toHaveLength(1);
+    expect(io.stdout[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    expect(io.stderr.join('\n')).toContain('read-only');
+  });
+
+  it('starts against a runtime that is not running, and says so', async () => {
+    // A dashboard opened before `ddrop start`, or left open across a restart,
+    // must not be a hard failure: the page reports the runtime being away.
+    const io = capture();
+    const socket = join(await temp(), 'absent.sock');
+    expect(await run(['dashboard', '--socket', socket, '--port', '0', '--no-open'], io)).toBe(0);
+    expect(io.stderr.join('\n')).toMatch(/Is "ddrop start" running/);
+    expect(io.stdout[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+  });
+
+  it('rejects a port that is not one before binding anything', async () => {
+    const socket = await fakeControlPlane({ ok: true });
+    for (const port of ['not-a-port', '70000', '-1', '80.5']) {
+      const io = capture();
+      expect(await run(['dashboard', '--socket', socket, '--port', port, '--no-open'], io)).toBe(2);
+      expect(io.stderr.join('\n')).toContain('--port');
+      expect(io.stdout).toEqual([]);
+    }
+  });
+});

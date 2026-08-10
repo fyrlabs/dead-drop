@@ -1,3 +1,7 @@
 dist
 coverage
 *.md
+
+# Vendored verbatim from lume-js so it can be diffed against the published file.
+packages/dead-drop/static/lume.min.mjs
+packages/dead-drop/static/lume-js.LICENSE
