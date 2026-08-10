@@ -295,10 +295,38 @@ git -C "$OBS" remote add origin "$(gh repo view "$REPO" --json url --jq .url 2>/
 observed() { git -C "$OBS" fetch --quiet --force origin "$CBRANCH" 2>/dev/null; }
 # A compacted branch has nothing behind its root, so the root's subject says
 # which of the two ways the branch was last built.
-compact_root() { git -C "$OBS" log --format=%s FETCH_HEAD 2>/dev/null | tail -1; }
+# Ask git for the root rather than taking the last line of `git log`: log orders
+# by commit date, not ancestry, and these commits land seconds apart, so the
+# oldest-looking line is not reliably the root. `--max-parents=0` is the root by
+# definition. The `tail -1` version passed only while the branch was a single
+# commit, which is exactly when the check cannot fail.
+compact_root() {
+  local root
+  root=$(git -C "$OBS" rev-list --max-parents=0 FETCH_HEAD 2>/dev/null | head -1)
+  [ -n "$root" ] || return 1
+  git -C "$OBS" log -1 --format=%s "$root" 2>/dev/null
+}
+compact_depth() { git -C "$OBS" rev-list --count FETCH_HEAD 2>/dev/null || echo 0; }
 has_compacted() {
   observed || return 1
   [ "$(compact_root)" = "chore: compact ddrop data branch" ]
+}
+
+# Both of these state the SAFE condition, which is what a `cannot` predicate
+# means in this harness. Compacting is only worth anything if the history it
+# replaced actually stopped being reachable on the remote: a force-push that
+# left the old chain in place would satisfy every `can` above and achieve
+# nothing, because what a joining peer pays for is reachable objects.
+history_is_unreachable() {
+  observed || return 1
+  [ "$(compact_depth)" -le 4 ]
+}
+compact_branch_holds_only_objects() {
+  local stray
+  stray=$(git -C "$OBS" ls-tree -r --name-only FETCH_HEAD 2>/dev/null \
+    | grep -v '^ws/' | grep -v '^README.md$')
+  [ -z "$stray" ] || note "unexpected paths on the compacted branch: $(printf '%s' "$stray" | tr '\n' ' ')"
+  [ -z "$stray" ]
 }
 
 write_config "$GH/c" "peer-c" "$(compact_transport "$GH/c/work")" \
@@ -332,6 +360,12 @@ can "answer a request afterwards, from peers whose history GitHub just discarded
 can "keep the transport usable after a force-push it did not initiate" \
   transport_is_usable "$GH/d"
 ON_FAIL=""
+
+cannot "leave the history it replaced reachable on the remote, which is the whole point" \
+  history_is_unreachable
+
+cannot "leave anything but objects on the branch it rewrote" \
+  compact_branch_holds_only_objects
 
 stop_peer "$CCONNECT_PID"
 stop_peer "$C_PID"

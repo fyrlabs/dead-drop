@@ -160,8 +160,16 @@ compact_transport() { # $1 = remote, $2 = work dir
 # A compacted branch has nothing behind its root at all, so the root's subject
 # says which of the two ways the branch was last built. This is a fact about the
 # published branch rather than about any peer's clone.
+#
+# Ask git for the root rather than taking the last line of `git log`: log orders
+# by commit date, not by ancestry, and these commits land seconds apart, so the
+# oldest-looking line is not reliably the root. `--max-parents=0` is the root by
+# definition.
 branch_root_subject() {
-  git -C "$CREMOTE" log --format=%s deaddrop-data 2>/dev/null | tail -1
+  local root
+  root=$(git -C "$CREMOTE" rev-list --max-parents=0 deaddrop-data 2>/dev/null | head -1)
+  [ -n "$root" ] || return 1
+  git -C "$CREMOTE" log -1 --format=%s "$root" 2>/dev/null
 }
 has_compacted() {
   [ "$(branch_root_subject)" = "chore: compact ddrop data branch" ]
