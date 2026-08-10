@@ -22,6 +22,7 @@ import { isValidRepo, parseRepoJson, type GhClient, type GhRepoInfo } from './gh
 
 const execFileAsync = promisify(execFile);
 const dirs: string[] = [];
+const opened: StoreTransport[] = [];
 
 async function temp(prefix: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), prefix));
@@ -66,7 +67,7 @@ async function store(
   gh: GhClient,
   overrides: Partial<Parameters<typeof githubTransport>[0]> = {},
 ): Promise<StoreTransport> {
-  return githubTransport.definition.create(
+  const created = githubTransport.definition.create(
     {
       repo: 'acme/deaddrop-data',
       workDir: await temp('deaddrop-gh-work-'),
@@ -77,9 +78,18 @@ async function store(
     },
     context(),
   ) as StoreTransport;
+  opened.push(created);
+  return created;
 }
 
 afterEach(async () => {
+  // Close before deleting, or the directory is removed out from under git.
+  // A resolved `put` does not mean the store is idle: the git delegate runs
+  // compaction *after* the write resolves, so the caller never waits on
+  // housekeeping, and it is still shelling out to git when the test body ends.
+  // Deleting the work directory under a live git process fails with EBUSY on
+  // Windows and ENOTEMPTY elsewhere, so this only ever broke on CI.
+  await Promise.all(opened.splice(0).map((transport) => transport.close().catch(() => undefined)));
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
