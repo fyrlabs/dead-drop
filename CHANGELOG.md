@@ -6,6 +6,8 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+## [0.7.0]
+
 ### Added
 
 - `ddrop dashboard` shows peers, transports, queued depth and the recent log on one page in your browser, instead of four commands in a terminal. It runs on `127.0.0.1:7373` (`--port` to choose another), opens a browser unless you pass `--no-open`, and prints the URL first either way so it works over ssh. The page ships inside the package, so it renders with no network.
