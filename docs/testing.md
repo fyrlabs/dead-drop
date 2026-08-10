@@ -59,7 +59,7 @@ No network, no credentials, safe for CI, and it runs before every release. Under
 | `04-exposures.sh` | `allowPeers`, and an `http` exposure proxying a local server that is up and then down |
 | `05-broadcast.sh` | One publisher, three subscribers, one peer that never subscribed, one that was offline |
 | `06-key-rotation.sh` | Two-stage rotation with no downtime, and a peer left on the retired key failing closed |
-| `07-failover.sh` | A transport dying under a running peer, and recovery when it comes back |
+| `07-failover.sh` | A transport dying under a running peer, recovery when it comes back, and the `parallel` policy putting a copy on every transport while `failover` puts it on one |
 | `08-git-transport.sh` | The git transport against a local bare repository, including two runtimes sharing one `workDir` |
 | `09-dashboard.sh` | The dashboard binds where it was told, renders with no network, only reads, and starts no runtime |
 | `10-reaping.sh` | Mail for a peer that comes back survives its window; mail for one that never existed is reclaimed, and running peers' beacons are not |

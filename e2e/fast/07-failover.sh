@@ -283,3 +283,100 @@ ON_FAIL=""
 stop_peer "$MAROONED_PID"
 stop_peer "$PROXY_PID"
 stop_peer "$SERVER_PID"
+
+scenario "every transport carries a copy under the parallel policy"
+
+# Added after the peers above stop, on its own directories, so nothing here can
+# contaminate the failover assertions or their timings.
+#
+# `parallel` shipped broken: the config parser accepted the word, three docs said
+# it wrote each message through every healthy transport, and it selected exactly
+# one, because the fan-out in the transport manager had no caller. Fixed in
+# 0.11.0, and this is the scenario that would have caught it from outside.
+#
+# The observable is the presence beacon, not a message. Delivery is
+# delete-as-acknowledgement, so a request object is gone from both transports
+# almost as soon as it lands and counting them races the runtime; a beacon is
+# written on an interval and stays. It goes through the same write path.
+PAR_A="$FO/parallel-a"
+PAR_B="$FO/parallel-b"
+mkdir -p "$PAR_A" "$PAR_B"
+
+PAR_TRANSPORTS="
+  { \"use\": \"filesystem\", \"name\": \"one\", \"config\": { \"root\": \"$PAR_A\", \"pollIntervalMs\": 300 } },
+  { \"use\": \"filesystem\", \"name\": \"two\", \"config\": { \"root\": \"$PAR_B\", \"pollIntervalMs\": 300 } }"
+PAR_POLICY='"policy": { "mode": "parallel" }'
+
+announced_on() { # $1 = transport root, $2 = peer id
+  [ -n "$(find "$1" -type f -path "*peers*" -name "$2*" 2>/dev/null)" ]
+}
+announced_on_both() { # $1 = peer id
+  announced_on "$PAR_A" "$1" && announced_on "$PAR_B" "$1"
+}
+absent_from() { # $1 = transport root, $2 = peer id
+  ! announced_on "$1" "$2"
+}
+par_fetches_content() {
+  [ "$(curl -s --max-time 20 "http://127.0.0.1:$PAR_PORT/index.txt" 2>/dev/null)" \
+    = "served-over-either" ]
+}
+
+write_config "$FO/par-server" "par-server" "$PAR_TRANSPORTS" \
+  "{ \"name\": \"site\", \"type\": \"static\", \"directory\": \"$STATIC\" }" \
+  "$PAR_POLICY, $TUNING"
+write_config "$FO/par-client" "par-client" "$PAR_TRANSPORTS" "" "$PAR_POLICY, $TUNING"
+
+PAR_SERVER_PID=$(start_peer "$FO/par-server" "$FO/par-server.log")
+wait_up "$FO/par-server" "$PAR_SERVER_PID" >/dev/null
+PAR_PORT=$(free_port)
+PAR_PROXY_PID=$(start_connect "$FO/par-client" "par-server/site" "$PAR_PORT" "$FO/par-proxy.log" 15000)
+
+ON_FAIL="$FO/par-server.log $FO/par-proxy.log"
+can "exchange traffic normally with the policy set to parallel" \
+  wait_for 10 3 par_fetches_content
+ON_FAIL=""
+
+# The assertion the scenario exists for. Before 0.11.0 this peer announced on
+# whichever transport scored highest and the other directory stayed empty.
+ON_FAIL="$FO/par-server.log"
+can "put a copy on every transport it was given, not just the best one" \
+  wait_for 15 2 announced_on_both par-server
+ON_FAIL=""
+
+# A control peer on the same two directories, under `failover` with an explicit
+# primary. It is what stops the assertion above from being a statement about
+# these two directories rather than about the policy, and it has to be `failover`
+# rather than the default: two identical filesystem transports score within noise
+# of each other, so a `score` peer's beacon can land in one directory on one
+# interval and the other on the next, and end up in both without any fan-out.
+# That is not hypothetical -- an earlier draft asserted the second peer reached
+# both directories under `score` and passed against a build where `parallel` did
+# nothing at all. `failover` takes the declared order verbatim, every time.
+PAR_SINGLE_POLICY='"policy": { "mode": "failover", "primary": "one", "fallback": ["two"] }'
+write_config "$FO/par-single" "par-single" "$PAR_TRANSPORTS" "" "$PAR_SINGLE_POLICY, $TUNING"
+PAR_SINGLE_PID=$(start_peer "$FO/par-single" "$FO/par-single.log")
+wait_up "$FO/par-single" "$PAR_SINGLE_PID" >/dev/null
+
+ON_FAIL="$FO/par-single.log"
+can "announce on its primary transport when the policy names one" \
+  wait_for 15 2 announced_on "$PAR_A" par-single
+ON_FAIL=""
+
+cannot "copy a write onto a transport the policy did not ask it to use" \
+  absent_from "$PAR_B" par-single
+
+# At-least-one is the contract: a copy on the surviving transport is a delivered
+# message, so a write must not fail because one of two backends refused it.
+# Making `parallel` less available than `score` would invert the reason to use it.
+chmod 000 "$PAR_B"
+
+ON_FAIL="$FO/par-server.log $FO/par-proxy.log"
+cannot "fail a send because one of its two transports has become unwritable" \
+  wait_for 15 3 par_fetches_content
+ON_FAIL=""
+
+chmod 755 "$PAR_B"
+
+stop_peer "$PAR_PROXY_PID"
+stop_peer "$PAR_SINGLE_PID"
+stop_peer "$PAR_SERVER_PID"

@@ -330,6 +330,67 @@ describe('TransportManager run', () => {
     expect((await promise).message).toMatch(/failed after 1 attempts|TIMEOUT|timed/i);
   });
 
+  it('carries a write on every transport under the parallel policy', async () => {
+    // The bug this exists for: `parallel` was accepted by the config parser,
+    // documented as writing through every healthy transport, and did nothing at
+    // all. `runAll` was the fan-out and had no caller, so the mode selected one
+    // transport exactly like `score`, silently, for every release that named it.
+    const a = faultyTransport('alpha');
+    const b = faultyTransport('beta');
+    const { manager: subject } = manager([a.registration, b.registration], {
+      policy: { mode: 'parallel' },
+    });
+    await subject.start();
+
+    await subject.runWrite('put', (transport) =>
+      (transport as StoreTransport).put('ws/demo/inbox/peer-b/1.ddf', new Uint8Array([1])),
+    );
+
+    expect(a.store.objects.size).toBe(1);
+    expect(b.store.objects.size).toBe(1);
+  });
+
+  it('carries a write on one transport under every other policy', async () => {
+    for (const policy of [{}, { mode: 'score' as const }, { mode: 'failover' as const }]) {
+      const a = faultyTransport('alpha');
+      const b = faultyTransport('beta');
+      const { manager: subject } = manager([a.registration, b.registration], { policy });
+      await subject.start();
+
+      await subject.runWrite('put', (transport) =>
+        (transport as StoreTransport).put('ws/demo/inbox/peer-b/1.ddf', new Uint8Array([1])),
+      );
+
+      expect(a.store.objects.size + b.store.objects.size).toBe(1);
+    }
+  });
+
+  it('accepts a parallel write that only one transport could take', async () => {
+    // At-least-one is the contract: the recipient polls every store it has, so
+    // a copy on the surviving transport is a delivered message. Failing the
+    // send here would make `parallel` less available than `score`, which is the
+    // opposite of why anyone configures it.
+    const broken = faultyTransport('broken', {
+      failOperations: ['put'],
+      failCount: Number.POSITIVE_INFINITY,
+    });
+    const working = faultyTransport('working');
+    const { manager: subject, clock } = manager([broken.registration, working.registration], {
+      policy: { mode: 'parallel' },
+      retry: { maxAttempts: 1 },
+    });
+    await subject.start();
+
+    const promise = subject.runWrite('put', (transport) =>
+      (transport as StoreTransport).put('ws/demo/inbox/peer-b/1.ddf', new Uint8Array([1])),
+    );
+    await clock.advance(1000);
+    await promise;
+
+    expect(working.store.objects.size).toBe(1);
+    expect(broken.store.objects.size).toBe(0);
+  });
+
   it('runAll succeeds when at least one transport works', async () => {
     const broken = faultyTransport('broken', {
       failOperations: ['put'],

@@ -111,8 +111,6 @@ export interface SendOptions {
   signal?: AbortSignal;
   /** Parents the send span to a caller span already covering this envelope. */
   trace?: TraceContext;
-  /** Write through every healthy transport instead of just the best one. */
-  broadcastTransports?: boolean;
   /** Restrict to these transport instance names. */
   only?: string[];
 }
@@ -264,19 +262,11 @@ export class MailboxEngine {
           ...(options.only ? { only: options.only } : {}),
         };
 
-        if (options.broadcastTransports) {
-          await this.manager.runAll('put', (transport) => write(transport as StoreTransport), {
-            requirements,
-            ...(options.signal ? { signal: options.signal } : {}),
-            ...(trace ? { trace } : {}),
-          });
-        } else {
-          await this.manager.run('put', (transport) => write(transport as StoreTransport), {
-            requirements,
-            ...(options.signal ? { signal: options.signal } : {}),
-            ...(trace ? { trace } : {}),
-          });
-        }
+        await this.manager.runWrite('put', (transport) => write(transport as StoreTransport), {
+          requirements,
+          ...(options.signal ? { signal: options.signal } : {}),
+          ...(trace ? { trace } : {}),
+        });
         this.metrics.payloadBytes.observe(frame.length, { direction: 'out' });
       }
 

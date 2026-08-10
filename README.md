@@ -122,7 +122,9 @@ A workspace can list several, and the runtime chooses between them. Your applica
 
 On the LAN the shared folder carries everything. Unmount it and the runtime works out that it is gone, moves the traffic to GitHub, and moves it back when the folder returns. No restart, no config change, and the caller sees a slow request rather than an error.
 
-Give every peer the same list. Writes go to one transport, but every peer polls all of the ones it has, so a message written over a transport somebody else has not configured is a message that peer never receives. [Transport policy](docs/configuration.md#policy) has the modes and the trade-offs.
+Give every peer the same list. Writes go to one transport, but every peer polls all of the ones it has, so a message written over a transport somebody else has not configured is a message that peer never receives.
+
+If your peers cannot all reach the same transports, say a laptop at home that reaches GitHub but not the office folder, set `"policy": { "mode": "parallel" }` instead. Every message then goes to every transport and the recipient takes whichever copy reaches it first. [Transport policy](docs/configuration.md#policy) has the modes and what each one costs.
 
 ## What this is, and what it is not
 

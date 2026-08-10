@@ -187,6 +187,8 @@ Controls which transport carries a message when a workspace has more than one.
 
 Only writes are affected. Receiving, discovery and `ddrop queues` read every store transport on every cycle, whatever the policy says. That asymmetry is what makes a second transport worth configuring: a message written over whichever transport was healthy at the time is still found by a peer polling both.
 
+If you want the one-line version: leave it unset unless your peers cannot all reach the same transports, in which case set `"policy": { "mode": "parallel" }` and read the rest of this section.
+
 | Field | Type | Notes |
 | --- | --- | --- |
 | `mode` | string | `failover`, `parallel` or `score`. Anything else is rejected. |
@@ -237,7 +239,15 @@ While the folder is mounted it carries everything: it is first in the declared o
 
 `failover` uses the declared order verbatim: `primary`, then each of `fallback` in turn, then any transport the policy does not name, best score first. It ignores the scores among the named ones, and that is the point. An operator who puts a slower or cheaper transport first means it. Use it when the transports are not interchangeable, for example when one of them spends API quota or money.
 
-`parallel` is accepted by the parser but currently behaves exactly like `score`: one transport carries each message. It is named here so the word does not read as a feature. Do not configure it expecting a copy on every transport.
+`parallel` writes each message, and each presence beacon, through every eligible transport at once. The recipient polls all of them, delivers the first copy that arrives and deletes the rest, so a duplicate costs storage and bandwidth rather than a duplicate delivery. A send succeeds as soon as one transport has taken it, which makes `parallel` the most available mode as well as the most expensive.
+
+Use it when your peers cannot all reach the same transports, which is the case the other two modes cannot answer. A laptop at home reaches GitHub but not the office NAS; under `score` or `failover` a message written to the NAS is not lost, but it waits until that laptop is back on the LAN, and no amount of retrying changes that, because the write already succeeded. Under `parallel` the copy on GitHub arrives now.
+
+The cost is real and it is per message. Every write happens on every transport, so on `git` or `github` each one is another commit and another push, and a workspace's API quota is spent as many times over as it has transports. Latency is the slowest transport rather than the sum of them, because the writes run concurrently. Two transports is a sensible ceiling.
+
+One thing that looks like a fault and is not: `deaddrop_messages_dropped_total{reason="duplicate"}` climbs by one per extra copy, so under `parallel` it tracks your message rate. That is the deduplication working, not messages being lost.
+
+Before 0.11.0 this mode was accepted by the parser and did nothing at all: it selected a single transport exactly like `score`. If you set it on an older release, you were not getting a second copy.
 
 `ddrop transport list` prints the scores and breaker states behind the current choice, which is what to read when that choice surprises you:
 

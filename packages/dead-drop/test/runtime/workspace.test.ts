@@ -453,6 +453,67 @@ describe('delivery concurrency', () => {
 });
 
 /**
+ * `policy.mode`, asserted where a user would notice it: on the stores.
+ *
+ * The same failure the concurrency tests above guard against, except it shipped.
+ * `parallel` parsed, was documented as writing through every healthy transport,
+ * and selected exactly one, because the fan-out in the transport manager had no
+ * caller. A test at the manager alone would not have caught it either; what was
+ * missing was anybody asking where a published message actually landed.
+ */
+describe('transport policy', () => {
+  const topics = (store: MutableStore): string[] =>
+    [...store.objects.keys()].filter((key) => key.includes('/topic/'));
+  const beacons = (store: MutableStore): string[] =>
+    [...store.objects.keys()].filter((key) => key.includes('/peers/'));
+
+  it('writes a message and a beacon to every transport under parallel', async () => {
+    const a = new MutableStore();
+    const b = new MutableStore();
+    const ws = workspace(a, new TestClock(), { policy: { mode: 'parallel' } }, [b]);
+    await ws.start();
+    await ws.publish('orders', encodeJson({ ok: true }));
+
+    expect(topics(a)).toHaveLength(1);
+    expect(topics(b)).toHaveLength(1);
+    // The beacon fans out too, or a peer that cannot reach the first transport
+    // never discovers this one, and discovery would contradict delivery.
+    expect(beacons(a)).toHaveLength(1);
+    expect(beacons(b)).toHaveLength(1);
+
+    await ws.stop();
+  });
+
+  it('writes to a single transport by default', async () => {
+    const a = new MutableStore();
+    const b = new MutableStore();
+    const ws = workspace(a, new TestClock(), {}, [b]);
+    await ws.start();
+    await ws.publish('orders', encodeJson({ ok: true }));
+
+    expect(topics(a).length + topics(b).length).toBe(1);
+    expect(beacons(a).length + beacons(b).length).toBe(1);
+
+    await ws.stop();
+  });
+
+  it('withdraws the beacon from every transport it may have reached', async () => {
+    // `stop` deletes from all stores whatever the policy, which is what keeps a
+    // fanned-out beacon from outliving its peer on the transport it was not
+    // withdrawn from and reading as liveness to the inbox reaper.
+    const a = new MutableStore();
+    const b = new MutableStore();
+    const ws = workspace(a, new TestClock(), { policy: { mode: 'parallel' } }, [b]);
+    await ws.start();
+    expect(beacons(a).length + beacons(b).length).toBe(2);
+
+    await ws.stop();
+    expect(beacons(a)).toHaveLength(0);
+    expect(beacons(b)).toHaveLength(0);
+  });
+});
+
+/**
  * Orphaned inbox reaping, ADR 0006.
  *
  * Nothing but a peer itself ever empties its own inbox, so mail addressed to a

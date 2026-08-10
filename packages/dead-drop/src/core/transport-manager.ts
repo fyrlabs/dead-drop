@@ -385,6 +385,34 @@ export class TransportManager {
     );
   }
 
+  /**
+   * Runs a write the way the policy says to carry it: through every eligible
+   * transport under `parallel`, through the best single one otherwise.
+   *
+   * Callers use this rather than choosing between `run` and `runAll` themselves,
+   * because "how many transports carry a write" is a policy question and policy
+   * lives here. Nothing above this class reads `policy.mode`, for the same
+   * reason nothing above it names a transport.
+   */
+  async runWrite<T>(
+    operation: string,
+    body: (transport: Transport, entry: ManagedTransport) => Promise<T>,
+    options: {
+      requirements?: TransportRequirements;
+      timeoutMs?: number;
+      signal?: AbortSignal;
+      retry?: Partial<RetryPolicy>;
+      trace?: TraceContext;
+    } = {},
+  ): Promise<T> {
+    if (this.policy.mode !== 'parallel') return this.run(operation, body, options);
+    // `runAll` throws unless at least one transport succeeded, so a fulfilled
+    // result always exists here. Under `parallel` a write that reached one of
+    // two transports is a successful write: the recipient polls both.
+    const results = await this.runAll(operation, body, options);
+    return results[0] as T;
+  }
+
   /** Runs `body` on every healthy transport. Resolves if at least one succeeds. */
   async runAll<T>(
     operation: string,

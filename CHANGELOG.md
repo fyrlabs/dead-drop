@@ -6,11 +6,15 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+### Fixed
+
+- `"policy": { "mode": "parallel" }` now does what it always claimed: every message and every presence beacon goes to all of your transports, and the recipient takes whichever copy reaches it first. It used to be accepted and then quietly ignored, picking one transport like the default mode, so nobody who set it ever got a second copy.
+
+  Use it when your peers cannot all reach the same transports. A laptop at home that reaches GitHub but not the office folder used to wait for a message written to that folder; now the copy on GitHub arrives straight away. It costs a write on every transport for every message, so on a git or GitHub transport that is another commit and push each time.
+
 ### Documentation
 
-- Running a workspace over more than one transport is documented. It has always worked, and the README and the configuration reference now show a two-transport setup, a shared folder with GitHub behind it, and explain what happens when one of them goes down.
-
-- Corrected the description of `policy.mode: "parallel"`. The docs said it wrote each message through every healthy transport; it does not, and behaves exactly like the default `score` mode. Nothing changed in the code. If you configured `parallel` expecting a copy on every transport, you were never getting one.
+- Running a workspace over more than one transport is documented. It has always worked, and the README and the configuration reference now show a two-transport setup, a shared folder with GitHub behind it, what happens when one of them goes down, and which policy mode to pick.
 
 ## [0.10.0]
 

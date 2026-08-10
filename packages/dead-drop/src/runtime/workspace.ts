@@ -899,7 +899,12 @@ export class Workspace {
     });
     const frame = await encodeFrame(envelope, { key: this.keys.primary });
     const key = peerKey(this.name, this.peerId);
-    await this.manager.run(
+    // `runWrite`, so a `parallel` workspace announces on every transport. A
+    // beacon written to one transport a peer cannot reach makes this peer
+    // invisible to it, which is the asymmetry `parallel` exists to remove, and
+    // discovery would have contradicted delivery. `withdraw` already deletes
+    // from every store, so the two stay symmetric.
+    await this.manager.runWrite(
       'put',
       (transport) =>
         (transport as StoreTransport).put(key, frame, { contentType: 'application/octet-stream' }),

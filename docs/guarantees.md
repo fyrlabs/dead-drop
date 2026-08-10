@@ -46,7 +46,7 @@ Clocks are not synchronised between peers. A peer whose clock is badly wrong wil
 
 An operation that fails on one transport is retried on that transport, then moved to the next one. Failover is skipped for caller-side failures (bad request, unauthorised, payload too large, unsupported) because those fail identically on every backend and retrying them elsewhere only multiplies the damage.
 
-Each message is written to exactly one transport, under all three policy modes. `mode: "parallel"` is accepted by the config parser and currently selects a single transport just as `score` does, so it buys no redundancy today; the receiving side reads every configured store transport regardless, which is what lets a message written over one of them arrive at all. See [configuration.md](configuration.md#policy).
+Under `score` and `failover` a message is written to exactly one transport. Under `mode: "parallel"` it is written to every eligible one, and the send succeeds if at least one of them took it. Either way the receiver polls every store transport it has, delivers the first copy and deletes the others, so the extra copies cost storage rather than duplicate deliveries. `parallel` did nothing before 0.11.0; see [configuration.md](configuration.md#policy).
 
 ## What is not guaranteed
 

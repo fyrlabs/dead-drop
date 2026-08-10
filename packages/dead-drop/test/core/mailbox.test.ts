@@ -34,6 +34,8 @@ interface Fixture {
   metrics: MetricsRegistry;
   manager: TransportManager;
   store: FaultyStore;
+  /** The second transport, present only when the fixture was asked for one. */
+  second: FaultyStore | undefined;
   mailbox: MailboxEngine;
   received: Envelope[];
   start(): Promise<void>;
@@ -50,6 +52,8 @@ async function fixture(
     handler?: (envelope: Envelope) => Promise<void>;
     encrypted?: boolean;
     tracer?: Tracer;
+    /** Objects for a second transport, which makes the fixture multi-transport. */
+    secondObjects?: Map<string, Uint8Array>;
   } = {},
 ): Promise<Fixture> {
   const { clock, logger } = harness(BASE_TIME);
@@ -60,10 +64,13 @@ async function fixture(
     { ...(options.objects ? { objects: options.objects } : {}), ...options.store },
     options.capabilities,
   );
+  const other = options.secondObjects
+    ? faultyTransport('beta', { objects: options.secondObjects })
+    : undefined;
   const manager = new TransportManager({
     workspace: WORKSPACE,
     peerId,
-    registrations: [registration],
+    registrations: other ? [registration, other.registration] : [registration],
     clock,
     logger,
     metrics,
@@ -99,6 +106,7 @@ async function fixture(
     metrics,
     manager,
     store,
+    second: other?.store,
     mailbox,
     received,
     start: () => mailbox.start(handler),
@@ -252,6 +260,28 @@ describe('MailboxEngine receive', () => {
 
     expect(context.received).toHaveLength(1);
     expect(context.metrics.messagesDropped.get({ reason: 'duplicate' })).toBe(1);
+  });
+
+  it('delivers a message that reached two transports once, and clears both copies', async () => {
+    // What makes `policy.mode: "parallel"` safe rather than a storage leak.
+    // Under it every message exists on every transport, so the duplicate is the
+    // normal case, not an anomaly: the dedupe claim stops the second delivery
+    // and the second copy still has to be acknowledged. Leaving it behind would
+    // strand one object per message per extra transport, forever, which is the
+    // exact leak the inbox reaper was written to clean up.
+    const objects = new Map<string, Uint8Array>();
+    const secondObjects = new Map<string, Uint8Array>();
+    const context = await fixture({ peerId: 'peer-b', objects, secondObjects });
+    const message = envelope({ from: 'peer-a', to: 'peer-b' });
+    await deliver('peer-b', message, objects);
+    await deliver('peer-b', message, secondObjects);
+
+    expect(await context.mailbox.pollOnce()).toBe(1);
+
+    expect(context.received).toHaveLength(1);
+    expect(context.metrics.messagesDropped.get({ reason: 'duplicate' })).toBe(1);
+    expect([...objects.keys()].filter((key) => key.includes('/inbox/'))).toHaveLength(0);
+    expect([...secondObjects.keys()].filter((key) => key.includes('/inbox/'))).toHaveLength(0);
   });
 
   it('drops an expired message without delivering it', async () => {
