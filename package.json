@@ -1,6 +1,6 @@
 {
   "name": "dead-drop",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "description": "dead-drop: a transport-agnostic runtime for distributed applications",
   "type": "module",

@@ -6,6 +6,8 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+## [0.12.0]
+
 ### Added
 
 - `ddrop expose` now tells you what to run on the other machine: `Peers reach it with: ddrop connect <peer>/<name>`. Finding your own peer id used to be a separate command you had to know about.
@@ -14,7 +16,7 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ### Fixed
 
-- `polling` and `policy` are now checked properly when the config loads, like every other setting. A misspelling such as `polling.intervalMs`, a number written as `"250"`, a `policy.primary` that is not a name, or a polling minimum above its maximum used to be accepted and then quietly do nothing or fail somewhere confusing later. Each now stops start-up with the field named.
+- `polling` and `policy` are now checked properly when the config loads, like every other setting. An unknown key such as `polling.intervalMs`, a number written as `"250"`, a `policy.primary` that is not a name, or a polling minimum above its maximum used to be accepted and then quietly do nothing or fail somewhere confusing later. Each now stops start-up with the field named, so a config with one of these mistakes that used to start will now refuse to.
 
 ## [0.11.0]
 
