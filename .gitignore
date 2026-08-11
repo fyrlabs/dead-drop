@@ -6,9 +6,12 @@ coverage/
 .env
 .deaddrop/
 
-# graphify: keep the graph and its extraction cache, drop the renders.
+# graphify: keep the graph and the semantic cache, drop everything regenerable.
 # graph.html and wiki/ are regenerated from graph.json in seconds
 # (`graphify export html` / `export wiki`); cache/ is what stops a rebuild
 # re-paying the semantic extraction.
 graphify-out/graph.html
 graphify-out/wiki/
+graphify-out/cache/ast/
+graphify-out/.graphify_analysis.json
+graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/

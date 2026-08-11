@@ -1,8 +1,8 @@
 {
   ".claude/settings.json": {
     "mtime": 1786408065.3576078,
-    "ast_hash": "d4a1513493edf0323e32cd29af236ef0",
-    "semantic_hash": "d4a1513493edf0323e32cd29af236ef0"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   ".prettierrc.json": {
     "mtime": 1786213874.9300761,
@@ -16,33 +16,33 @@
   },
   "demo/peer-a/deaddrop.filesystem.json": {
     "mtime": 1786408065.3607452,
-    "ast_hash": "338166d3c9c2fd6992a80dd4960b9d49",
-    "semantic_hash": "338166d3c9c2fd6992a80dd4960b9d49"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "demo/peer-a/deaddrop.git.json": {
     "mtime": 1786408065.3608732,
-    "ast_hash": "77aa81fdad73e1bfa5a0118bdddba8a8",
-    "semantic_hash": "77aa81fdad73e1bfa5a0118bdddba8a8"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "demo/peer-a/deaddrop.github.json": {
     "mtime": 1786408065.3610258,
-    "ast_hash": "6671cd73c2f4e527f5e9475eea1725b9",
-    "semantic_hash": "6671cd73c2f4e527f5e9475eea1725b9"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "demo/peer-b/deaddrop.filesystem.json": {
     "mtime": 1786408065.3611991,
-    "ast_hash": "7ba4e76ee4a651e9e7e0abcb1c91cb8a",
-    "semantic_hash": "7ba4e76ee4a651e9e7e0abcb1c91cb8a"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "demo/peer-b/deaddrop.git.json": {
     "mtime": 1786408065.361326,
-    "ast_hash": "633b9762c9551ba47433a3da28a52a4a",
-    "semantic_hash": "633b9762c9551ba47433a3da28a52a4a"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "demo/peer-b/deaddrop.github.json": {
     "mtime": 1786408065.3614562,
-    "ast_hash": "a140c43f65c202432edaac936b4f9cad",
-    "semantic_hash": "a140c43f65c202432edaac936b4f9cad"
+    "ast_hash": "",
+    "semantic_hash": ""
   },
   "demo/use": {
     "mtime": 1786408065.3617356,
