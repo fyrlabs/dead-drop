@@ -8,8 +8,9 @@ coverage/
 
 # graphify: keep the graph and the semantic cache, drop everything regenerable.
 # graph.html and wiki/ are regenerated from graph.json in seconds
-# (`graphify export html` / `export wiki`); cache/ is what stops a rebuild
-# re-paying the semantic extraction.
+# (`graphify export html` / `export wiki`), and cache/ast/ rebuilds for free.
+# cache/semantic*/ IS committed: it is the only expensive artifact here, and
+# it is what stops a rebuild re-paying the LLM extraction.
 graphify-out/graph.html
 graphify-out/wiki/
 graphify-out/cache/ast/
