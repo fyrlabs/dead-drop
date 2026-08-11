@@ -16,3 +16,4 @@ graphify-out/wiki/
 graphify-out/cache/ast/
 graphify-out/.graphify_analysis.json
 graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
+graphify-out/.graphify_semantic_marker
