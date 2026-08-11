@@ -6,7 +6,19 @@
  *   ws/<workspace>/topic/<channel>/<messageId>.ddf broadcast events, retained
  *   ws/<workspace>/peers/<peer>.ddf                presence beacon
  *   ws/<workspace>/dead/<peer>/<messageId>.ddf     dead letters
+ *   ws/<workspace>/ids/<peer>.ddi                  enrolled public key
+ *   ws/<workspace>/keys/<peer>/<eraId>.ddw         era key wrapped to <peer>
  * ```
+ *
+ * The last two are [ADR 0007](../../../../docs/adr/0007-per-peer-key-wrapping.md).
+ * Wrapped keys are grouped by peer and not by era so a peer lists exactly one
+ * prefix to find everything addressed to it, the same shape as its inbox. Grouped
+ * by era it would have to sweep every era that has ever existed to find its own.
+ *
+ * Both are long-lived and belong to a peer that may be offline for weeks, which
+ * is the opposite of the profile the reapers collect. They are outside every
+ * prefix the reapers walk, and `test/runtime/workspace.test.ts` holds a test that
+ * fails if that stops being true.
  *
  * Message ids sort by creation time, so listing a prefix in lexicographic order
  * gives rough FIFO for free, and a subscriber can resume from the last key it
@@ -45,6 +57,25 @@ export const peersPrefix = (workspace: string): string => joinKey(ROOT, workspac
 export const peerKey = (workspace: string, peerId: string): string =>
   joinKey(ROOT, workspace, 'peers', `${peerId}${FRAME_EXTENSION}`);
 
+export const IDENTITY_EXTENSION = '.ddi';
+export const WRAPPED_KEY_EXTENSION = '.ddw';
+
+/** Every enrolled identity. Listed to discover peers that may be wrapped for. */
+export const identityPrefix = (workspace: string): string => joinKey(ROOT, workspace, 'ids');
+
+export const identityKey = (workspace: string, peerId: string): string =>
+  joinKey(ROOT, workspace, 'ids', `${peerId}${IDENTITY_EXTENSION}`);
+
+/** Every wrapped key in the workspace, for diagnostics only. */
+export const wrappedKeyRoot = (workspace: string): string => joinKey(ROOT, workspace, 'keys');
+
+/** The keys addressed to one peer, across every era. A peer lists only its own. */
+export const wrappedKeyPrefix = (workspace: string, peerId: string): string =>
+  joinKey(ROOT, workspace, 'keys', peerId);
+
+export const wrappedKeyKey = (workspace: string, peerId: string, eraId: string): string =>
+  joinKey(ROOT, workspace, 'keys', peerId, `${eraId}${WRAPPED_KEY_EXTENSION}`);
+
 export const deadLetterPrefix = (workspace: string, peerId: string): string =>
   joinKey(ROOT, workspace, 'dead', peerId);
 
@@ -81,6 +112,39 @@ export function parsePeerKey(workspace: string, key: string): string | undefined
   if (rest.includes('/') || !rest.endsWith(FRAME_EXTENSION)) return undefined;
   const peerId = rest.slice(0, -FRAME_EXTENSION.length);
   return peerId.length > 0 ? peerId : undefined;
+}
+
+/**
+ * Recovers the peer an identity object belongs to.
+ *
+ * Same contract as `parsePeerKey`: a listing of `ws/<workspace>/ids` cannot be
+ * trusted to hold only what dead-drop put there, so anything that is not exactly
+ * `<peer>.ddi` at that depth is not an identity.
+ */
+export function parseIdentityKey(workspace: string, key: string): string | undefined {
+  const root = `${identityPrefix(workspace)}/`;
+  if (!key.startsWith(root)) return undefined;
+  const rest = key.slice(root.length);
+  if (rest.includes('/') || !rest.endsWith(IDENTITY_EXTENSION)) return undefined;
+  const peerId = rest.slice(0, -IDENTITY_EXTENSION.length);
+  return peerId.length > 0 ? peerId : undefined;
+}
+
+/** Splits a wrapped-key object back into the peer it is for and the era it carries. */
+export function parseWrappedKey(
+  workspace: string,
+  key: string,
+): { peerId: string; eraId: string } | undefined {
+  const root = `${wrappedKeyRoot(workspace)}/`;
+  if (!key.startsWith(root)) return undefined;
+  const parts = key.slice(root.length).split('/');
+  if (parts.length !== 2) return undefined;
+  const peerId = parts[0] as string;
+  const last = parts[1] as string;
+  if (!last.endsWith(WRAPPED_KEY_EXTENSION)) return undefined;
+  const eraId = last.slice(0, -WRAPPED_KEY_EXTENSION.length);
+  if (peerId.length === 0 || eraId.length === 0) return undefined;
+  return { peerId, eraId };
 }
 
 export function parseInboxKey(

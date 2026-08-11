@@ -41,8 +41,10 @@ A peer accepts an identity only if the proof verifies. Whoever holds the secret 
 **Wrapping.** For each recipient, the era key is sealed to that recipient's public key by X25519 ECDH into HKDF into AES-256-GCM, and published at:
 
 ```text
-ws/<workspace>/keys/<eraId>/<peer>.ddw
+ws/<workspace>/keys/<peer>/<eraId>.ddw
 ```
+
+Grouped by peer, not by era. This record originally said `keys/<eraId>/<peer>.ddw` and that was wrong in a way implementation exposed: a peer has to find every key addressed to it, so grouping by era forces it to sweep every era that has ever existed on every cycle, while grouping by peer is a single prefix listing with the same shape as `inbox/<peer>/`.
 
 A peer reads the objects under its own name, unwraps each with its private key, and loads the results into the `KeyRing` that already exists. Several eras being live at once is not a special case; it is what `KeyRing` was written for, and its asymmetry is exactly what this needs: sealing always uses the primary, opening tries whichever key id the frame names (`crypto.ts:117`). So a peer seals under one era of its own and reads any era it has been given.
 
