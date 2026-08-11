@@ -5,3 +5,10 @@ coverage/
 .DS_Store
 .env
 .deaddrop/
+
+# graphify: keep the graph and its extraction cache, drop the renders.
+# graph.html and wiki/ are regenerated from graph.json in seconds
+# (`graphify export html` / `export wiki`); cache/ is what stops a rebuild
+# re-paying the semantic extraction.
+graphify-out/graph.html
+graphify-out/wiki/
