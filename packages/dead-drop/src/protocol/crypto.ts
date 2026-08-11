@@ -115,15 +115,45 @@ export function open(
 /**
  * Holds the active key plus any keys still accepted during a rotation.
  * Sealing always uses the primary; opening tries the key id in the frame.
+ *
+ * Keys arrive after construction. Under [ADR 0007](../../../../docs/adr/0007-per-peer-key-wrapping.md)
+ * an era key is unwrapped from an object in the store, which cannot happen until
+ * transports are up, so the ring has to be able to grow. It only ever grows: a
+ * key already accepted is never withdrawn, because a frame sealed under it may
+ * still be sitting in an inbox.
  */
 export class KeyRing {
-  readonly primary: WorkspaceKey;
+  private primaryKey: WorkspaceKey;
   private readonly byId = new Map<string, WorkspaceKey>();
 
   constructor(primary: WorkspaceKey, previous: readonly WorkspaceKey[] = []) {
-    this.primary = primary;
+    this.primaryKey = primary;
     this.byId.set(primary.id, primary);
     for (const key of previous) this.byId.set(key.id, key);
+  }
+
+  /** The key new frames are sealed under. */
+  get primary(): WorkspaceKey {
+    return this.primaryKey;
+  }
+
+  /** Accepts a key for opening. Idempotent, so re-reading the store is free. */
+  add(key: WorkspaceKey): void {
+    this.byId.set(key.id, key);
+  }
+
+  /**
+   * Starts sealing under `key`, keeping every key already held for opening.
+   * Rotation is exactly this plus not wrapping the new era for the departing
+   * peer; nothing is removed here.
+   */
+  promote(key: WorkspaceKey): void {
+    this.byId.set(key.id, key);
+    this.primaryKey = key;
+  }
+
+  has(id: string): boolean {
+    return this.byId.has(id);
   }
 
   static fromSecrets(workspace: string, secrets: readonly string[]): KeyRing {

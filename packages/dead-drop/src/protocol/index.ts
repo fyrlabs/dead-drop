@@ -13,5 +13,6 @@ export * from './envelope.js';
 export * from './errors.js';
 export * from './frame.js';
 export * from './http.js';
+export * from './identity.js';
 export * from './ids.js';
 export * from './json.js';
