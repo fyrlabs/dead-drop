@@ -26,7 +26,7 @@ import {
   JSON_CONTENT_TYPE,
   KeyRing,
 } from '#dead-drop/protocol/index.js';
-import { peerKey } from '#dead-drop/core/keys.js';
+import { identityKey, peerKey, wrappedKeyKey } from '#dead-drop/core/keys.js';
 import { TestClock } from '#dead-drop/core/clock.js';
 import { createLogger, MemoryLogSink } from '#dead-drop/core/observability/logger.js';
 
@@ -589,6 +589,41 @@ describe('reaping orphaned inboxes', () => {
     await clock.advance(TICK);
 
     expect(store.objects.has(orphan)).toBe(false);
+    expect(store.deleted).toEqual([orphan]);
+
+    await ws.stop();
+  });
+
+  it('never reaps an identity or a wrapped key, even for the peer it just reaped an inbox for', async () => {
+    // ADR 0007's highest-risk interaction with ADR 0006. An identity and a
+    // wrapped era key are long-lived and belong to a peer that may be offline
+    // for weeks, which is exactly the profile this reaper collects. Collecting
+    // them would quietly cost the workspace the ability to admit or address that
+    // peer, and the symptom would appear nowhere near the cause.
+    //
+    // Today these objects are safe structurally, because they sit outside every
+    // prefix the reaper walks. Mutation says precisely what this catches and what
+    // it does not: widening the listed root to `workspaceRoot` and trusting the
+    // listing fails it, which is the accidental edit worth guarding. Bypassing
+    // `parseInboxKey` alone does not fail it, because these keys are never listed
+    // in the first place. The protection is the prefix, not the parser.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const orphan = await planted(store, 'peer-b', NOW - 8 * DAY);
+    const identity = identityKey('demo', 'peer-b');
+    const wrapped = wrappedKeyKey('demo', 'peer-b', 'deadbeef');
+    await store.put(identity, new Uint8Array(64));
+    await store.put(wrapped, new Uint8Array(96));
+
+    const ws = workspace(store, clock);
+    await ws.start();
+    await clock.advance(TICK);
+
+    // The inbox object goes, which proves the reaper really ran on this peer
+    // rather than the test passing because nothing was collected at all.
+    expect(store.objects.has(orphan)).toBe(false);
+    expect(store.objects.has(identity)).toBe(true);
+    expect(store.objects.has(wrapped)).toBe(true);
     expect(store.deleted).toEqual([orphan]);
 
     await ws.stop();
