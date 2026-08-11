@@ -15,6 +15,8 @@ This is a deliberate simplification, and it is the single most important thing t
 
 If you need peers that can send but not read, or an audit trail that survives a malicious member, dead-drop as it stands is the wrong tool. That would need per-peer keypairs and signed envelopes, which is a protocol change, not a configuration change.
 
+A change to the first and fourth points is designed but not built: [ADR 0007](adr/0007-per-peer-key-wrapping.md) proposes making the secret an enrollment token and wrapping a per-era data key to each peer's X25519 public key, so admitting a peer stops handing over the key to everything already written and removing one stops requiring everybody else to re-key. It is proposed, not implemented; everything above describes what ships today.
+
 ## What the transport sees
 
 The transport is treated as hostile storage. A GitHub repository, a synced folder or an S3 bucket may be readable by people who are not in the workspace, so:
