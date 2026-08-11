@@ -18,22 +18,32 @@ import {
   decodeJson,
   encodeFrame,
   encodeJson,
+  enrollmentProof,
+  generateIdentity,
   idTime,
   isErrorPayload,
   senderIdentity,
+  unwrapEraKey,
+  verifyEnrollmentProof,
   JSON_CONTENT_TYPE,
   type Envelope,
+  type PeerIdentity,
+  type WrappedKey,
 } from '../protocol/index.js';
 import {
   DedupeStore,
   MailboxEngine,
   TransportManager,
+  identityKey,
+  identityPrefix,
   inboxRoot,
+  parseIdentityKey,
   parseInboxKey,
   parsePeerKey,
   peersPrefix,
   peerKey,
   systemClock,
+  wrappedKeyPrefix,
   type Clock,
   type Logger,
   type MailboxStats,
@@ -161,6 +171,15 @@ export interface WorkspaceOptions {
   /** File used to persist the deduplication set across restarts. */
   dedupePath?: string;
   /**
+   * This peer's X25519 keypair, ADR 0007. Loading it is inherently async, so
+   * `Runtime` resolves it before constructing a Workspace, the same way it
+   * resolves `registrations` first. Callers that construct a Workspace directly
+   * get a fresh in-memory keypair: a test should not need a data directory to
+   * exchange traffic, and losing it on exit is fine for something that lives
+   * only as long as the test.
+   */
+  identity?: PeerIdentity;
+  /**
    * Marks this runtime as a short-lived session sharing a config with a
    * longer-lived peer. It takes its own mailbox address so the two do not fight
    * over one inbox, while keeping the configured peer id as its identity.
@@ -179,6 +198,41 @@ interface Pending {
   resolve(envelope: Envelope): void;
   reject(error: DeadDropError): void;
   cancelTimeout(): void;
+}
+
+/**
+ * Reads a wrapped era key object, or `undefined` if it is not one.
+ *
+ * Anything under this prefix came off a store that cannot be trusted to hold
+ * only what dead-drop wrote, so a malformed object is a normal case to skip
+ * rather than an error to raise.
+ */
+function decodeWrappedKey(raw: Uint8Array): WrappedKey | undefined {
+  try {
+    const body = decodeJson(raw) as Record<string, unknown>;
+    const fields = ['eraId', 'ephemeralPublicKey', 'iv', 'ciphertext', 'tag'] as const;
+    if (fields.some((field) => typeof body[field] !== 'string')) return undefined;
+    return {
+      eraId: body.eraId as string,
+      ephemeralPublicKey: Buffer.from(body.ephemeralPublicKey as string, 'base64url'),
+      iv: Buffer.from(body.iv as string, 'base64url'),
+      ciphertext: Buffer.from(body.ciphertext as string, 'base64url'),
+      tag: Buffer.from(body.tag as string, 'base64url'),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/** The on-store form of a wrapped era key. Counterpart to `decodeWrappedKey`. */
+export function encodeWrappedKey(wrapped: WrappedKey): Uint8Array {
+  return encodeJson({
+    eraId: wrapped.eraId,
+    ephemeralPublicKey: wrapped.ephemeralPublicKey.toString('base64url'),
+    iv: wrapped.iv.toString('base64url'),
+    ciphertext: wrapped.ciphertext.toString('base64url'),
+    tag: wrapped.tag.toString('base64url'),
+  });
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -204,6 +258,11 @@ export class Workspace {
   private readonly logger: Logger;
   private readonly clock: Clock;
   private readonly keys: KeyRing;
+  /**
+   * This peer's X25519 keypair, ADR 0007. Named apart from `identity` above,
+   * which is the configured peer *name* and not key material.
+   */
+  private readonly keypair: PeerIdentity;
   private readonly tracer: Tracer | undefined;
   private readonly requestHandlers = new Map<string, RequestHandler>();
   private readonly eventHandlers = new Map<string, Set<EventHandler>>();
@@ -218,6 +277,14 @@ export class Workspace {
   private stopPresence: (() => void) | undefined;
   private announcing: Promise<void> | undefined;
   private reaping: Promise<void> | undefined;
+  private enrolling: Promise<void> | undefined;
+  /**
+   * Set once this peer's identity object is on a transport. An identity never
+   * changes, so republishing it every tick would be a commit and a push per tick
+   * on a git or github transport for no new information. Retried while false so
+   * a transport that was down at start-up still gets it.
+   */
+  private identityPublished = false;
   private nextReapAt = 0;
   private reapBackoff = 1;
   private started = false;
@@ -232,6 +299,7 @@ export class Workspace {
     this.metrics = options.metrics ?? new Metrics();
     this.tracer = options.tracer;
     this.keys = KeyRing.fromSecrets(this.name, options.config.secrets);
+    this.keypair = options.identity ?? generateIdentity();
     // The explicit option wins over the config field so a caller constructing a
     // Workspace directly, which is what the tests do, is not overridden by it.
     this.presenceIntervalMs =
@@ -304,6 +372,11 @@ export class Workspace {
     // making. The interval below re-announces every 30 seconds, so
     // discoverability recovers on its own once a transport does.
     this.beacon(true);
+    // Not awaited, for the same reason as the beacon above: enrollment costs
+    // discoverability of this peer as a wrapping target, never correctness of
+    // what it can already do, and blocking start-up on a transport being
+    // reachable is what once made `ddrop connect` refuse a port it never opened.
+    this.enroll();
     // Maintenance rides the presence tick rather than owning a timer: it needs
     // the beacons anyway, and its own throttle is what actually decides how
     // often it runs. It is deliberately absent from the line above -- start-up
@@ -314,6 +387,12 @@ export class Workspace {
     this.stopPresence = this.clock.setInterval(this.presenceIntervalMs, () => {
       this.beacon(false);
       this.maintain();
+      // Rides the same tick so a peer that enrolled after this one started is
+      // picked up without a restart, and a rotated era arrives on its own. It is
+      // separate from `maintain` on purpose: reaping is switched off entirely
+      // when `inboxOrphanMs` is 0, and taking delivery of your own keys must not
+      // depend on a retention setting.
+      this.enroll();
     });
     this.logger.info('workspace started', {
       transports: this.manager.list().map((info) => info.name),
@@ -923,6 +1002,174 @@ export class Workspace {
     await Promise.allSettled(
       this.manager.stores().map((entry) => (entry.transport as StoreTransport).delete(key)),
     );
+  }
+
+  /**
+   * One enrollment pass: publish this peer's public key if it is not out yet,
+   * then take delivery of any era key wrapped for it. ADR 0007.
+   *
+   * Deliberately does **not** wrap the current era for other peers. In this
+   * phase the primary era is still the key derived from the workspace secret
+   * (`KeyRing.fromSecrets`), so every member already computes it and publishing
+   * a wrapped copy would cost one object per peer per transport, a commit and a
+   * push each on git and github, to hand over something the recipient already
+   * has. Wrapping belongs where an era is genuinely undistributable otherwise,
+   * which is a rotation minting a random era.
+   */
+  private enroll(): void {
+    if (this.enrolling) return;
+    this.enrolling = (async () => {
+      if (!this.identityPublished) await this.publishIdentity();
+      await this.loadWrappedKeys();
+    })()
+      .catch((error: unknown) => {
+        this.logger.debug('enrollment pass failed', { error: String(error) });
+      })
+      .finally(() => {
+        this.enrolling = undefined;
+      });
+  }
+
+  /**
+   * Publishes this peer's public key with a proof that its author holds the
+   * workspace secret.
+   *
+   * Keyed by `identity`, the configured name, and never by `peerId`. A key
+   * wrapped to a `ddrop connect` session's ephemeral `<identity>-c<pid>` address
+   * would be useless the moment that process exited, and the session loads the
+   * same identity file as the long-lived runtime anyway, so both publish
+   * identical content to one key.
+   *
+   * The object is not a frame and is not encrypted. A public key is public, and
+   * what it needs is authentication, which the proof provides: a transport
+   * operator can copy or delete this object but cannot forge one, because the
+   * proof key is derived from a secret the transport never sees.
+   */
+  private async publishIdentity(): Promise<void> {
+    const secret = this.config.secrets[0];
+    if (secret === undefined) return;
+    const proof = enrollmentProof(secret, this.name, this.identity, this.keypair.publicKey);
+    const body = encodeJson({
+      publicKey: this.keypair.publicKey.toString('base64url'),
+      proof: proof.toString('base64url'),
+    });
+    await this.manager.runWrite('put', (transport) =>
+      (transport as StoreTransport).put(identityKey(this.name, this.identity), body, {
+        contentType: JSON_CONTENT_TYPE,
+      }),
+    );
+    this.identityPublished = true;
+    this.logger.debug('published peer identity', { identity: this.identity });
+  }
+
+  /**
+   * Ids of the era keys this peer can open frames with.
+   *
+   * Ids, never the keys: a key id is a non-secret label already carried in the
+   * clear on every frame, so this is safe to report over the control socket and
+   * is what tells "enrolled but nothing wrapped for me yet" apart from "wrong
+   * secret", two states that otherwise look identical from the outside.
+   */
+  keyIds(): string[] {
+    return this.keys.keyIds;
+  }
+
+  /**
+   * Every peer whose published identity carries a valid enrollment proof.
+   *
+   * Verified against every configured secret, not only the first, so a workspace
+   * mid-rotation still recognises peers that enrolled under the outgoing one.
+   * An identity that fails is dropped and logged at warn: it is either a peer
+   * using a different secret or someone who can write to the store trying to
+   * enrol themselves, and both are worth seeing rather than swallowing.
+   */
+  async identities(): Promise<Array<{ peerId: string; publicKey: Buffer }>> {
+    const accepted = new Map<string, Buffer>();
+    for (const entry of this.manager.stores()) {
+      const store = entry.transport as StoreTransport;
+      let listed;
+      try {
+        listed = await store.list(identityPrefix(this.name), { limit: 500 });
+      } catch (error) {
+        this.logger.warn('identity listing failed', {
+          transport: entry.name,
+          error: DeadDropError.from(error).message,
+        });
+        continue;
+      }
+      for (const item of listed.entries) {
+        const peerId = parseIdentityKey(this.name, item.key);
+        if (peerId === undefined || accepted.has(peerId)) continue;
+        const raw = await store.get(item.key).catch(() => undefined);
+        if (!raw) continue;
+        const publicKey = this.verifyIdentity(peerId, raw);
+        if (publicKey) accepted.set(peerId, publicKey);
+      }
+    }
+    return [...accepted].map(([peerId, publicKey]) => ({ peerId, publicKey }));
+  }
+
+  private verifyIdentity(peerId: string, raw: Uint8Array): Buffer | undefined {
+    let publicKey: Buffer;
+    let proof: Buffer;
+    try {
+      const body = decodeJson(raw) as { publicKey?: unknown; proof?: unknown };
+      if (typeof body.publicKey !== 'string' || typeof body.proof !== 'string') return undefined;
+      publicKey = Buffer.from(body.publicKey, 'base64url');
+      proof = Buffer.from(body.proof, 'base64url');
+    } catch {
+      return undefined;
+    }
+    const valid = this.config.secrets.some((secret) =>
+      verifyEnrollmentProof(secret, this.name, peerId, publicKey, proof),
+    );
+    if (!valid) {
+      this.logger.warn('rejected a peer identity with an invalid enrollment proof', { peerId });
+      return undefined;
+    }
+    return publicKey;
+  }
+
+  /**
+   * Unwraps every era key addressed to this peer and adds it to the ring.
+   *
+   * One prefix listing, because wrapped keys are grouped by peer. Failures are
+   * per object and never fatal: an object that does not unwrap is one this peer
+   * was not the recipient of, or one a hostile writer planted, and neither is a
+   * reason to stop taking delivery of the rest.
+   */
+  private async loadWrappedKeys(): Promise<void> {
+    for (const entry of this.manager.stores()) {
+      const store = entry.transport as StoreTransport;
+      let listed;
+      try {
+        listed = await store.list(wrappedKeyPrefix(this.name, this.identity), { limit: 500 });
+      } catch (error) {
+        this.logger.debug('wrapped key listing failed', {
+          transport: entry.name,
+          error: DeadDropError.from(error).message,
+        });
+        continue;
+      }
+      for (const item of listed.entries) {
+        const raw = await store.get(item.key).catch(() => undefined);
+        if (!raw) continue;
+        const wrapped = decodeWrappedKey(raw);
+        if (!wrapped) continue;
+        // Already held, so unwrapping again would be work for nothing. This is
+        // what makes the pass cheap to repeat on every tick.
+        if (this.keys.has(wrapped.eraId)) continue;
+        try {
+          this.keys.add(unwrapEraKey(wrapped, this.keypair.publicKey, this.keypair.privateKey));
+          this.logger.info('accepted a wrapped era key', { eraId: wrapped.eraId });
+        } catch (error) {
+          this.logger.debug('a wrapped key did not unwrap', {
+            key: item.key,
+            error: DeadDropError.from(error).message,
+          });
+        }
+      }
+    }
   }
 
   /** Runs one maintenance pass, never more than one at a time. See `reap`. */

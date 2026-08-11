@@ -27,6 +27,7 @@ import {
 
 import type { RuntimeConfig, WorkspaceConfig } from './config.js';
 import { registerExposure, type ExposureHandle } from './exposure.js';
+import { loadOrCreateIdentity } from './identity-store.js';
 import { loadTransports, type ModuleLoader } from './plugins.js';
 import { Workspace } from './workspace.js';
 import { VERSION } from '../version.js';
@@ -211,6 +212,10 @@ export class DeadDropRuntime {
       tracer: this.tracer,
       clock: this.clock,
       dedupePath: join(this.config.dataDir, `${config.name}.dedupe.json`),
+      // No config field names this path, deliberately: see identity-store.ts. A
+      // `ddrop connect` session resolves the same file as the long-lived runtime,
+      // which is what makes a key wrapped to this peer usable by both.
+      identity: await loadOrCreateIdentity(join(this.config.dataDir, `${config.name}.identity`)),
       ...(this.sessionId ? { sessionId: this.sessionId } : {}),
       version: this.version,
     });

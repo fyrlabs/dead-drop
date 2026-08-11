@@ -23,6 +23,10 @@ import {
   DeadDropError,
   encodeFrame,
   encodeJson,
+  enrollmentProof,
+  generateEraKey,
+  generateIdentity,
+  wrapEraKey,
   JSON_CONTENT_TYPE,
   KeyRing,
 } from '#dead-drop/protocol/index.js';
@@ -30,7 +34,7 @@ import { identityKey, peerKey, wrappedKeyKey } from '#dead-drop/core/keys.js';
 import { TestClock } from '#dead-drop/core/clock.js';
 import { createLogger, MemoryLogSink } from '#dead-drop/core/observability/logger.js';
 
-import { Workspace } from '#dead-drop/runtime/workspace.js';
+import { encodeWrappedKey, Workspace } from '#dead-drop/runtime/workspace.js';
 
 const SECRET = 'ddk1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
@@ -38,10 +42,15 @@ const SECRET = 'ddk1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 class HangingStore implements StoreTransport {
   readonly kind = 'store' as const;
   readonly inflight: Array<() => void> = [];
+  /**
+   * Beacon puts only. Enrollment publishes an identity object on start too
+   * (ADR 0007), and counting every put would make these assertions depend on
+   * how many unrelated things a workspace happens to write at start-up.
+   */
   puts = 0;
 
-  async put(): Promise<{ key: string }> {
-    this.puts += 1;
+  async put(key: string): Promise<{ key: string }> {
+    if (key.startsWith('ws/demo/peers/')) this.puts += 1;
     await new Promise<void>((resolve) => this.inflight.push(resolve));
     return { key: 'ok' };
   }
@@ -780,6 +789,160 @@ describe('reaping orphaned inboxes', () => {
     // retried. Without the backoff this would attempt the same delete again.
     await clock.advance(15 * 60_000);
     expect(store.deleteAttempts).toBe(attempted);
+
+    await ws.stop();
+  });
+});
+
+/**
+ * Enrollment, ADR 0007.
+ *
+ * These cover the half of the design that is live: a peer publishes its public
+ * key with a proof, refuses one whose proof does not verify, and takes delivery
+ * of an era key wrapped for it. Wrapping *for others* is deliberately not here
+ * because it is deliberately not implemented: while the primary era is still
+ * derived from the workspace secret, every member already computes it and
+ * publishing wrapped copies would be writes that hand over nothing.
+ */
+describe('enrollment', () => {
+  const NOW = 1_800_000_000_000;
+  const TICK = 30_000;
+
+  it('publishes its public key under the configured identity, not the mailbox address', async () => {
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    // A session runtime, whose peerId carries the ephemeral -c<pid> suffix.
+    const ws = new Workspace({
+      config: { name: 'demo', peerId: 'peer-a', secrets: [SECRET], transports: [] } as never,
+      registrations: [registration(store)],
+      logger: createLogger({ level: 'silent', sink: new MemoryLogSink().sink, clock }),
+      clock,
+      sessionId: 'abc',
+      presenceIntervalMs: 30_000,
+    });
+    await ws.start();
+    await clock.advance(TICK);
+
+    // Keyed by identity. A key wrapped to `peer-a-cabc` would die with this
+    // process, which is the whole reason this is not keyed by peerId.
+    expect(ws.peerId).toBe('peer-a-cabc');
+    expect(store.objects.has(identityKey('demo', 'peer-a'))).toBe(true);
+    expect(store.objects.has(identityKey('demo', 'peer-a-cabc'))).toBe(false);
+
+    await ws.stop();
+  });
+
+  it('accepts an identity whose proof verifies', async () => {
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const other = generateIdentity();
+    await store.put(
+      identityKey('demo', 'peer-b'),
+      encodeJson({
+        publicKey: other.publicKey.toString('base64url'),
+        proof: enrollmentProof(SECRET, 'demo', 'peer-b', other.publicKey).toString('base64url'),
+      }),
+    );
+
+    const ws = workspace(store, clock);
+    await ws.start();
+
+    const found = await ws.identities();
+    expect(found.map((entry) => entry.peerId).sort()).toEqual(['peer-a', 'peer-b']);
+    expect(found.find((entry) => entry.peerId === 'peer-b')?.publicKey).toEqual(other.publicKey);
+
+    await ws.stop();
+  });
+
+  it('refuses an identity planted by someone who cannot forge the proof', async () => {
+    // This is the case the whole design exists for: whoever controls the store
+    // can write this object, and must not thereby become a member.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const attacker = generateIdentity();
+    await store.put(
+      identityKey('demo', 'attacker'),
+      encodeJson({
+        publicKey: attacker.publicKey.toString('base64url'),
+        proof: Buffer.alloc(32).toString('base64url'),
+      }),
+    );
+    // And a proof that is valid, but for a different peer id, so lifting a real
+    // one out of another object does not work either.
+    const lifted = generateIdentity();
+    await store.put(
+      identityKey('demo', 'peer-c'),
+      encodeJson({
+        publicKey: lifted.publicKey.toString('base64url'),
+        proof: enrollmentProof(SECRET, 'demo', 'peer-b', lifted.publicKey).toString('base64url'),
+      }),
+    );
+
+    const ws = workspace(store, clock);
+    await ws.start();
+
+    const found = await ws.identities();
+    expect(found.map((entry) => entry.peerId)).toEqual(['peer-a']);
+
+    await ws.stop();
+  });
+
+  it('takes delivery of an era key wrapped for it and can then open frames sealed under it', async () => {
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const ws = workspace(store, clock);
+    await ws.start();
+    await clock.advance(TICK);
+
+    // The peer published its own key, so wrap a fresh era to it exactly as a
+    // rotation would, using the key it actually advertised.
+    const published = (await ws.identities()).find((entry) => entry.peerId === 'peer-a');
+    expect(published).toBeDefined();
+    const era = generateEraKey();
+    await store.put(
+      wrappedKeyKey('demo', 'peer-a', era.id),
+      encodeWrappedKey(wrapEraKey(era, published!.publicKey)),
+    );
+
+    // Not held before the pass, so the assertion after it means something.
+    expect(ws.keyIds()).not.toContain(era.id);
+
+    await clock.advance(TICK);
+
+    // In the ring, which is what lets a frame sealed under an era this peer was
+    // never given the secret for be opened at all.
+    expect(ws.keyIds()).toContain(era.id);
+
+    await ws.stop();
+  });
+
+  it('ignores a wrapped key it is not the recipient of, and keeps taking the rest', async () => {
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const ws = workspace(store, clock);
+    await ws.start();
+    await clock.advance(TICK);
+
+    const stranger = generateIdentity();
+    const notOurs = generateEraKey();
+    const ours = generateEraKey();
+    const published = (await ws.identities()).find((entry) => entry.peerId === 'peer-a');
+    // Both under this peer's prefix, so the only thing separating them is whether
+    // they actually unwrap.
+    await store.put(
+      wrappedKeyKey('demo', 'peer-a', notOurs.id),
+      encodeWrappedKey(wrapEraKey(notOurs, stranger.publicKey)),
+    );
+    await store.put(
+      wrappedKeyKey('demo', 'peer-a', ours.id),
+      encodeWrappedKey(wrapEraKey(ours, published!.publicKey)),
+    );
+    await store.put(wrappedKeyKey('demo', 'peer-a', 'garbage'), new Uint8Array([1, 2, 3]));
+
+    await clock.advance(TICK);
+
+    expect(ws.keyIds()).toContain(ours.id);
+    expect(ws.keyIds()).not.toContain(notOurs.id);
 
     await ws.stop();
   });
