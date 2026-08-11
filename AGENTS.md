@@ -51,7 +51,7 @@ Each layer is a subpath export of `@fyrlabs/dead-drop` (`./core`, `./runtime`, a
 3. **The control plane is a Unix socket, mode 0600, or a Windows named pipe. Never TCP.** See [ADR 0003](docs/adr/0003-unix-socket-control-plane.md).
 4. **Delivery is at-least-once and ordering is best-effort per recipient.** Never write a doc or a comment that claims stronger.
 5. **A message id is its trace id.** `workspace.request`, `mailbox.send` and `mailbox.deliver` key their span to the envelope id, a response using its `correlationId`. That is what makes `ddrop trace <requestId>` work with the id a timeout error already returns. Keep it if you add spans.
-6. **Every built-in transport short name must be a dependency of `packages/cli`.** Workspaces are hoisted here, so a module that loads fine in this repo can be missing from a real install. `packages/cli/src/cli.test.ts` enforces this.
+6. **A built-in transport may import only node builtins or a declared dependency of `packages/dead-drop`.** Workspaces are hoisted here, so a module that loads fine in this repo can be missing from a real install. Nothing enforces this automatically since the packages were consolidated; check it by hand when a transport gains an import.
 7. **`@fyrlabs/dead-drop-transport-sdk` is the only stable public contract.** It is the one thing outside this repository that must keep working across releases. Changing it is a breaking change.
 8. **Never reintroduce the old name.** The project was called Bridge and the binary was `bridge`, which collided with iproute2's `bridge(8)` on Linux. Check with `rg -cil bridge -g '!AGENTS.md' -g '!.github/RELEASE_CHECKLIST.md' -g '!package-lock.json'`, which must print nothing. Those two files state the rule, so they are the only ones allowed to contain the word; a hit anywhere else is a regression.
 9. **The transport is hostile storage, for frame *contents*.** Every frame is ciphertext including the envelope header, so do not add an envelope field that leaks a channel, peer or workspace name in clear text. **Object keys are the documented exception**: `ws/<workspace>/inbox/<peer>/<id>.ddf` puts those names in the storage path on purpose, so an operator can look at a git repo and understand it ([docs/security-model.md](docs/security-model.md)). Do not describe the transport as leaking nothing; a 0.1.0 release note claimed names "never appear in clear text" and was simply false. Changing the key layout means updating that doc.
@@ -67,7 +67,7 @@ Each layer is a subpath export of `@fyrlabs/dead-drop` (`./core`, `./runtime`, a
 
 **Errors.** Throw `DeadDropError` with a stable code and an honest `retryable` flag. The transport manager reads `retryable` to decide between retrying and failing over, so getting it wrong causes real misbehaviour.
 
-**Docs.** If you change behaviour, config or the CLI, update the docs in the same commit. [docs/configuration.md](docs/configuration.md) is expected to match `packages/runtime/src/config.ts` field for field. Add a `CHANGELOG.md` entry under Unreleased for anything user-visible.
+**Docs.** If you change behaviour, config or the CLI, update the docs in the same commit. [docs/configuration.md](docs/configuration.md) is expected to match `packages/dead-drop/src/runtime/config.ts` field for field. Add a `CHANGELOG.md` entry under Unreleased for anything user-visible.
 
 **ADRs.** Anything that deviates from the direction in [docs/vision.md](docs/vision.md) gets a record in `docs/adr/` explaining what was rejected and why.
 
