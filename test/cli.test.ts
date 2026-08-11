@@ -2,8 +2,8 @@
  * CLI integration: the real `run()` entry point against a real runtime over a
  * real control socket.
  *
- * The unit tests in `packages/cli` cover argument handling and failure
- * messages. This covers the part that only breaks when the pieces are wired
+ * The unit tests in `packages/dead-drop/test/cli` cover argument handling and
+ * failure messages. This covers the part that only breaks when the pieces are wired
  * together: `ddrop start` serving a socket that `ddrop status`, `expose`,
  * `call`, `publish`, `logs` and `metrics` can actually talk to.
  */
