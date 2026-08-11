@@ -213,3 +213,5 @@ Anything ticked here should be recorded with the date and the version tested.
 Thresholds are 80% lines, functions, branches and statements, enforced by `npm run verify`. Index files, type-only modules and test helpers are excluded because coverage of a re-export is noise.
 
 Coverage is a floor, not a goal. The tests that matter are the ones that would have caught a real defect, and three of those already have: the circuit breaker reading raw state instead of time-adjusted state, the mailbox acknowledging messages with no handler installed, and the topic reaper deleting messages whose age it could not determine. Each is noted in the commit that fixed it.
+
+<!-- graphify hook verification, 2026-08-10 -->
