@@ -11,6 +11,8 @@ import {
 } from '@fyrlabs/dead-drop/protocol';
 import { loadOrCreateIdentity } from '#dead-drop/runtime/identity-store.js';
 
+const isWindows = process.platform === 'win32';
+
 const dirs: string[] = [];
 
 async function workdir(): Promise<string> {
@@ -38,12 +40,18 @@ describe('loadOrCreateIdentity', () => {
     expect(second.publicKey).toEqual(first.publicKey);
   });
 
-  it('writes the private key 0600, because it is key material in a shared home directory', async () => {
-    const path = join(await workdir(), 'demo.identity');
-    await loadOrCreateIdentity(path);
-    const mode = (await stat(path)).mode & 0o777;
-    expect(mode).toBe(0o600);
-  });
+  // Windows has no POSIX mode bits: `writeFile({ mode })` and `chmod` do not
+  // narrow permissions there, which is exactly the reasoning `control-plane.test.ts`
+  // already carries for the socket file. Same skip, same reason.
+  it.skipIf(isWindows)(
+    'writes the private key 0600, because it is key material in a shared home directory',
+    async () => {
+      const path = join(await workdir(), 'demo.identity');
+      await loadOrCreateIdentity(path);
+      const mode = (await stat(path)).mode & 0o777;
+      expect(mode).toBe(0o600);
+    },
+  );
 
   it('creates the data directory when it does not exist yet', async () => {
     const path = join(await workdir(), 'nested', 'deeper', 'demo.identity');
