@@ -6,6 +6,8 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+## [0.13.0]
+
 ### Added
 
 - **Removing a peer no longer means giving everyone a new secret.** `ddrop rotate` makes a new key, hands it to the peers that may still read, and prints who got it. Whoever is left out cannot read anything written from then on, and messages written before the rotation stay readable to everyone, as they were. By default a rotation includes every peer that has enrolled, so it changes the key without removing anybody; turn on approvals below to leave somebody out.
