@@ -7,6 +7,7 @@ import {
   DeadDropError,
   wrapEraKey,
   generateEraKey,
+  generateWorkspaceSecret,
   unwrapEraKey,
 } from '@fyrlabs/dead-drop/protocol';
 import { loadOrCreateIdentity } from '#dead-drop/runtime/identity-store.js';
@@ -35,8 +36,19 @@ describe('loadOrCreateIdentity', () => {
     // Same key, established by using it rather than by comparing bytes: the
     // second load must unwrap what was wrapped to the first.
     const era = generateEraKey();
-    const wrapped = wrapEraKey(era, first.publicKey);
-    expect(unwrapEraKey(wrapped, second.publicKey, second.privateKey).id).toBe(era.id);
+    const secret = generateWorkspaceSecret();
+    const wrapped = wrapEraKey(
+      era,
+      { peerId: 'peer-a', publicKey: first.publicKey },
+      { secret, workspace: 'demo' },
+    );
+    expect(
+      unwrapEraKey(
+        wrapped,
+        { peerId: 'peer-a', publicKey: second.publicKey, privateKey: second.privateKey },
+        { secrets: [secret], workspace: 'demo' },
+      ).id,
+    ).toBe(era.id);
     expect(second.publicKey).toEqual(first.publicKey);
   });
 

@@ -17,7 +17,9 @@ import {
   unwrapEraKey,
   verifyEnrollmentProof,
   wrapEraKey,
+  wrapProof,
   PUBLIC_KEY_BYTES,
+  type WrappedKey,
 } from '@fyrlabs/dead-drop/protocol';
 
 const WORKSPACE = 'demo';
@@ -31,8 +33,16 @@ describe('peer identity', () => {
     // Proof the reloaded private half is the same one: it unwraps a key wrapped
     // to the matching public key. Comparing exports would only prove encoding.
     const era = generateEraKey();
-    const wrapped = wrapEraKey(era, identity.publicKey);
-    expect(unwrapEraKey(wrapped, identity.publicKey, reloaded).id).toBe(era.id);
+    const secret = generateWorkspaceSecret();
+    const recipient = { peerId: 'peer-a', publicKey: identity.publicKey };
+    const wrapped = wrapEraKey(era, recipient, { secret, workspace: WORKSPACE });
+    expect(
+      unwrapEraKey(
+        wrapped,
+        { ...recipient, privateKey: reloaded },
+        { secrets: [secret], workspace: WORKSPACE },
+      ).id,
+    ).toBe(era.id);
   });
 
   it('round-trips a public key through raw bytes', () => {
@@ -126,26 +136,106 @@ describe('era keys', () => {
 });
 
 describe('key wrapping', () => {
+  const SECRET = generateWorkspaceSecret();
+  const AUTH = { secret: SECRET, workspace: WORKSPACE };
+  const SECRETS = { secrets: [SECRET], workspace: WORKSPACE };
+
+  /**
+   * Re-mints the proof over an object after it has been edited.
+   *
+   * Every AEAD binding below is now shadowed by the proof, which covers the same
+   * bytes and is checked first, so tampering with a wrapped object without this
+   * only ever demonstrates that the proof works. Re-proofing makes each test say
+   * what it is really about: a *member*, who can mint proofs at will, still
+   * cannot tamper with or redirect a wrapped key.
+   */
+  const reproof = (wrapped: WrappedKey, peerId: string): WrappedKey => ({
+    ...wrapped,
+    proof: wrapProof(SECRET, WORKSPACE, peerId, wrapped),
+  });
+
   it('wraps to a recipient and back, preserving the era id', () => {
     const identity = generateIdentity();
     const era = generateEraKey();
-    const wrapped = wrapEraKey(era, identity.publicKey);
+    const wrapped = wrapEraKey(era, { peerId: 'peer-a', publicKey: identity.publicKey }, AUTH);
 
     expect(wrapped.eraId).toBe(era.id);
     expect(wrapped.ephemeralPublicKey).toHaveLength(PUBLIC_KEY_BYTES);
     // The era material must not be readable from the wrapped object.
     expect(wrapped.ciphertext.equals(era.key.export())).toBe(false);
 
-    const unwrapped = unwrapEraKey(wrapped, identity.publicKey, identity.privateKey);
+    const unwrapped = unwrapEraKey(wrapped, { peerId: 'peer-a', ...identity }, SECRETS);
     expect(unwrapped.id).toBe(era.id);
     expect(unwrapped.key.export()).toEqual(era.key.export());
+  });
+
+  it('refuses a wrap nobody with the workspace secret authorised', () => {
+    // The forgery this closes: wrapping needs only the recipient's public key,
+    // which is published in the clear, so without a proof whoever controls the
+    // store can put an era of its own into a peer's KeyRing and then seal frames
+    // under it that the peer will open and attribute to any sender it names.
+    const identity = generateIdentity();
+    const wrapped = wrapEraKey(
+      generateEraKey(),
+      { peerId: 'peer-a', publicKey: identity.publicKey },
+      { secret: generateWorkspaceSecret(), workspace: WORKSPACE },
+    );
+    expect(() => unwrapEraKey(wrapped, { peerId: 'peer-a', ...identity }, SECRETS)).toThrow(
+      /no valid enrollment proof/,
+    );
+  });
+
+  it('accepts a wrap proven under any configured secret, so a secret rotation does not deafen a peer', () => {
+    const identity = generateIdentity();
+    const outgoing = generateWorkspaceSecret();
+    const era = generateEraKey();
+    const wrapped = wrapEraKey(
+      era,
+      { peerId: 'peer-a', publicKey: identity.publicKey },
+      { secret: outgoing, workspace: WORKSPACE },
+    );
+    expect(
+      unwrapEraKey(
+        wrapped,
+        { peerId: 'peer-a', ...identity },
+        { secrets: [SECRET, outgoing], workspace: WORKSPACE },
+      ).id,
+    ).toBe(era.id);
+  });
+
+  // The recipient half of this is the one binding in `wrapProof` that mutation
+  // shows to be load-bearing; the workspace half holds because the workspace is
+  // the HKDF salt, not because it is in the HMAC input. See the source.
+  it('refuses a proof lifted onto another recipient or another workspace', () => {
+    const identity = generateIdentity();
+    const wrapped = wrapEraKey(
+      generateEraKey(),
+      { peerId: 'peer-a', publicKey: identity.publicKey },
+      AUTH,
+    );
+    expect(() => unwrapEraKey(wrapped, { peerId: 'peer-b', ...identity }, SECRETS)).toThrow(
+      /no valid enrollment proof/,
+    );
+    expect(() =>
+      unwrapEraKey(
+        wrapped,
+        { peerId: 'peer-a', ...identity },
+        { secrets: [SECRET], workspace: 'other' },
+      ),
+    ).toThrow(/no valid enrollment proof/);
   });
 
   it('cannot be unwrapped by a peer it was not wrapped for', () => {
     const target = generateIdentity();
     const other = generateIdentity();
-    const wrapped = wrapEraKey(generateEraKey(), target.publicKey);
-    expect(() => unwrapEraKey(wrapped, other.publicKey, other.privateKey)).toThrow(
+    // Proven for `other` but sealed to `target`'s key, which is the shape a
+    // hostile member would build. The proof passes; the ECDH is what refuses.
+    const wrapped = wrapEraKey(
+      generateEraKey(),
+      { peerId: 'other', publicKey: target.publicKey },
+      AUTH,
+    );
+    expect(() => unwrapEraKey(wrapped, { peerId: 'other', ...other }, SECRETS)).toThrow(
       /failed authenticated decryption/,
     );
   });
@@ -153,30 +243,46 @@ describe('key wrapping', () => {
   it('cannot be redirected at another recipient even by someone holding the right private key', () => {
     const target = generateIdentity();
     const other = generateIdentity();
-    const wrapped = wrapEraKey(generateEraKey(), target.publicKey);
+    const wrapped = wrapEraKey(
+      generateEraKey(),
+      { peerId: 'other', publicKey: target.publicKey },
+      AUTH,
+    );
     // The Diffie-Hellman here succeeds, since the real private key is passed. What
     // refuses is the recipient key not matching the one the object was wrapped for.
     // That key is bound in two places, the KDF salt and the AAD, and mutation shows
     // either alone suffices: this fails only when both bindings are removed.
-    expect(() => unwrapEraKey(wrapped, other.publicKey, target.privateKey)).toThrow(
-      /failed authenticated decryption/,
-    );
+    expect(() =>
+      unwrapEraKey(
+        wrapped,
+        { peerId: 'other', publicKey: other.publicKey, privateKey: target.privateKey },
+        SECRETS,
+      ),
+    ).toThrow(/failed authenticated decryption/);
   });
 
   it('rejects a tampered ciphertext rather than yielding a wrong key', () => {
     const identity = generateIdentity();
-    const wrapped = wrapEraKey(generateEraKey(), identity.publicKey);
-    wrapped.ciphertext[0] ^= 0xff;
-    expect(() => unwrapEraKey(wrapped, identity.publicKey, identity.privateKey)).toThrow(
-      /failed authenticated decryption/,
+    const wrapped = wrapEraKey(
+      generateEraKey(),
+      { peerId: 'peer-a', publicKey: identity.publicKey },
+      AUTH,
     );
+    wrapped.ciphertext[0] ^= 0xff;
+    expect(() =>
+      unwrapEraKey(reproof(wrapped, 'peer-a'), { peerId: 'peer-a', ...identity }, SECRETS),
+    ).toThrow(/failed authenticated decryption/);
   });
 
   it('rejects an eraId edited after the fact, because the id is inside the AAD', () => {
     const identity = generateIdentity();
-    const wrapped = wrapEraKey(generateEraKey(), identity.publicKey);
-    const edited = { ...wrapped, eraId: 'deadbeef' };
-    expect(() => unwrapEraKey(edited, identity.publicKey, identity.privateKey)).toThrow(
+    const wrapped = wrapEraKey(
+      generateEraKey(),
+      { peerId: 'peer-a', publicKey: identity.publicKey },
+      AUTH,
+    );
+    const edited = reproof({ ...wrapped, eraId: 'deadbeef' }, 'peer-a');
+    expect(() => unwrapEraKey(edited, { peerId: 'peer-a', ...identity }, SECRETS)).toThrow(
       /failed authenticated decryption/,
     );
   });
@@ -187,8 +293,12 @@ describe('key wrapping', () => {
     // Editing the object cannot produce this case, because the id is authenticated.
     // A malicious peer can, by sealing real material under a label of its choosing,
     // and the only thing that catches it is re-deriving the id from what came out.
-    const mislabelled = wrapEraKey({ id: 'deadbeef', key: era.key }, identity.publicKey);
-    expect(() => unwrapEraKey(mislabelled, identity.publicKey, identity.privateKey)).toThrow(
+    const mislabelled = wrapEraKey(
+      { id: 'deadbeef', key: era.key },
+      { peerId: 'peer-a', publicKey: identity.publicKey },
+      AUTH,
+    );
+    expect(() => unwrapEraKey(mislabelled, { peerId: 'peer-a', ...identity }, SECRETS)).toThrow(
       /claims era deadbeef but contains/,
     );
   });
@@ -196,10 +306,12 @@ describe('key wrapping', () => {
   it('produces a different object every time for the same inputs', () => {
     const identity = generateIdentity();
     const era = generateEraKey();
-    const first = wrapEraKey(era, identity.publicKey);
-    const second = wrapEraKey(era, identity.publicKey);
+    const recipient = { peerId: 'peer-a', publicKey: identity.publicKey };
+    const first = wrapEraKey(era, recipient, AUTH);
+    const second = wrapEraKey(era, recipient, AUTH);
     expect(first.ephemeralPublicKey.equals(second.ephemeralPublicKey)).toBe(false);
     expect(first.ciphertext.equals(second.ciphertext)).toBe(false);
+    expect(first.proof.equals(second.proof)).toBe(false);
   });
 });
 

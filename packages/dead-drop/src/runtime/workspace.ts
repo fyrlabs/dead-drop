@@ -210,7 +210,7 @@ interface Pending {
 function decodeWrappedKey(raw: Uint8Array): WrappedKey | undefined {
   try {
     const body = decodeJson(raw) as Record<string, unknown>;
-    const fields = ['eraId', 'ephemeralPublicKey', 'iv', 'ciphertext', 'tag'] as const;
+    const fields = ['eraId', 'ephemeralPublicKey', 'iv', 'ciphertext', 'tag', 'proof'] as const;
     if (fields.some((field) => typeof body[field] !== 'string')) return undefined;
     return {
       eraId: body.eraId as string,
@@ -218,6 +218,7 @@ function decodeWrappedKey(raw: Uint8Array): WrappedKey | undefined {
       iv: Buffer.from(body.iv as string, 'base64url'),
       ciphertext: Buffer.from(body.ciphertext as string, 'base64url'),
       tag: Buffer.from(body.tag as string, 'base64url'),
+      proof: Buffer.from(body.proof as string, 'base64url'),
     };
   } catch {
     return undefined;
@@ -232,6 +233,7 @@ export function encodeWrappedKey(wrapped: WrappedKey): Uint8Array {
     iv: wrapped.iv.toString('base64url'),
     ciphertext: wrapped.ciphertext.toString('base64url'),
     tag: wrapped.tag.toString('base64url'),
+    proof: wrapped.proof.toString('base64url'),
   });
 }
 
@@ -1160,7 +1162,17 @@ export class Workspace {
         // what makes the pass cheap to repeat on every tick.
         if (this.keys.has(wrapped.eraId)) continue;
         try {
-          this.keys.add(unwrapEraKey(wrapped, this.keypair.publicKey, this.keypair.privateKey));
+          this.keys.add(
+            unwrapEraKey(
+              wrapped,
+              {
+                peerId: this.identity,
+                publicKey: this.keypair.publicKey,
+                privateKey: this.keypair.privateKey,
+              },
+              { secrets: this.config.secrets, workspace: this.name },
+            ),
+          );
           this.logger.info('accepted a wrapped era key', { eraId: wrapped.eraId });
         } catch (error) {
           this.logger.debug('a wrapped key did not unwrap', {

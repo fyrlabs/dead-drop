@@ -26,11 +26,12 @@ import {
   enrollmentProof,
   generateEraKey,
   generateIdentity,
+  generateWorkspaceSecret,
   wrapEraKey,
   JSON_CONTENT_TYPE,
   KeyRing,
 } from '#dead-drop/protocol/index.js';
-import { identityKey, peerKey, wrappedKeyKey } from '#dead-drop/core/keys.js';
+import { identityKey, inboxKey, peerKey, wrappedKeyKey } from '#dead-drop/core/keys.js';
 import { TestClock } from '#dead-drop/core/clock.js';
 import { createLogger, MemoryLogSink } from '#dead-drop/core/observability/logger.js';
 
@@ -901,7 +902,7 @@ describe('enrollment', () => {
     const era = generateEraKey();
     await store.put(
       wrappedKeyKey('demo', 'peer-a', era.id),
-      encodeWrappedKey(wrapEraKey(era, published!.publicKey)),
+      encodeWrappedKey(wrapEraKey(era, published!, { secret: SECRET, workspace: 'demo' })),
     );
 
     // Not held before the pass, so the assertion after it means something.
@@ -931,11 +932,17 @@ describe('enrollment', () => {
     // they actually unwrap.
     await store.put(
       wrappedKeyKey('demo', 'peer-a', notOurs.id),
-      encodeWrappedKey(wrapEraKey(notOurs, stranger.publicKey)),
+      encodeWrappedKey(
+        wrapEraKey(
+          notOurs,
+          { peerId: 'peer-a', publicKey: stranger.publicKey },
+          { secret: SECRET, workspace: 'demo' },
+        ),
+      ),
     );
     await store.put(
       wrappedKeyKey('demo', 'peer-a', ours.id),
-      encodeWrappedKey(wrapEraKey(ours, published!.publicKey)),
+      encodeWrappedKey(wrapEraKey(ours, published!, { secret: SECRET, workspace: 'demo' })),
     );
     await store.put(wrappedKeyKey('demo', 'peer-a', 'garbage'), new Uint8Array([1, 2, 3]));
 
@@ -943,6 +950,78 @@ describe('enrollment', () => {
 
     expect(ws.keyIds()).toContain(ours.id);
     expect(ws.keyIds()).not.toContain(notOurs.id);
+
+    await ws.stop();
+  });
+
+  it('refuses an era key wrapped by someone who cannot forge the enrollment proof', async () => {
+    // The attack this closes, and the reason a wrapped key needs a proof at all.
+    //
+    // Wrapping needs nothing but the recipient's public key, and that key is
+    // published in the clear on purpose. So whoever controls the store can mint
+    // an era of its own, wrap it to a victim, and have the victim load it into
+    // the ring. `frame.ts` opens whichever key id a frame names, and the sender
+    // in an envelope header is just a field, so the next step is a request that
+    // decodes cleanly and claims to come from any peer the attacker likes.
+    //
+    // Before ADR 0007 this was impossible: every key in the ring came from
+    // `KeyRing.fromSecrets`, so opening a frame at all proved the author held
+    // the secret. Wrapped keys have to preserve that or they hand membership to
+    // the transport, which is the one adversary `protocol/crypto.ts` names.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const ws = workspace(store, clock);
+    const reached: string[] = [];
+    ws.handle('svc.op', (_payload, context) => {
+      reached.push(context.identity);
+      return undefined;
+    });
+    await ws.start();
+    await clock.advance(TICK);
+
+    // Read the victim's public key the way the store operator would: off the
+    // store, from the object the victim published itself.
+    const published = store.objects.get(identityKey('demo', 'peer-a'));
+    expect(published).toBeDefined();
+    const victimPublicKey = Buffer.from(
+      (JSON.parse(Buffer.from(published!).toString('utf8')) as { publicKey: string }).publicKey,
+      'base64url',
+    );
+
+    const forged = generateEraKey();
+    await store.put(
+      wrappedKeyKey('demo', 'peer-a', forged.id),
+      // Wrapped under a secret of the attacker's own, which is the only thing it
+      // can do: it has the victim's public key but not the workspace secret.
+      encodeWrappedKey(
+        wrapEraKey(
+          forged,
+          { peerId: 'peer-a', publicKey: victimPublicKey },
+          { secret: generateWorkspaceSecret(), workspace: 'demo' },
+        ),
+      ),
+    );
+    await clock.advance(TICK);
+
+    expect(ws.keyIds()).not.toContain(forged.id);
+
+    // And the consequence, stated as the thing that actually matters: a request
+    // sealed under that era must not reach a handler wearing another peer's name.
+    const envelope = createEnvelope({
+      workspace: 'demo',
+      kind: 'request',
+      channel: 'svc.op',
+      from: 'peer-b',
+      to: 'peer-a',
+      ts: clock.now(),
+    });
+    await store.put(
+      inboxKey('demo', 'peer-a', envelope.id),
+      await encodeFrame(envelope, { key: forged }),
+    );
+    await ws.mailbox.pollOnce();
+
+    expect(reached).toEqual([]);
 
     await ws.stop();
   });

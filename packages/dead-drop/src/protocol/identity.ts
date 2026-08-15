@@ -43,6 +43,7 @@ import { DeadDropError } from './errors.js';
 export const PUBLIC_KEY_BYTES = 32;
 const ENROLLMENT_INFO = 'dead-drop/v1/enrollment';
 const WRAP_INFO = 'dead-drop/v1/key-wrap';
+const WRAP_PROOF_INFO = 'dead-drop/v1/key-wrap-proof';
 const ERA_KEY_BYTES = 32;
 
 export interface PeerIdentity {
@@ -134,17 +135,7 @@ export function enrollmentProof(
   peerId: string,
   publicKey: Uint8Array,
 ): Buffer {
-  const ikm = parseWorkspaceSecret(secret);
-  const proofKey = Buffer.from(
-    hkdfSync(
-      'sha256',
-      ikm,
-      Buffer.from(workspace, 'utf8'),
-      Buffer.from(ENROLLMENT_INFO, 'utf8'),
-      32,
-    ),
-  );
-  return createHmac('sha256', proofKey)
+  return createHmac('sha256', proofKey(secret, workspace, ENROLLMENT_INFO))
     .update(Buffer.from(workspace, 'utf8'))
     .update(Buffer.from([0]))
     .update(Buffer.from(peerId, 'utf8'))
@@ -162,6 +153,84 @@ export function verifyEnrollmentProof(
   proof: Uint8Array,
 ): boolean {
   return safeEqual(enrollmentProof(secret, workspace, peerId, publicKey), proof);
+}
+
+/**
+ * Derives a per-workspace HMAC key from the secret. Shared by every proof in
+ * this file; a distinct `info` per proof keeps one from being replayed as
+ * another, and the workspace as the salt is what separates two workspaces.
+ */
+function proofKey(secret: string, workspace: string, info: string): Buffer {
+  return Buffer.from(
+    hkdfSync(
+      'sha256',
+      parseWorkspaceSecret(secret),
+      Buffer.from(workspace, 'utf8'),
+      Buffer.from(info, 'utf8'),
+      32,
+    ),
+  );
+}
+
+/**
+ * Proof that whoever published this wrapped era key holds the workspace secret.
+ *
+ * Wrapping needs nothing but the recipient's public key, and that key is
+ * published in the clear on purpose, so without this anyone who can write to
+ * the store can mint an era of their own and have a peer load it into its
+ * `KeyRing`. `frame.ts` opens whichever key id a frame names and the sender in
+ * an envelope header is only a field, so that is a working forgery: a request
+ * that decodes cleanly and claims to come from any peer the attacker chooses.
+ *
+ * Before this existed every key in a ring came from `KeyRing.fromSecrets`, so
+ * opening a frame at all proved its author held the secret. This is what keeps
+ * that true now that keys also arrive from the store.
+ *
+ * What each field in the input actually does, established by mutation rather
+ * than asserted: **only the recipient peer id is load-bearing**. Removing it
+ * fails a named test, because it is what stops a valid proof being lifted onto
+ * a wrap addressed to somebody else. Removing the workspace changes nothing,
+ * for the same reason it changes nothing in `enrollmentProof`: the workspace is
+ * already the HKDF salt, so the proof key differs regardless. Removing the
+ * ciphertext changes nothing either, because tampering with it is caught by the
+ * AEAD a moment later.
+ *
+ * The redundant fields are kept anyway, and this is the argument for keeping
+ * them: they mean the proof stands on its own rather than leaning on the AEAD
+ * layer underneath it, so a future change there cannot silently unbind it. Do
+ * not delete one and conclude from a green suite that it was never needed.
+ *
+ * The three variable-length strings are null-separated and the variable-length
+ * ciphertext goes last, so the input cannot be re-split into a different set of
+ * fields. Everything between them is fixed width.
+ */
+export function wrapProof(
+  secret: string,
+  workspace: string,
+  recipientPeerId: string,
+  wrapped: Omit<WrappedKey, 'proof'>,
+): Buffer {
+  return createHmac('sha256', proofKey(secret, workspace, WRAP_PROOF_INFO))
+    .update(Buffer.from(workspace, 'utf8'))
+    .update(Buffer.from([0]))
+    .update(Buffer.from(recipientPeerId, 'utf8'))
+    .update(Buffer.from([0]))
+    .update(Buffer.from(wrapped.eraId, 'ascii'))
+    .update(Buffer.from([0]))
+    .update(wrapped.ephemeralPublicKey)
+    .update(wrapped.iv)
+    .update(wrapped.tag)
+    .update(wrapped.ciphertext)
+    .digest();
+}
+
+export function verifyWrapProof(
+  secret: string,
+  workspace: string,
+  recipientPeerId: string,
+  wrapped: WrappedKey,
+): boolean {
+  return safeEqual(wrapProof(secret, workspace, recipientPeerId, wrapped), wrapped.proof);
 }
 
 /** Mints a fresh era key. Its id follows the existing scheme so frames are unchanged. */
@@ -190,6 +259,14 @@ export interface WrappedKey {
   iv: Buffer;
   ciphertext: Buffer;
   tag: Buffer;
+  /** {@link wrapProof}: evidence the author holds the workspace secret. */
+  proof: Buffer;
+}
+
+/** Who a wrapped key is for. The peer id is bound into the proof. */
+export interface WrapRecipient {
+  peerId: string;
+  publicKey: Uint8Array;
 }
 
 /**
@@ -198,35 +275,67 @@ export interface WrappedKey {
  * An ephemeral sender keypair rather than the sender's own identity, so the
  * wrapped object does not reveal which peer produced it and a compromised
  * identity key cannot retroactively unwrap keys it never received.
+ *
+ * The workspace secret is required rather than optional: a wrap without a proof
+ * is one a store operator could have written, and there is no legitimate caller
+ * that wants to produce one. See {@link wrapProof}.
  */
-export function wrapEraKey(era: WorkspaceKey, recipientPublicKey: Uint8Array): WrappedKey {
+export function wrapEraKey(
+  era: WorkspaceKey,
+  recipient: WrapRecipient,
+  auth: { secret: string; workspace: string },
+): WrappedKey {
   const ephemeral = generateKeyPairSync('x25519');
-  const recipient = importPublicKey(recipientPublicKey);
-  const shared = diffieHellman({ privateKey: ephemeral.privateKey, publicKey: recipient });
+  const recipientKey = importPublicKey(recipient.publicKey);
+  const shared = diffieHellman({ privateKey: ephemeral.privateKey, publicKey: recipientKey });
   const ephemeralPublicKey = exportPublicKey(ephemeral.publicKey);
-  const wrappingKey = deriveWrappingKey(shared, ephemeralPublicKey, recipientPublicKey);
+  const wrappingKey = deriveWrappingKey(shared, ephemeralPublicKey, recipient.publicKey);
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv(AEAD_ALGORITHM, wrappingKey, iv);
-  cipher.setAAD(wrapAad(era.id, ephemeralPublicKey, recipientPublicKey));
+  cipher.setAAD(wrapAad(era.id, ephemeralPublicKey, recipient.publicKey));
   const ciphertext = Buffer.concat([cipher.update(era.key.export()), cipher.final()]);
-  return { eraId: era.id, ephemeralPublicKey, iv, ciphertext, tag: cipher.getAuthTag() };
+  const body = {
+    eraId: era.id,
+    ephemeralPublicKey,
+    iv,
+    ciphertext,
+    tag: cipher.getAuthTag(),
+  };
+  return { ...body, proof: wrapProof(auth.secret, auth.workspace, recipient.peerId, body) };
 }
 
-/** Unwraps with this peer's private key. Returns the era key ready for `KeyRing.add`. */
+/**
+ * Unwraps with this peer's private key. Returns the era key ready for `KeyRing.add`.
+ *
+ * The proof is checked first, against every secret the workspace is configured
+ * with so a peer mid-secret-rotation still accepts keys wrapped under the
+ * outgoing one. Verifying here rather than in the caller is deliberate: an
+ * unproven wrap must never reach the ring, and a check the caller has to
+ * remember is a check that a future caller will forget.
+ */
 export function unwrapEraKey(
   wrapped: WrappedKey,
-  ownPublicKey: Uint8Array,
-  ownPrivateKey: KeyObject,
+  recipient: WrapRecipient & { privateKey: KeyObject },
+  auth: { secrets: readonly string[]; workspace: string },
 ): WorkspaceKey {
+  const proven = auth.secrets.some((secret) =>
+    verifyWrapProof(secret, auth.workspace, recipient.peerId, wrapped),
+  );
+  if (!proven) {
+    throw new DeadDropError(
+      'DECRYPT_FAILED',
+      `wrapped key for era ${wrapped.eraId} carries no valid enrollment proof`,
+    );
+  }
   const shared = diffieHellman({
-    privateKey: ownPrivateKey,
+    privateKey: recipient.privateKey,
     publicKey: importPublicKey(wrapped.ephemeralPublicKey),
   });
-  const wrappingKey = deriveWrappingKey(shared, wrapped.ephemeralPublicKey, ownPublicKey);
+  const wrappingKey = deriveWrappingKey(shared, wrapped.ephemeralPublicKey, recipient.publicKey);
   let material: Buffer;
   try {
     const decipher = createDecipheriv(AEAD_ALGORITHM, wrappingKey, wrapped.iv);
-    decipher.setAAD(wrapAad(wrapped.eraId, wrapped.ephemeralPublicKey, ownPublicKey));
+    decipher.setAAD(wrapAad(wrapped.eraId, wrapped.ephemeralPublicKey, recipient.publicKey));
     decipher.setAuthTag(wrapped.tag);
     material = Buffer.concat([decipher.update(wrapped.ciphertext), decipher.final()]);
   } catch (cause) {
