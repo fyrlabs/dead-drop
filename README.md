@@ -139,7 +139,11 @@ Delivery is **at-least-once** and ordering is best-effort per recipient, stated 
 
 ## Security
 
-One 32-byte secret per workspace. Holding it *is* membership. Every frame is AES-256-GCM ciphertext, envelope header included, so a channel name or a payload never appears in clear text.
+One 32-byte secret per workspace. Holding it is what lets a machine join. Every frame is AES-256-GCM ciphertext, envelope header included, so a channel name or a payload never appears in clear text.
+
+**Removing a peer no longer means giving everyone a new secret.** `ddrop rotate` mints a new key, hands it to the peers that may still read, and prints who got it. Whoever is left out can read nothing written from then on; they keep what was written before, which no scheme can take back.
+
+Who is left out depends on one setting. By default a rotation wraps for every peer that has enrolled, so it changes the key without removing anybody. Set `"enrollment": { "requireApproval": true }` on the peer that does the rotating and it wraps only for peers you approved with `ddrop peer approve`, which makes `ddrop peer revoke <peer>` then `ddrop rotate` a real removal. `ddrop peer list` shows who is enrolled and where each one stands.
 
 **Object keys are the deliberate exception.** They read `ws/<workspace>/inbox/<peer>/<id>.ddf`, so anyone who can read the transport can see workspace names, peer names and roughly how much traffic there is. That is a design choice: an operator looking at a git repository should be able to tell what it holds. Message sizes and timing are visible for the same reason.
 
@@ -163,6 +167,9 @@ ddrop call <peer> <channel> --input '{"a":1}'
 ddrop publish <channel> --input '{...}'
 ddrop list | logs | metrics
 ddrop transport list | health       transport scores and health
+ddrop peer list                     who is enrolled, and their fingerprints
+ddrop peer approve <peer> <fp>      vouch for a peer's key, checked by phone
+ddrop rotate                        new key for everyone still enrolled
 ddrop trace [<traceId>]             recent traces, or one as a span tree
 ddrop keygen                        a new workspace secret, for rotation
 ```

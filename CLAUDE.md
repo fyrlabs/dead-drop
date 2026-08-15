@@ -11,4 +11,4 @@ npm install
 npm run verify      # lint, build, tests with coverage thresholds. Must pass.
 ```
 
-AGENTS.md covers the layout, the nine invariants that are bugs to break even when tests pass, the commit convention, and the platform traps that have already caused real failures here.
+AGENTS.md covers the layout, the invariants that are bugs to break even when tests pass, the commit convention, and the platform traps that have already caused real failures here.

@@ -1,6 +1,6 @@
 # ADR 0007: the shared secret becomes an enrollment token, and a per-era key is wrapped per peer
 
-**Status:** proposed, not implemented
+**Status:** accepted, implemented
 
 ## Context
 
@@ -25,7 +25,7 @@ The user's constraint, stated 2026-08-11: anyone may join at any time, no owner 
 
 The secret stops being a data key and becomes an enrollment token. Data moves under per-era symmetric keys that are wrapped to each peer individually.
 
-**Identity.** Each peer generates an X25519 keypair on first start and keeps the private half in `.deaddrop/identity`, mode 0600, beside the secret. X25519 because the wrap is a Diffie-Hellman, and Ed25519 cannot do DH; Node v26.7.0 provides both natively so no dependency is added, which keeps [invariant 6](../../AGENTS.md) satisfied without argument.
+**Identity.** Each peer generates an X25519 keypair on first start and keeps the private half in `<dataDir>/<workspace>.identity`, mode 0600, beside the workspace's other state. (The draft said `.deaddrop/identity`, beside the secret; it moved during stage 3 so that a `ddrop connect` session resolves the same file as the long-lived runtime, and so that no config field ever names a path holding key material.) X25519 because the wrap is a Diffie-Hellman, and Ed25519 cannot do DH; Node v26.7.0 provides both natively so no dependency is added, which keeps [invariant 6](../../AGENTS.md) satisfied without argument.
 
 **Enrollment.** A peer publishes its public key at `ws/<workspace>/ids/<peer>.ddi`, carrying the key plus a proof:
 
@@ -53,6 +53,8 @@ A peer reads the objects under its own name, unwraps each with its private key, 
 **Joining, concretely.** A joiner starts, publishes its identity with a proof, mints its own era key, and wraps that era for every identity it can verify. It can send immediately. It becomes readable-to itself the moment any existing peer notices the new identity and publishes a wrapped copy of that peer's era, which happens on an ordinary poll with no human involved.
 
 **Removing a peer.** Mint a new era, wrap it for everyone except the leaver, and stop sealing under the old one. Nobody redistributes a secret and nobody else re-keys. The leaver keeps whatever it already had, which is unavoidable and true of every scheme.
+
+What "except the leaver" turned into, once built: a rotation wraps for every identity carrying a valid proof, so with approval off it changes the key without removing anybody. Removal is the strict tier, where `ddrop peer revoke <peer>` drops the approval and the next rotation leaves that peer out for good. Deleting the leaver's identity object works too and does not last, because the peer republishes it on its next start. This record did not distinguish the two, and the distinction is the whole difference between rotating a key and removing a peer.
 
 **Which era seals, concretely.** This record originally left "stop sealing under the old one" as an instruction with no mechanism, and the mechanism turned out to be the interesting part: every peer has to agree, and the store cannot be trusted to tell them. So one object per workspace at `ws/<workspace>/era.dde` names the current era, carrying a rotation counter and a proof under the same secret:
 
@@ -102,14 +104,28 @@ Keeping the secret as a proof key costs nothing at the surface: `ddrop init --gi
 
 **Migration has a clean shape and it must be built deliberately.** The secret-derived key of today is deterministic, so a 0.12.0 workspace's key id is computable by a new build. New peers keep deriving that key, keep accepting it as an era, and publish an identity alongside it, so a partially upgraded workspace keeps working in both directions. The old era stops being used only when an operator runs an explicit rotate. Without this, upgrading one machine silently partitions the workspace, which is the failure mode most worth a scenario test.
 
-**A peer can be enrolled but deaf, and that state needs to be visible.** An identity published with nobody yet having wrapped an era for it decodes nothing and looks exactly like a wrong secret. `ddrop peers` and `ddrop status` have to name that state, or the first support question is unanswerable. `crypto.ts:144` already reports the key ids it holds, which is the right raw material.
+**A peer can be enrolled but deaf, and that state needs to be visible.** An identity published with nobody yet having wrapped an era for it decodes nothing and looks exactly like a wrong secret. `ddrop peer list` reports it as `waitingFor`, naming the era it has been left out of, and the runtime logs a warning when it declines to promote an era it does not hold. The command is `peer list` rather than the `peers` this draft named: `ddrop discover` already lists peers, and a near-synonym beside it is the fourth-verb problem that got `ddrop proxy` rejected.
 
 **The reapers need teaching about two new prefixes.** [ADR 0006](0006-reaping-orphaned-inboxes.md) deletes objects it judges orphaned, keyed on age plus absence of a beacon. An identity object and a wrapped era key are long-lived by nature and belong to a peer that may be offline for weeks. If they fall under the reaper's judgement they will be collected and the workspace will quietly lose the ability to admit or address that peer. They must be excluded explicitly, and a test should assert the exclusion rather than the code merely happening to skip them.
 
 **Compaction is already correct here.** [ADR 0005](0005-compacting-the-data-branch.md) preserves the live tree, so wrapped keys and identities survive a compaction without special handling.
 
-**Losing `.deaddrop/identity` is now a real loss.** A peer that loses its private key cannot read anything wrapped for it, and recovery is re-enrolling under a new identity with the secret. That is a new backup consideration that did not exist when the secret was the only material.
+**Losing `<workspace>.identity` is now a real loss.** A peer that loses its private key cannot read anything wrapped for it, and recovery is re-enrolling under a new identity with the secret. That is a new backup consideration that did not exist when the secret was the only material.
 
-## How it should be settled
+## How it was settled
 
-Every claim in this record that starts "already" was read in the code at the commit that adds this file, not remembered. The design is unimplemented, so nothing here is verified behaviour yet, and the two places most likely to be wrong are the migration path and the reaper interaction. Both deserve mutation-verified tests rather than reasoning, on the standard set by ADR 0006: remove the guard, watch a named test fail.
+Every claim in this record that starts "already" was read in the code at the commit that adds this file, not remembered. What follows is what changed once it was built, in the order the surprises arrived.
+
+**The design gap this record never filled: how every peer agrees on which era seals.** Wrapping a key for somebody says nothing about when they should use it. The answer is one object per workspace, `ws/<ws>/era.dde`, carrying `{eraId, seq, proof}` where the proof is an HMAC under `dead-drop/v1/era-pointer`. A peer promotes only when the proof verifies, the sequence advances past the highest it has seen, and it already holds the key. The proof matters more than the wrap proof does: a forged wrap only grants reading, while a forged pointer would let the transport choose what everybody seals under.
+
+**A security hole opened between stages and was closed before release.** Wrapping needs only the recipient's public key, and that key is published in the clear on purpose, so the first working version accepted any wrapped object that decrypted. Whoever could write to the store could mint an era, wrap it to a victim, and then forge a request from any peer at all, because a frame opens under whichever key id it names and the sender in an envelope is only a field. Before this record, opening a frame at all proved its author held the secret; taking keys from the store broke that invariant. Every wrapped object now carries `dead-drop/v1/key-wrap-proof`, checked before any Diffie-Hellman, and the secret is a required argument on both `wrapEraKey` and `unwrapEraKey` rather than an option, because a check the caller has to remember is a check a future caller forgets.
+
+**The layout changed.** Wrapped keys are at `keys/<peer>/<eraId>.ddw`, grouped by peer rather than by era, so taking delivery is one prefix listing instead of a sweep of every era ever minted.
+
+**Enrollment deliberately does not wrap the current era for other peers.** While the primary era is the secret-derived one, every member already computes it, so a wrapped copy would be one object per peer per transport handing over something the recipient already has. Wrapping happens in `rotate()`, where the era is random and genuinely cannot be obtained any other way.
+
+**Rotation had to become durable to be worth anything.** `<dataDir>/<workspace>.era` remembers the era and the sequence counter. Without it a restarted peer sealed under the secret-derived era for its whole first enrollment pass, readable by exactly the peer the last rotation removed, and the counter reset, so the pointer replay only had to wait for a restart.
+
+**The reaper interaction turned out to be already safe, and the reason is worth stating precisely.** Identities and wrapped keys sit outside every prefix the reapers list, so they are never seen. Mutation defines the reach: widening the listed root and trusting the listing fails the test, while bypassing the key parser alone does not. The protection is the prefix, not the parser, so do not "harden" this by adding parser guards and conclude the prefix stopped mattering.
+
+**Mutation corrected the comments rather than confirming them, repeatedly.** The recipient key is bound both in the wrapping KDF salt and in the AAD, and either alone suffices. The null separators in the enrollment proof separate nothing, because the workspace is already the HKDF salt. Only the recipient peer id in the wrap proof is load-bearing. And `adoptEra`'s "do I hold this era" check changes no behaviour at all: what it contributes is the named warning that makes the enrolled-but-deaf state visible. Each of those was claimed as a guard first and demoted by a test that kept passing without it.

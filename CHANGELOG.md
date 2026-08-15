@@ -6,6 +6,16 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+### Added
+
+- **Removing a peer no longer means giving everyone a new secret.** `ddrop rotate` makes a new key, hands it to the peers that may still read, and prints who got it. Whoever is left out cannot read anything written from then on, and messages written before the rotation stay readable to everyone, as they were. By default a rotation includes every peer that has enrolled, so it changes the key without removing anybody; turn on approvals below to leave somebody out.
+
+- Joining is unchanged and still one command. Each peer now publishes a key of its own on first start, which is what a rotation wraps the new key for. Nothing to configure and nothing to copy.
+
+- `ddrop peer list` shows who is enrolled, what each peer's key fingerprints to, and whether this peer can read the current key. It answers "who may read", where `ddrop discover` answers "who is running right now".
+
+- `"enrollment": { "requireApproval": true }` on a workspace, off by default, for people who do not trust the storage their peers meet through. A rotation then hands the new key only to peers somebody approved with `ddrop peer approve <peer> <fingerprint>`, after comparing that fingerprint by phone or in person. Approving records the fingerprint, so a peer whose key later changes stops being approved instead of inheriting the decision. `ddrop peer revoke <peer>` takes an approval back, and the next rotation is what removes that peer.
+
 ## [0.12.0]
 
 ### Added

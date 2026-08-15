@@ -54,6 +54,21 @@ A Unix socket path cannot exceed 104 bytes. When `<dataDir>/deaddrop.sock` would
 | `presenceIntervalMs` | number | no | `30000` | How often this peer republishes its presence beacon. Must be positive. See below. |
 | `inboxOrphanMs` | number | no | `604800000` | How long mail for an absent peer survives before any peer may delete it. `0` turns reaping off. See below. |
 | `concurrency` | number | no | `1` | How many inbound messages this workspace handles at once. Must be a whole number of at least 1. See below. |
+| `enrollment` | object | no | | `requireApproval` (default `false`), a boolean. See below. |
+
+### `enrollment`
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `requireApproval` | boolean | `false` | `ddrop rotate` wraps the new key era only for peers a human approved with `ddrop peer approve <peer> <fingerprint>`. |
+
+Off, anyone holding the workspace secret enrols and is wrapped for by the next rotation, which is what keeps joining a single command.
+
+On, enrolling still costs nothing, but a peer reads nothing new until somebody compares its fingerprint over a channel the transport cannot see and approves it. Approvals are recorded at `<dataDir>/<workspace>.approvals.json` and are per machine: they gate the rotations *this* peer performs.
+
+`ddrop peer revoke <peer>` takes an approval back, and the rotation after it is what removes that peer; revoking alone changes nothing, because the peer already holds the era everybody is sealing under.
+
+The setting only governs who the next rotation wraps for. Switching it on changes nothing for peers that are already reading, and switching it off does not retroactively wrap anybody. `ddrop peer list` shows who is enrolled, what they fingerprint to, and which of them are approved; `ddrop rotate` names everyone it skipped.
 
 ### `retry`
 
