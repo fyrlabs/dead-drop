@@ -110,9 +110,9 @@
     "semantic_hash": "3d86a346dfb83b577595cf2b688363a3"
   },
   "e2e/run.sh": {
-    "mtime": 1786408065.3672652,
-    "ast_hash": "59e35abf7eaf49b6cb55c4d936de71b2",
-    "semantic_hash": "59e35abf7eaf49b6cb55c4d936de71b2"
+    "mtime": 1786822646.3999438,
+    "ast_hash": "1b1415284c90407ef5ed5511ba4519b6",
+    "semantic_hash": "1b1415284c90407ef5ed5511ba4519b6"
   },
   "eslint.config.js": {
     "mtime": 1786408065.367548,
@@ -365,12 +365,12 @@
     "semantic_hash": "d2e7a1c294fcdc2f7e31815a20799c9c"
   },
   "packages/dead-drop/src/transports/github/gh.ts": {
-    "mtime": 1786408065.3777359,
+    "mtime": 1786823233.040988,
     "ast_hash": "2b420b9f75ebab4edb72411eec6665a3",
     "semantic_hash": "2b420b9f75ebab4edb72411eec6665a3"
   },
   "packages/dead-drop/src/transports/github/index.ts": {
-    "mtime": 1786408065.377874,
+    "mtime": 1786823374.891923,
     "ast_hash": "f75ec462884eaa29c870e5df3c9cc98e",
     "semantic_hash": "f75ec462884eaa29c870e5df3c9cc98e"
   },
@@ -625,9 +625,9 @@
     "semantic_hash": "e0846621b81652ad6ded54e2dbdfb26b"
   },
   ".github/RELEASE_CHECKLIST.md": {
-    "mtime": 1786771254.5985498,
-    "ast_hash": "f081a85a1fcf644b8a832b10b84ea46f",
-    "semantic_hash": "f081a85a1fcf644b8a832b10b84ea46f"
+    "mtime": 1786823433.090628,
+    "ast_hash": "ef056c08f13796c74260051c63340c47",
+    "semantic_hash": "ef056c08f13796c74260051c63340c47"
   },
   ".github/RELEASE_TEMPLATE.md": {
     "mtime": 1786408065.3580153,
@@ -750,9 +750,9 @@
     "semantic_hash": "4b0e5d4c134cdac0659fbd6404902380"
   },
   "docs/testing.md": {
-    "mtime": 1786821675.9954758,
-    "ast_hash": "ab6f5eb8ca6fe0d2bcd87015ab62d26a",
-    "semantic_hash": "ab6f5eb8ca6fe0d2bcd87015ab62d26a"
+    "mtime": 1786823417.5634174,
+    "ast_hash": "e89b266dc8f3c43a47f2088dd74a708c",
+    "semantic_hash": "e89b266dc8f3c43a47f2088dd74a708c"
   },
   "docs/vision.md": {
     "mtime": 1786408065.3644056,
@@ -818,5 +818,10 @@
     "mtime": 1786821685.7671976,
     "ast_hash": "5dc807c62c06672b6ea96d949937b260",
     "semantic_hash": "5dc807c62c06672b6ea96d949937b260"
+  },
+  "e2e/live/03-repository-lifecycle.sh": {
+    "mtime": 1786823507.775982,
+    "ast_hash": "777d18af47a64bafabd04c5fd25901cb",
+    "semantic_hash": "777d18af47a64bafabd04c5fd25901cb"
   }
 }
