@@ -44,7 +44,7 @@ while [ $# -gt 0 ]; do
     --npm) FROM_NPM="${2:-}"; shift 2 ;;
     --only) ONLY="${2:-}"; shift 2 ;;
     --list) LIST=1; shift ;;
-    --help|-h) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h) sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "e2e: unknown option $1" >&2; exit 2 ;;
     */*) REPO="$1"; shift ;;
     *) echo "e2e: unexpected argument $1" >&2; exit 2 ;;
