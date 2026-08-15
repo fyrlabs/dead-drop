@@ -808,5 +808,10 @@
     "mtime": 1786769914.2353814,
     "ast_hash": "217af4f3ea3bb71da6bd5458ffa2bb82",
     "semantic_hash": "217af4f3ea3bb71da6bd5458ffa2bb82"
+  },
+  "e2e/live/02-rotation.sh": {
+    "mtime": 1786821002.6011758,
+    "ast_hash": "f8609c147003ef924c0f39e7d3746c1c",
+    "semantic_hash": "f8609c147003ef924c0f39e7d3746c1c"
   }
 }
