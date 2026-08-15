@@ -20,6 +20,7 @@ import {
   encodeJson,
   enrollmentProof,
   eraPointerProof,
+  fingerprint,
   generateEraKey,
   generateIdentity,
   idTime,
@@ -62,6 +63,7 @@ import { MetricsRegistry as Metrics, traceContext } from '../core/index.js';
 import type { StoreTransport, TransportRegistration } from '@fyrlabs/dead-drop-transport-sdk';
 
 import type { WorkspaceConfig } from './config.js';
+import { saveApprovals, type Approvals } from './approval-store.js';
 import { saveEra, type StoredEra } from './era-store.js';
 import { VERSION } from '../version.js';
 
@@ -140,6 +142,40 @@ export interface QueueReport {
   truncated: boolean;
 }
 
+/** One enrolled peer, as `ddrop peer list` reports it. [ADR 0007](../../docs/adr/0007-per-peer-key-wrapping.md). */
+export interface EnrolledPeer {
+  peerId: string;
+  /** Of the key published now, which is the string a human compares out of band. */
+  fingerprint: string;
+  /** A stored approval names exactly the key this peer publishes now. */
+  approved: boolean;
+  /** This runtime's own identity. */
+  self: boolean;
+  /**
+   * Set when an approval exists but names a different key than the one on the
+   * store. Somebody replaced this peer's identity object after it was approved,
+   * which is precisely the attack the approval tier exists to catch.
+   */
+  approvedFingerprint?: string;
+}
+
+export interface EnrollmentReport {
+  /** Whether approval gates who a rotation wraps for, or is only recorded. */
+  requireApproval: boolean;
+  /** Key id every frame written from now on carries. */
+  sealing: string;
+  /** Era key ids this peer can open frames with. */
+  keyIds: string[];
+  /**
+   * The workspace has rotated to an era nothing has wrapped for this peer, so it
+   * can write but cannot read what others write. Absent in the ordinary case.
+   */
+  waitingFor?: { eraId: string; seq: number };
+  peers: EnrolledPeer[];
+  /** Transports that could not be listed, so the listing may be short. */
+  unreadable: string[];
+}
+
 /** Entries per list call, and the most one `queues()` will walk per transport. */
 const QUEUE_PAGE_SIZE = 1000;
 const QUEUE_SCAN_LIMIT = 10_000;
@@ -196,6 +232,15 @@ export interface WorkspaceOptions {
   era?: StoredEra;
   /** Where to write the era when it changes. Omitted, rotation is not remembered. */
   eraPath?: string;
+  /**
+   * Peers a human has approved by fingerprint, ADR 0007's `requireApproval`
+   * tier. Read from disk by `Runtime` for the same reason as the identity and
+   * the era: loading it is async and `rotate()` must not have to wait on it.
+   * Omitted, nobody is approved, which only matters when the tier is on.
+   */
+  approvals?: Approvals;
+  /** Where approvals are written. Omitted, `approve()` refuses rather than forgetting. */
+  approvalsPath?: string;
   /**
    * Marks this runtime as a short-lived session sharing a config with a
    * longer-lived peer. It takes its own mailbox address so the two do not fight
@@ -346,6 +391,10 @@ export class Workspace {
    */
   private eraSeq = 0;
   private readonly eraPath: string | undefined;
+  private readonly approvals: Approvals;
+  private readonly approvalsPath: string | undefined;
+  /** ADR 0007's opt-in strict tier. Off unless the config says otherwise. */
+  private readonly requireApproval: boolean;
   private nextReapAt = 0;
   private reapBackoff = 1;
   private started = false;
@@ -369,6 +418,9 @@ export class Workspace {
       this.eraSeq = options.era.seq;
     }
     this.keypair = options.identity ?? generateIdentity();
+    this.approvals = options.approvals ?? new Map();
+    this.approvalsPath = options.approvalsPath;
+    this.requireApproval = options.config.enrollment?.requireApproval ?? false;
     // The explicit option wins over the config field so a caller constructing a
     // Workspace directly, which is what the tests do, is not overridden by it.
     this.presenceIntervalMs =
@@ -1158,6 +1210,96 @@ export class Workspace {
   }
 
   /**
+   * Who is enrolled, what their keys fingerprint to, and what this peer can read.
+   *
+   * This answers a different question from `discover()`, which reports who is
+   * running right now from presence beacons. This one reports who may read,
+   * which is a property of published identities and of the last rotation, and
+   * has nothing to do with whether anybody is online.
+   *
+   * `waitingFor` is the state ADR 0007 says has to be visible: the workspace
+   * has moved to an era nothing has wrapped for this peer, so it can still write
+   * but can no longer read what anybody else writes. From the outside that looks
+   * exactly like a wrong secret, and the difference matters enormously.
+   */
+  async enrollment(): Promise<EnrollmentReport> {
+    const { identities, failed } = await this.readIdentities();
+    const pointer = await this.readEraPointer();
+    const orphaned =
+      pointer !== undefined &&
+      !this.keys.has(pointer.eraId) &&
+      this.config.secrets.some((secret) => verifyEraPointerProof(secret, this.name, pointer));
+    return {
+      requireApproval: this.requireApproval,
+      sealing: this.keys.primary.id,
+      keyIds: this.keys.keyIds,
+      ...(orphaned && pointer ? { waitingFor: { eraId: pointer.eraId, seq: pointer.seq } } : {}),
+      peers: identities
+        .map((peer) => {
+          const current = fingerprint(peer.publicKey);
+          const approved = this.approvals.get(peer.peerId);
+          return {
+            peerId: peer.peerId,
+            fingerprint: current,
+            approved: approved === current,
+            self: peer.peerId === this.identity,
+            ...(approved !== undefined && approved !== current
+              ? { approvedFingerprint: approved }
+              : {}),
+          };
+        })
+        .sort((a, b) => (a.peerId < b.peerId ? -1 : 1)),
+      unreadable: failed,
+    };
+  }
+
+  /**
+   * Records that a human has checked this peer's fingerprint out of band.
+   *
+   * The fingerprint offered is compared against the identity that is published
+   * *now*, and a mismatch is refused rather than stored. That comparison is the
+   * whole tier: the operator read a fingerprint over a channel the transport
+   * cannot see, and this is where what they read meets what the transport is
+   * serving. Storing an unmatched value would turn the one check that survives a
+   * compromised store into a note nobody reads.
+   *
+   * What is stored is the fingerprint, never a bare yes, so a peer that later
+   * republishes a different public key under the same name stops being approved
+   * instead of inheriting the decision.
+   */
+  async approve(peerId: string, offered: string): Promise<{ peerId: string; fingerprint: string }> {
+    if (this.approvalsPath === undefined) {
+      throw new DeadDropError(
+        'CONFIG_INVALID',
+        'this workspace has nowhere to write approvals, so an approval would not survive a restart',
+      );
+    }
+    const { identities, failed } = await this.readIdentities();
+    const peer = identities.find((entry) => entry.peerId === peerId);
+    if (!peer) {
+      throw new DeadDropError(
+        'NOT_FOUND',
+        failed.length > 0
+          ? `no enrolled peer "${peerId}", and ${failed.join(', ')} could not be listed`
+          : `no enrolled peer "${peerId}"`,
+        { details: { known: identities.map((entry) => entry.peerId) } },
+      );
+    }
+    const current = fingerprint(peer.publicKey);
+    if (canonicalFingerprint(offered) !== canonicalFingerprint(current)) {
+      throw new DeadDropError(
+        'UNAUTHORIZED',
+        `"${peerId}" publishes fingerprint ${current}, not ${offered}. Check it with whoever runs that peer before approving; a mismatch is what this tier exists to catch.`,
+        { details: { peerId, published: current } },
+      );
+    }
+    this.approvals.set(peerId, current);
+    await saveApprovals(this.approvalsPath, this.approvals);
+    this.logger.info('approved a peer identity', { peerId, fingerprint: current });
+    return { peerId, fingerprint: current };
+  }
+
+  /**
    * The same listing, plus the transports that could not answer.
    *
    * `identities()` discards that, which is right for a read: a caller asking who
@@ -1354,8 +1496,20 @@ export class Workspace {
    * silently deafen the rest with no way back except another rotation by
    * somebody who can see them. Same reasoning as the reaper in ADR 0006, and
    * the same conclusion: an incomplete listing means do nothing.
+   *
+   * Under `enrollment.requireApproval` the recipients are narrowed to peers a
+   * human has approved by fingerprint, plus this peer itself: a rotation that
+   * skipped its own identity would mint an era this peer could not recover after
+   * a restart, and running the command is a stronger statement of intent than
+   * approving yourself would be. Everyone skipped is named in the result, for
+   * the same reason `wrappedFor` is: this is the operation that removes people.
    */
-  async rotate(): Promise<{ eraId: string; seq: number; wrappedFor: string[] }> {
+  async rotate(): Promise<{
+    eraId: string;
+    seq: number;
+    wrappedFor: string[];
+    skipped: string[];
+  }> {
     const secret = this.config.secrets[0];
     if (secret === undefined) {
       throw new DeadDropError('CONFIG_INVALID', 'rotating needs a workspace secret');
@@ -1378,8 +1532,19 @@ export class Workspace {
       );
     }
 
+    const recipients = this.requireApproval
+      ? identities.filter(
+          (peer) =>
+            peer.peerId === this.identity ||
+            this.approvals.get(peer.peerId) === fingerprint(peer.publicKey),
+        )
+      : identities;
+    const skipped = identities
+      .filter((peer) => !recipients.includes(peer))
+      .map((peer) => peer.peerId);
+
     const era = generateEraKey();
-    for (const peer of identities) {
+    for (const peer of recipients) {
       const wrapped = wrapEraKey(era, peer, { secret, workspace: this.name });
       await this.manager.runWrite('put', (transport) =>
         (transport as StoreTransport).put(
@@ -1409,9 +1574,14 @@ export class Workspace {
     this.keys.promote(era);
     this.eraSeq = seq;
     await this.rememberEra();
-    const wrappedFor = identities.map((peer) => peer.peerId);
-    this.logger.info('rotated the workspace era', { eraId: era.id, seq, peers: wrappedFor.length });
-    return { eraId: era.id, seq, wrappedFor };
+    const wrappedFor = recipients.map((peer) => peer.peerId);
+    this.logger.info('rotated the workspace era', {
+      eraId: era.id,
+      seq,
+      peers: wrappedFor.length,
+      skipped: skipped.length,
+    });
+    return { eraId: era.id, seq, wrappedFor, skipped };
   }
 
   /**
@@ -1634,4 +1804,17 @@ function defaultPeerId(): string {
 function sanitise(value: string): string {
   const cleaned = value.replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^[^a-zA-Z0-9]+/, '');
   return cleaned.length > 0 ? cleaned.slice(0, 64) : 'peer';
+}
+
+/**
+ * A fingerprint reduced to the digits it actually carries.
+ *
+ * The canonical form is groups of four lowercase hex separated by dashes, but a
+ * human typing back what somebody read to them over the phone will use spaces,
+ * capitals, or nothing at all between the groups. Refusing those would fail an
+ * approval for a reason that has nothing to do with the key, and the operator
+ * would reasonably read that failure as the attack this tier reports.
+ */
+function canonicalFingerprint(value: string): string {
+  return value.toLowerCase().replace(/[^0-9a-f]/g, '');
 }

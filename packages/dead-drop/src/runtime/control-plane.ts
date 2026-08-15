@@ -155,6 +155,23 @@ export async function startControlPlane(options: ControlPlaneOptions): Promise<C
       send(response, 201, { name: handle.name, channel: handle.channel, peerId: workspace.peerId });
       return;
     }
+    if (method === 'GET' && path === '/enrollment') {
+      const workspace = resolveWorkspace(runtime, url);
+      send(response, 200, await workspace.enrollment());
+      return;
+    }
+    if (method === 'POST' && path === '/enrollment/approve') {
+      const body = (await readJson(request, maxBodyBytes)) as {
+        peerId?: string;
+        fingerprint?: string;
+      };
+      if (typeof body.peerId !== 'string' || typeof body.fingerprint !== 'string') {
+        throw new DeadDropError('BAD_REQUEST', 'approving requires peerId and fingerprint');
+      }
+      const workspace = resolveWorkspace(runtime, url);
+      send(response, 200, await workspace.approve(body.peerId, body.fingerprint));
+      return;
+    }
     if (method === 'POST' && path === '/rotate') {
       const workspace = resolveWorkspace(runtime, url);
       send(response, 200, await workspace.rotate());

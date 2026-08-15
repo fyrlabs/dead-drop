@@ -257,6 +257,18 @@ describe('parseRuntimeConfig', () => {
     expect(config.workspaces[0]?.concurrency).toBe(4);
   });
 
+  it('carries the approval tier through to the workspace', () => {
+    const config = parseRuntimeConfig({
+      workspaces: [{ ...valid.workspaces[0], enrollment: { requireApproval: true } }],
+    });
+    expect(config.workspaces[0]?.enrollment?.requireApproval).toBe(true);
+  });
+
+  it('leaves the approval tier unset, so enrolling stays a single command', () => {
+    const config = parseRuntimeConfig(valid);
+    expect(config.workspaces[0]?.enrollment).toBeUndefined();
+  });
+
   it('leaves concurrency unset so the mailbox default of 1 applies', () => {
     const config = parseRuntimeConfig(valid);
     expect(config.workspaces[0]?.concurrency).toBeUndefined();
@@ -432,6 +444,23 @@ describe('parseRuntimeConfig', () => {
       'a misspelled policy option',
       { workspaces: [{ ...valid.workspaces[0], policy: { primaries: 'a' } }] },
       /policy.primaries is not a known option/,
+    ],
+    // A truthy string here would switch on a manual approval step and leave the
+    // next peer to join deaf, with nothing anywhere reporting a reason.
+    [
+      'an approval flag that is not a boolean',
+      { workspaces: [{ ...valid.workspaces[0], enrollment: { requireApproval: 'yes' } }] },
+      /enrollment.requireApproval must be true or false/,
+    ],
+    [
+      'a misspelled enrollment option',
+      { workspaces: [{ ...valid.workspaces[0], enrollment: { requiresApproval: true } }] },
+      /enrollment.requiresApproval is not a known option/,
+    ],
+    [
+      'an enrollment block that is not an object',
+      { workspaces: [{ ...valid.workspaces[0], enrollment: true }] },
+      /enrollment must be an object/,
     ],
   ];
 

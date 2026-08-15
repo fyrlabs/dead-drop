@@ -127,6 +127,24 @@ export interface WorkspaceConfig {
    * to every message including one that asked for no expiry at all.
    */
   inboxOrphanMs?: number;
+  /**
+   * The opt-in strict tier of [ADR 0007](../../docs/adr/0007-per-peer-key-wrapping.md).
+   *
+   * By default anyone holding the workspace secret enrolls with no approval and
+   * no ordering, which is what keeps joining a single command. `requireApproval`
+   * trades that for a manual step: `ddrop rotate` then wraps the new era only
+   * for peers a human has approved with `ddrop peer approve <peer>
+   * <fingerprint>`, comparing the fingerprint over a channel the transport
+   * cannot see.
+   *
+   * This is the knob for operators who do not trust their transport at the
+   * moment of enrollment. It is off by default because it is the only part of
+   * ADR 0007 that costs a step, and switching it on changes nothing about peers
+   * that are already reading: it governs who the *next* rotation wraps for.
+   */
+  enrollment?: {
+    requireApproval?: boolean;
+  };
   /** Default request timeout for this workspace. Default 30000. */
   requestTimeoutMs?: number;
   /**
@@ -370,6 +388,9 @@ function parseWorkspace(raw: unknown, index: number, baseDir?: string): Workspac
   };
   if (typeof source.peerId === 'string') workspace.peerId = source.peerId;
   if (source.policy !== undefined) workspace.policy = parsePolicy(source.policy, label);
+  if (source.enrollment !== undefined) {
+    workspace.enrollment = parseEnrollment(source.enrollment, label);
+  }
   if (source.exposures !== undefined) {
     if (!Array.isArray(source.exposures)) fail(`workspace ${label}: exposures must be an array`);
     workspace.exposures = source.exposures.map((entry, position) =>
@@ -545,6 +566,26 @@ function parsePolicy(raw: unknown, label: string): WorkspaceConfig['policy'] {
     }
   }
   return source as WorkspaceConfig['policy'];
+}
+
+function parseEnrollment(raw: unknown, label: string): WorkspaceConfig['enrollment'] {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    fail(`workspace ${label}: enrollment must be an object`);
+  }
+  const source = raw as Record<string, unknown>;
+  for (const key of Object.keys(source)) {
+    if (key !== 'requireApproval') {
+      fail(`workspace ${label}: enrollment.${key} is not a known option`);
+    }
+  }
+  // A truthy string here would silently switch on a manual approval step that
+  // stops new peers being wrapped for, which is the most confusing possible
+  // outcome of a typo: everything starts, nothing is wrong, and the next peer
+  // to join is deaf for reasons nothing reports.
+  if (source.requireApproval !== undefined && typeof source.requireApproval !== 'boolean') {
+    fail(`workspace ${label}: enrollment.requireApproval must be true or false`);
+  }
+  return source as WorkspaceConfig['enrollment'];
 }
 
 function parseExposure(raw: unknown, label: string, baseDir?: string): ExposureConfig {

@@ -75,6 +75,8 @@ Usage
   ddrop dashboard [--port n] [--no-open]     read-only web view on 127.0.0.1
   ddrop transport list [--json]              show transports and their scores
   ddrop transport health [--json]            re-probe transports and show health
+  ddrop peer list [--json]                   who is enrolled, and what they fingerprint to
+  ddrop peer approve <peer> <fingerprint>    vouch for a peer's key, checked out of band
   ddrop expose --target <url> --name <name>  expose a local http server
   ddrop expose <dir> [--name <name>]         expose a directory (named after it by default)
   ddrop connect <peer>/<exposure> [--port n] serve a remote exposure locally
@@ -190,6 +192,8 @@ async function dispatch(
       return dashboard(values, io);
     case 'transport':
       return transport(args, values, io);
+    case 'peer':
+      return peer(args, values, io);
     case 'expose':
       return expose(args, values, io);
     case 'connect':
@@ -814,6 +818,107 @@ async function publish(args: string[], values: Values, io: CliIo): Promise<numbe
 }
 
 /**
+ * Who is enrolled and may read, which is a different question from `discover`.
+ *
+ * `discover` answers "who is running right now" from presence beacons. This
+ * answers "who holds a key" from published identities, and the two disagree all
+ * the time: a laptop that is closed is enrolled and invisible, and a peer that
+ * was left out of the last rotation is visible and cannot read a word.
+ */
+async function peer(args: string[], values: Values, io: CliIo): Promise<number> {
+  const sub = args[0] ?? 'list';
+  if (sub === 'list') return peerList(values, io);
+  if (sub === 'approve') return peerApprove(args.slice(1), values, io);
+  io.err('ddrop: peer takes "list" or "approve"');
+  return 2;
+}
+
+async function peerList(values: Values, io: CliIo): Promise<number> {
+  const body = await (
+    await client(values)
+  ).request<{
+    requireApproval: boolean;
+    sealing: string;
+    keyIds: string[];
+    waitingFor?: { eraId: string; seq: number };
+    peers: Array<{
+      peerId: string;
+      fingerprint: string;
+      approved: boolean;
+      self: boolean;
+      approvedFingerprint?: string;
+    }>;
+    unreadable: string[];
+  }>('GET', `/enrollment${buildQuery(values)}`);
+  if (values.json) io.out(JSON.stringify(body, null, 2));
+
+  for (const transportName of body.unreadable) {
+    io.err(`ddrop: could not list identities on ${transportName}; peers it holds are missing.`);
+  }
+  // Written but not readable. The peer keeps announcing and keeps sending, so
+  // nothing else in the tool looks wrong, which is exactly why this is loud.
+  if (body.waitingFor) {
+    io.err(
+      `ddrop: the workspace rotated to era ${body.waitingFor.eraId} and nothing has wrapped it for this peer.`,
+    );
+    io.err(
+      'ddrop: ask someone who can already read to run "ddrop rotate" with this peer enrolled.',
+    );
+  }
+
+  if (values.json) return 0;
+  if (body.peers.length === 0) {
+    io.out('Nobody has published an identity yet.');
+    return 0;
+  }
+  for (const entry of body.peers) {
+    const marks = [
+      entry.self ? 'this peer' : undefined,
+      body.requireApproval ? (entry.approved ? 'approved' : 'not approved') : undefined,
+    ].filter(Boolean);
+    io.out(
+      `${pad(entry.peerId, 24)} ${entry.fingerprint}${marks.length > 0 ? `  (${marks.join(', ')})` : ''}`,
+    );
+    if (entry.approvedFingerprint !== undefined) {
+      io.out(`  key changed since approval, which was ${entry.approvedFingerprint}`);
+    }
+  }
+  io.err('');
+  io.err(
+    body.requireApproval
+      ? 'Approval is required here: "ddrop rotate" wraps the new era only for the peers marked approved.'
+      : 'Approval is not required here: "ddrop rotate" wraps the new era for every peer listed.',
+  );
+  return 0;
+}
+
+async function peerApprove(args: string[], values: Values, io: CliIo): Promise<number> {
+  const [peerId, offered] = args;
+  if (!peerId || !offered) {
+    io.err('ddrop: peer approve takes <peer> <fingerprint>');
+    io.err(
+      'Compare the fingerprint with whoever runs that peer first, over the phone or in person.',
+    );
+    return 2;
+  }
+  const body = await (
+    await client(values)
+  ).request<{ peerId: string; fingerprint: string }>(
+    'POST',
+    `/enrollment/approve${buildQuery(values)}`,
+    { peerId, fingerprint: offered },
+  );
+  if (values.json) {
+    io.out(JSON.stringify(body, null, 2));
+    return 0;
+  }
+  io.out(`Approved ${body.peerId} at ${body.fingerprint}.`);
+  io.err('');
+  io.err('Nothing has changed yet for this peer. Run "ddrop rotate" to hand it the current era.');
+  return 0;
+}
+
+/**
  * Mints a new era key and stops sealing under the old one. ADR 0007.
  *
  * This is what actually removes a peer's access, and it is the only command in
@@ -826,7 +931,7 @@ async function publish(args: string[], values: Values, io: CliIo): Promise<numbe
 async function rotate(values: Values, io: CliIo): Promise<number> {
   const body = await (
     await client(values)
-  ).request<{ eraId: string; seq: number; wrappedFor: string[] }>(
+  ).request<{ eraId: string; seq: number; wrappedFor: string[]; skipped: string[] }>(
     'POST',
     `/rotate${buildQuery(values)}`,
   );
@@ -837,7 +942,17 @@ async function rotate(values: Values, io: CliIo): Promise<number> {
   io.out(`Rotated to era ${body.eraId} (rotation ${body.seq}).`);
   io.out('');
   io.out(`Readable by ${body.wrappedFor.length} peer${body.wrappedFor.length === 1 ? '' : 's'}:`);
-  for (const peer of [...body.wrappedFor].sort()) io.out(`  ${peer}`);
+  for (const target of [...body.wrappedFor].sort()) io.out(`  ${target}`);
+  // Only under `requireApproval`, and worth its own block: these peers are
+  // enrolled, they are still writing, and they have just gone deaf.
+  if (body.skipped.length > 0) {
+    io.out('');
+    io.out(
+      `Skipped ${body.skipped.length} enrolled but unapproved peer${body.skipped.length === 1 ? '' : 's'}:`,
+    );
+    for (const target of [...body.skipped].sort()) io.out(`  ${target}`);
+    io.out('  Approve one with "ddrop peer approve <peer> <fingerprint>", then rotate again.');
+  }
   io.err('');
   io.err('Any peer not listed above cannot read messages written from now on.');
   io.err('Messages written before this rotation are unaffected, for everybody.');

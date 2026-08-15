@@ -27,6 +27,7 @@ import {
 
 import type { RuntimeConfig, WorkspaceConfig } from './config.js';
 import { registerExposure, type ExposureHandle } from './exposure.js';
+import { loadApprovals } from './approval-store.js';
 import { loadEra } from './era-store.js';
 import { loadOrCreateIdentity } from './identity-store.js';
 import { loadTransports, type ModuleLoader } from './plugins.js';
@@ -207,6 +208,7 @@ export class DeadDropRuntime {
     });
     const eraPath = join(this.config.dataDir, `${config.name}.era`);
     const era = await loadEra(eraPath, this.logger);
+    const approvalsPath = join(this.config.dataDir, `${config.name}.approvals.json`);
     const workspace = new Workspace({
       config,
       registrations,
@@ -224,6 +226,10 @@ export class DeadDropRuntime {
       // is async. See era-store.ts for the window this closes.
       eraPath,
       ...(era ? { era } : {}),
+      // Same shape again, and for the same reason: reading it is async, and
+      // `rotate()` decides who may still read from it.
+      approvalsPath,
+      approvals: await loadApprovals(approvalsPath, this.logger),
       ...(this.sessionId ? { sessionId: this.sessionId } : {}),
       version: this.version,
     });

@@ -372,6 +372,84 @@ describe('ddrop commands that need a runtime', () => {
     const badTransport = capture();
     expect(await run(['transport', 'explode'], badTransport)).toBe(2);
     expect(badTransport.stderr.join('\n')).toContain('list');
+
+    const badPeer = capture();
+    expect(await run(['peer', 'banish'], badPeer)).toBe(2);
+    expect(badPeer.stderr.join('\n')).toContain('list');
+
+    // Approving takes both halves, and the missing half is worth naming: an
+    // approval with no fingerprint would be the bare yes this tier refuses.
+    const halfApproval = capture();
+    expect(await run(['peer', 'approve', 'peer-b'], halfApproval)).toBe(2);
+    expect(halfApproval.stderr.join('\n')).toContain('<peer> <fingerprint>');
+  });
+
+  it('reports enrolled peers, and marks the ones nobody has approved', async () => {
+    const socket = await fakeControlPlane({
+      requireApproval: true,
+      sealing: 'era_aaa',
+      keyIds: ['era_aaa'],
+      peers: [
+        { peerId: 'peer-a', fingerprint: '1111-2222-3333-4444', approved: true, self: true },
+        { peerId: 'peer-b', fingerprint: 'aaaa-bbbb-cccc-dddd', approved: false, self: false },
+      ],
+      unreadable: [],
+    });
+
+    const io = capture();
+    expect(await run(['peer', 'list', '--socket', socket], io)).toBe(0);
+    const out = io.stdout.join('\n');
+    expect(out).toMatch(/peer-a\s+1111-2222-3333-4444\s+\(this peer, approved\)/);
+    expect(out).toMatch(/peer-b\s+aaaa-bbbb-cccc-dddd\s+\(not approved\)/);
+    // The consequence, not just the state: an operator reading this needs to
+    // know that rotating now leaves peer-b out.
+    expect(io.stderr.join('\n')).toMatch(/only for the peers marked approved/);
+  });
+
+  it('says a key changed since it was approved, rather than only that it is unapproved', async () => {
+    // A peer nobody got round to approving and a peer whose identity object was
+    // replaced print the same "not approved" otherwise, and the second is an
+    // attack in progress.
+    const socket = await fakeControlPlane({
+      requireApproval: true,
+      sealing: 'era_aaa',
+      keyIds: ['era_aaa'],
+      peers: [
+        {
+          peerId: 'peer-b',
+          fingerprint: 'aaaa-bbbb-cccc-dddd',
+          approved: false,
+          self: false,
+          approvedFingerprint: '1111-2222-3333-4444',
+        },
+      ],
+      unreadable: [],
+    });
+
+    const io = capture();
+    expect(await run(['peer', 'list', '--socket', socket], io)).toBe(0);
+    expect(io.stdout.join('\n')).toMatch(
+      /key changed since approval, which was 1111-2222-3333-4444/,
+    );
+  });
+
+  it('says why nothing is readable when this peer was left out of a rotation', async () => {
+    const socket = await fakeControlPlane({
+      requireApproval: false,
+      sealing: 'era_old',
+      keyIds: ['era_old'],
+      waitingFor: { eraId: 'era_new', seq: 3 },
+      peers: [
+        { peerId: 'peer-a', fingerprint: '1111-2222-3333-4444', approved: false, self: true },
+      ],
+      unreadable: ['filesystem'],
+    });
+
+    const io = capture();
+    expect(await run(['peer', 'list', '--socket', socket], io)).toBe(0);
+    const errors = io.stderr.join('\n');
+    expect(errors).toContain('era_new');
+    expect(errors).toMatch(/could not list identities on filesystem/);
   });
 
   // "Nothing is queued" and "I could not look" print almost the same thing and

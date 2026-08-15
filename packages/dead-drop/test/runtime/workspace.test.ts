@@ -6,7 +6,10 @@
  * slow transport into a failing one without anybody making a request.
  */
 
-import { describe, expect, it } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
 
 import type {
   ListOptions,
@@ -27,6 +30,7 @@ import {
   enrollmentProof,
   eraKeyFrom,
   eraPointerProof,
+  fingerprint,
   generateEraKey,
   generateIdentity,
   generateWorkspaceSecret,
@@ -46,6 +50,7 @@ import { TestClock } from '#dead-drop/core/clock.js';
 import { createLogger, MemoryLogSink } from '#dead-drop/core/observability/logger.js';
 
 import { encodeEraPointer, encodeWrappedKey, Workspace } from '#dead-drop/runtime/workspace.js';
+import { loadApprovals } from '#dead-drop/runtime/approval-store.js';
 
 const SECRET = 'ddk1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
@@ -1411,6 +1416,371 @@ describe('era rotation', () => {
         record.level === 'warn' && record.message.includes('nothing has wrapped for this peer'),
     );
     expect(warned?.fields?.eraId).toBe(unreachable.id);
+
+    await ws.stop();
+  });
+});
+
+/**
+ * The opt-in strict tier: rotation wraps only for peers a human vouched for.
+ *
+ * Everything else in dead-drop authenticates by asking "does this carry a proof
+ * under the workspace secret", which is a question anyone holding the secret
+ * answers correctly, transport operator included. A fingerprint compared over a
+ * phone call does not travel through the transport at all, and this is the only
+ * check in the product that survives a store that has obtained the secret.
+ *
+ * Off by default, because it is the one part of ADR 0007 that costs a step.
+ */
+describe('the requireApproval tier', () => {
+  const NOW = 1_800_000_000_000;
+  const TICK = 30_000;
+
+  const dirs: string[] = [];
+
+  afterAll(async () => {
+    await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  const approvalsPath = async (): Promise<string> => {
+    const dir = await mkdtemp(join(tmpdir(), 'ddrop-approve-'));
+    dirs.push(dir);
+    return join(dir, 'demo.approvals.json');
+  };
+
+  /** Enrols `peerId` with a valid proof and hands back the key it published. */
+  const enrol = async (store: MutableStore, peerId: string) => {
+    const identity = generateIdentity();
+    await store.put(
+      identityKey('demo', peerId),
+      encodeJson({
+        publicKey: identity.publicKey.toString('base64url'),
+        proof: enrollmentProof(SECRET, 'demo', peerId, identity.publicKey).toString('base64url'),
+      }),
+    );
+    return identity;
+  };
+
+  const peerA = (
+    store: MutableStore,
+    clock: TestClock,
+    options: { requireApproval?: boolean; approvalsPath?: string } = {},
+  ) =>
+    new Workspace({
+      config: {
+        name: 'demo',
+        peerId: 'peer-a',
+        secrets: [SECRET],
+        transports: [],
+        ...(options.requireApproval === undefined
+          ? {}
+          : { enrollment: { requireApproval: options.requireApproval } }),
+      } as never,
+      registrations: [registration(store)],
+      logger: createLogger({ level: 'silent', sink: new MemoryLogSink().sink, clock }),
+      clock,
+      ...(options.approvalsPath ? { approvalsPath: options.approvalsPath } : {}),
+      presenceIntervalMs: 30_000,
+    });
+
+  it('wraps a new era only for the peers approved, and names the ones it skipped', async () => {
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const approved = await enrol(store, 'peer-b');
+    await enrol(store, 'peer-c');
+    const ws = peerA(store, clock, { requireApproval: true, approvalsPath: await approvalsPath() });
+    await ws.start();
+    await clock.advance(TICK);
+
+    await ws.approve('peer-b', fingerprint(approved.publicKey));
+    const result = await ws.rotate();
+
+    expect(result.wrappedFor.sort()).toEqual(['peer-a', 'peer-b']);
+    expect(result.skipped).toEqual(['peer-c']);
+    // Both halves matter. Without the second, a rotation that wrapped for
+    // nobody at all would satisfy the first.
+    expect(store.objects.has(wrappedKeyKey('demo', 'peer-b', result.eraId))).toBe(true);
+    expect(store.objects.has(wrappedKeyKey('demo', 'peer-c', result.eraId))).toBe(false);
+    // The peer that performed the rotation holds the era it just published, so
+    // reporting itself as locked out would be an alarm on the happy path.
+    expect((await ws.enrollment()).waitingFor).toBeUndefined();
+
+    await ws.stop();
+  });
+
+  it('wraps for every enrolled peer when the tier is off, approved or not', async () => {
+    // The control. The same fixture, one flag different: enrolling stays a
+    // single command for everybody who has not asked for the strict tier.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    await enrol(store, 'peer-b');
+    await enrol(store, 'peer-c');
+    const ws = peerA(store, clock, { approvalsPath: await approvalsPath() });
+    await ws.start();
+    await clock.advance(TICK);
+
+    const result = await ws.rotate();
+    expect(result.wrappedFor.sort()).toEqual(['peer-a', 'peer-b', 'peer-c']);
+    expect(result.skipped).toEqual([]);
+
+    await ws.stop();
+  });
+
+  it('stops approving a peer that republishes a different key under the same name', async () => {
+    // The attack the tier exists for, and the reason the record stores a
+    // fingerprint rather than a bare yes: the store operator waits for the
+    // workspace to settle, then replaces one identity object with its own key.
+    // A proof it can mint, because it has the secret. A fingerprint a human
+    // already read aloud, it cannot.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const original = await enrol(store, 'peer-b');
+    const ws = peerA(store, clock, { requireApproval: true, approvalsPath: await approvalsPath() });
+    await ws.start();
+    await clock.advance(TICK);
+    await ws.approve('peer-b', fingerprint(original.publicKey));
+
+    const substituted = await enrol(store, 'peer-b');
+    expect(fingerprint(substituted.publicKey)).not.toBe(fingerprint(original.publicKey));
+
+    const result = await ws.rotate();
+    expect(result.wrappedFor).toEqual(['peer-a']);
+    expect(result.skipped).toEqual(['peer-b']);
+
+    // And it is reported as a substitution rather than as a peer nobody got
+    // round to approving, which are very different things to see on a terminal.
+    const report = await ws.enrollment();
+    const entry = report.peers.find((candidate) => candidate.peerId === 'peer-b');
+    expect(entry?.approved).toBe(false);
+    expect(entry?.approvedFingerprint).toBe(fingerprint(original.publicKey));
+
+    await ws.stop();
+  });
+
+  it('wraps for itself even though nobody approved it', async () => {
+    // Rotating is a stronger statement of intent than approving yourself would
+    // be, and an era this peer cannot itself recover after a restart is one it
+    // has no way to read its own workspace with.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const ws = peerA(store, clock, { requireApproval: true, approvalsPath: await approvalsPath() });
+    await ws.start();
+    await clock.advance(TICK);
+
+    const result = await ws.rotate();
+    expect(result.wrappedFor).toEqual(['peer-a']);
+    expect(store.objects.has(wrappedKeyKey('demo', 'peer-a', result.eraId))).toBe(true);
+
+    await ws.stop();
+  });
+
+  it('refuses a fingerprint that is not the one the store is serving', async () => {
+    // Where what a human read over the phone meets what the transport is
+    // handing out. Storing the offered value instead would turn the only check
+    // that survives a compromised store into a note nobody ever reads.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const published = await enrol(store, 'peer-b');
+    const path = await approvalsPath();
+    const ws = peerA(store, clock, { requireApproval: true, approvalsPath: path });
+    await ws.start();
+    await clock.advance(TICK);
+
+    await expect(ws.approve('peer-b', '0000-0000-0000-0000')).rejects.toThrow(
+      new RegExp(fingerprint(published.publicKey)),
+    );
+    await expect(readFile(path, 'utf8')).rejects.toThrow(/ENOENT/);
+    // And the refusal is not merely cosmetic: the peer is still skipped.
+    expect((await ws.rotate()).skipped).toEqual(['peer-b']);
+
+    await ws.stop();
+  });
+
+  it('accepts a fingerprint however it was typed back', async () => {
+    // Groups of four hex is what gets read aloud; spaces, capitals and no
+    // separators at all are what get typed. Refusing those would fail for a
+    // reason that has nothing to do with the key, and an operator would
+    // reasonably read that failure as the substitution above.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const published = await enrol(store, 'peer-b');
+    const ws = peerA(store, clock, { requireApproval: true, approvalsPath: await approvalsPath() });
+    await ws.start();
+    await clock.advance(TICK);
+
+    const canonical = fingerprint(published.publicKey);
+    const typed = canonical.replace(/-/g, ' ').toUpperCase();
+    expect(await ws.approve('peer-b', typed)).toEqual({ peerId: 'peer-b', fingerprint: canonical });
+    expect((await ws.rotate()).wrappedFor.sort()).toEqual(['peer-a', 'peer-b']);
+
+    await ws.stop();
+  });
+
+  it('refuses to approve a peer that has published no identity', async () => {
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const ws = peerA(store, clock, { requireApproval: true, approvalsPath: await approvalsPath() });
+    await ws.start();
+    await clock.advance(TICK);
+
+    await expect(ws.approve('peer-z', '0000-0000-0000-0000')).rejects.toThrow(
+      /no enrolled peer "peer-z"/,
+    );
+
+    await ws.stop();
+  });
+
+  it('refuses to approve when there is nowhere to write the decision', async () => {
+    // An approval that vanishes on restart is worse than no approval: the next
+    // rotation quietly drops a peer that the operator watched itself approve.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const published = await enrol(store, 'peer-b');
+    const ws = peerA(store, clock, { requireApproval: true });
+    await ws.start();
+    await clock.advance(TICK);
+
+    await expect(ws.approve('peer-b', fingerprint(published.publicKey))).rejects.toThrow(
+      /nowhere to write approvals/,
+    );
+
+    await ws.stop();
+  });
+
+  it('keeps an approval across a restart', async () => {
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const published = await enrol(store, 'peer-b');
+    const path = await approvalsPath();
+    const first = peerA(store, clock, { requireApproval: true, approvalsPath: path });
+    await first.start();
+    await clock.advance(TICK);
+    await first.approve('peer-b', fingerprint(published.publicKey));
+    await first.stop();
+
+    const restarted = new Workspace({
+      config: {
+        name: 'demo',
+        peerId: 'peer-a',
+        secrets: [SECRET],
+        transports: [],
+        enrollment: { requireApproval: true },
+      } as never,
+      registrations: [registration(store)],
+      logger: createLogger({ level: 'silent', sink: new MemoryLogSink().sink, clock }),
+      clock,
+      approvalsPath: path,
+      approvals: await loadApprovals(path),
+      presenceIntervalMs: 30_000,
+    });
+    await restarted.start();
+    await clock.advance(TICK);
+
+    expect((await restarted.rotate()).wrappedFor.sort()).toEqual(['peer-a', 'peer-b']);
+
+    await restarted.stop();
+  });
+
+  it('reports who is enrolled, what they fingerprint to, and what this peer can read', async () => {
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const published = await enrol(store, 'peer-b');
+    const ws = peerA(store, clock, { requireApproval: true, approvalsPath: await approvalsPath() });
+    await ws.start();
+    await clock.advance(TICK);
+
+    const report = await ws.enrollment();
+    expect(report.requireApproval).toBe(true);
+    expect(report.peers.map((entry) => entry.peerId)).toEqual(['peer-a', 'peer-b']);
+    expect(report.peers.find((entry) => entry.peerId === 'peer-a')?.self).toBe(true);
+    expect(report.peers.find((entry) => entry.peerId === 'peer-b')).toMatchObject({
+      fingerprint: fingerprint(published.publicKey),
+      approved: false,
+      self: false,
+    });
+    // What seals is read from the ring rather than assumed, and it is the id
+    // frames actually carry: see `sealedUnder` above.
+    expect(report.keyIds).toContain(report.sealing);
+    expect(report.waitingFor).toBeUndefined();
+    expect(report.unreadable).toEqual([]);
+
+    await ws.approve('peer-b', fingerprint(published.publicKey));
+    expect((await ws.enrollment()).peers.find((entry) => entry.peerId === 'peer-b')?.approved).toBe(
+      true,
+    );
+
+    await ws.stop();
+  });
+
+  it('reports the era it has been left out of, which is why anything is unreadable', async () => {
+    // The state ADR 0007 says has to be visible: this peer still announces,
+    // still writes, and cannot read a word anybody else writes. From outside it
+    // is indistinguishable from a wrong secret, and the two are repaired very
+    // differently.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const ws = peerA(store, clock, { approvalsPath: await approvalsPath() });
+    await ws.start();
+    await clock.advance(TICK);
+
+    const elsewhere = generateEraKey();
+    await store.put(
+      eraPointerKey('demo'),
+      encodeEraPointer({
+        eraId: elsewhere.id,
+        seq: 4,
+        proof: eraPointerProof(SECRET, 'demo', elsewhere.id, 4),
+      }),
+    );
+
+    expect(await ws.enrollment()).toMatchObject({ waitingFor: { eraId: elsewhere.id, seq: 4 } });
+
+    await ws.stop();
+  });
+
+  it('says nothing about a pointer whose proof does not verify', async () => {
+    // Otherwise anyone who can write to the store makes every peer report that
+    // it has been locked out, which is a fine way to have an operator rotate on
+    // demand.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const ws = peerA(store, clock, { approvalsPath: await approvalsPath() });
+    await ws.start();
+    await clock.advance(TICK);
+
+    const elsewhere = generateEraKey();
+    await store.put(
+      eraPointerKey('demo'),
+      encodeEraPointer({ eraId: elsewhere.id, seq: 4, proof: Buffer.alloc(32) }),
+    );
+
+    expect((await ws.enrollment()).waitingFor).toBeUndefined();
+
+    await ws.stop();
+  });
+
+  it('names the transports it could not read, so a short list is not read as a full one', async () => {
+    const a = new MutableStore();
+    const b = new MutableStore();
+    const clock = new TestClock(NOW);
+    const ws = new Workspace({
+      config: {
+        name: 'demo',
+        peerId: 'peer-a',
+        secrets: [SECRET],
+        transports: [],
+        policy: { mode: 'parallel' },
+      } as never,
+      registrations: [registration(a), registration(b, 'extra-0')],
+      logger: createLogger({ level: 'silent', sink: new MemoryLogSink().sink, clock }),
+      clock,
+      presenceIntervalMs: 30_000,
+    });
+    await ws.start();
+    await clock.advance(TICK);
+
+    b.failListWith = new DeadDropError('TRANSPORT_ERROR', 'offline');
+    expect((await ws.enrollment()).unreadable).toEqual(['extra-0']);
 
     await ws.stop();
   });

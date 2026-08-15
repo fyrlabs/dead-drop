@@ -365,6 +365,109 @@ describe('ddrop start and the commands that talk to it', () => {
     expect(await clientRun).toBe(0);
     expect(await serverRun).toBe(0);
   }, 60_000);
+
+  it('approves a peer by fingerprint and only then wraps a new era for it', async () => {
+    // The `requireApproval` tier end to end, over the real socket and against
+    // the real approvals file. Two peers on one store: one runs the commands,
+    // the other only publishes an identity, which is all an unapproved peer
+    // ever gets to do.
+    const dir = await temp();
+    const secret = generateWorkspaceSecret();
+    const store = join(dir, 'store');
+    const dataDir = join(dir, 'admin-state');
+    const socket = defaultSocketPath(dataDir);
+
+    const workspace = (peerId: string, extra: Record<string, unknown> = {}) => ({
+      name: 'demo',
+      peerId,
+      secrets: [secret],
+      transports: [{ use: 'filesystem', config: { root: store } }],
+      polling: { minIntervalMs: 100, maxIntervalMs: 400 },
+      enrollment: { requireApproval: true },
+      ...extra,
+    });
+    const adminConfig = join(dir, 'admin.json');
+    await writeFile(
+      adminConfig,
+      JSON.stringify({ dataDir, logLevel: 'warn', workspaces: [workspace('admin-peer')] }),
+    );
+    const joinerConfig = join(dir, 'joiner.json');
+    await writeFile(
+      joinerConfig,
+      JSON.stringify({
+        dataDir: join(dir, 'joiner-state'),
+        logLevel: 'warn',
+        workspaces: [workspace('joiner-peer')],
+      }),
+    );
+
+    const admin = capture(true);
+    const adminRun = run(['start', '--config', adminConfig], admin);
+    const joiner = capture(true);
+    const joinerRun = run(['start', '--config', joinerConfig], joiner);
+    await waitFor(() => admin.stderr.some((line) => line.includes('runtime listening')), 15_000);
+    await waitFor(() => joiner.stderr.some((line) => line.includes('runtime listening')), 15_000);
+
+    // Enrollment is fire-and-forget on start, so the identities arrive on their
+    // own schedule. Polling for them is the honest wait.
+    type Listing = { peers: Array<{ peerId: string; fingerprint: string; approved: boolean }> };
+    let listing: Listing = { peers: [] };
+    await waitFor(async () => {
+      const io = capture();
+      if ((await run(['peer', 'list', '--socket', socket, '--json'], io)) !== 0) return false;
+      listing = JSON.parse(io.stdout.join('\n')) as Listing;
+      return listing.peers.length === 2;
+    }, 20_000);
+    const joinerEntry = listing.peers.find((entry) => entry.peerId === 'joiner-peer');
+    expect(joinerEntry?.approved).toBe(false);
+    expect(joinerEntry?.fingerprint).toMatch(/^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/);
+
+    // Rotating now leaves it out, and says so rather than reporting success.
+    const early = capture();
+    expect(await run(['rotate', '--socket', socket, '--json'], early)).toBe(0);
+    expect((JSON.parse(early.stdout.join('\n')) as { skipped: string[] }).skipped).toEqual([
+      'joiner-peer',
+    ]);
+
+    // A fingerprint that is not the published one is refused, and the refusal
+    // names what the store is actually serving, which is what an operator
+    // compares against what they were read.
+    const wrong = capture();
+    expect(
+      await run(
+        ['peer', 'approve', 'joiner-peer', '0000-0000-0000-0000', '--socket', socket],
+        wrong,
+      ),
+    ).toBe(1);
+    expect(wrong.stderr.join('\n')).toContain(joinerEntry?.fingerprint as string);
+
+    const approved = capture();
+    expect(
+      await run(
+        ['peer', 'approve', 'joiner-peer', joinerEntry?.fingerprint as string, '--socket', socket],
+        approved,
+      ),
+    ).toBe(0);
+    // Written down, not merely remembered: the next rotation may be after a
+    // restart, and an approval that evaporates drops a peer nobody removed.
+    const recorded = JSON.parse(
+      await readFile(join(dataDir, 'demo.approvals.json'), 'utf8'),
+    ) as Record<string, string>;
+    expect(recorded['joiner-peer']).toBe(joinerEntry?.fingerprint);
+
+    const rotated = capture();
+    expect(await run(['rotate', '--socket', socket, '--json'], rotated)).toBe(0);
+    const rotation = JSON.parse(rotated.stdout.join('\n')) as {
+      wrappedFor: string[];
+      skipped: string[];
+    };
+    expect(rotation.wrappedFor.sort()).toEqual(['admin-peer', 'joiner-peer']);
+    expect(rotation.skipped).toEqual([]);
+
+    for (const stop of shutdowns.splice(0)) stop();
+    expect(await adminRun).toBe(0);
+    expect(await joinerRun).toBe(0);
+  }, 60_000);
 });
 
 async function waitFor(
