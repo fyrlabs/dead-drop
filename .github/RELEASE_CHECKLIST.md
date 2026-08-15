@@ -10,7 +10,8 @@ The notes body template is in [RELEASE_TEMPLATE.md](RELEASE_TEMPLATE.md).
 - [ ] `npm run verify` passes from a clean checkout (`npm ci`, not a warm `node_modules`).
 - [ ] `npm run format:check` passes. A rename can reflow files you never opened.
 - [ ] `node examples/custom-transport/index.js` reports 19/19 conformance cases.
-- [ ] `rg -cil bridge -g '!AGENTS.md' -g '!.github/RELEASE_CHECKLIST.md' -g '!package-lock.json'` prints nothing (invariant 8). The two files that state the rule contain the word, so they have to be excluded or this can never pass.
+- [ ] `rg -cil bridge -g '!AGENTS.md' -g '!.github/RELEASE_CHECKLIST.md' -g '!package-lock.json' -g '!graphify-out/**'` prints nothing (invariant 8). The two files that state the rule contain the word, so they have to be excluded or this can never pass, and `graphify-out/` is extractor output that quotes the rule back out of those two files.
+- [ ] No home path from a maintainer's machine is tracked. The repository is public, and generated trees are how such a path gets in: `git ls-files -z | grep -zv '^\.github/RELEASE_CHECKLIST\.md$' | xargs -0 grep -nlI -e '/Users/' -e '/home/' -e '\$HOME'` prints nothing. This file is excluded because the command quotes the patterns it looks for. (`graphify-out/.graphify_root` and `.graphify_python` were tracked with absolute home paths from `c7f2b84` until 0.13.0 untracked them; nothing released ever carried them, because they are outside the npm tarball.)
 
 ## 2. Versions
 
@@ -18,8 +19,8 @@ The two packages **do not share a version**. `@fyrlabs/dead-drop` churns; `@fyrl
 
 - [ ] `packages/dead-drop/package.json` bumped, and the root `package.json` matches it (the root is private, but its version shows in every build banner).
 - [ ] transport-sdk bumped **only if its public surface actually changed**, by semver against its own last version, not in lockstep.
-- [ ] The transport-sdk dependency in `packages/dead-drop/package.json` is a **caret range**, never an exact pin. (An exact pin forces a second copy of the SDK into any tree holding a third-party adapter, which breaks `DeadDropError` identity and silently turns a permanent failure into an infinite retry. AGENTS.md invariant 10.)
-- [ ] No source file hard-codes a version. `npx vitest run packages/dead-drop/src/version.test.ts` enforces this. (0.2.0 shipped a CLI reporting `0.1.0` from `--version`, `status` and `/health`, because three files each held their own literal.)
+- [ ] The transport-sdk dependency in `packages/dead-drop/package.json` is a **caret range**, never an exact pin. (An exact pin forces a second copy of the SDK into any tree holding a third-party adapter, which breaks `DeadDropError` identity and silently turns a permanent failure into an infinite retry. AGENTS.md invariant 11.)
+- [ ] No source file hard-codes a version. `npx vitest run packages/dead-drop/test/version.test.ts` enforces this. (0.2.0 shipped a CLI reporting `0.1.0` from `--version`, `status` and `/health`, because three files each held their own literal.)
 - [ ] `CHANGELOG.md` has an entry, and nothing user-visible is missing from it.
 - [ ] Breaking changes are called out in the changelog **and** in the release notes.
 

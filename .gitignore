@@ -17,3 +17,7 @@ graphify-out/cache/ast/
 graphify-out/.graphify_analysis.json
 graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
 graphify-out/.graphify_semantic_marker
+# These two hold absolute paths from whichever machine last ran the extractor,
+# which has no place in a public repository. graphify rewrites them locally.
+graphify-out/.graphify_root
+graphify-out/.graphify_python
