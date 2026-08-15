@@ -80,6 +80,7 @@ Usage
   ddrop connect <peer>/<exposure> [--port n] serve a remote exposure locally
   ddrop call <peer> <channel> [--input json] make an rpc call
   ddrop publish <channel> [--input json]     broadcast an event
+  ddrop rotate [--json]                      new key for everyone still enrolled
   ddrop logs [--limit n] [--level warn]      recent runtime logs
   ddrop trace [<traceId>]                    recent traces, or one trace as a span tree
   ddrop metrics                              Prometheus metrics
@@ -197,6 +198,8 @@ async function dispatch(
       return call(args, values, io);
     case 'publish':
       return publish(args, values, io);
+    case 'rotate':
+      return rotate(values, io);
     case 'logs':
       return logs(values, io);
     case 'trace':
@@ -807,6 +810,38 @@ async function publish(args: string[], values: Values, io: CliIo): Promise<numbe
     payload: parseInput(values.input),
   });
   io.out(values.json ? JSON.stringify(body, null, 2) : body.id);
+  return 0;
+}
+
+/**
+ * Mints a new era key and stops sealing under the old one. ADR 0007.
+ *
+ * This is what actually removes a peer's access, and it is the only command in
+ * dead-drop whose effect cannot be undone: a peer left out of the rotation
+ * cannot be let back in except by rotating again with it enrolled. So the
+ * report names every peer that was wrapped for, rather than saying "done".
+ * Whoever is running this has just removed somebody, and the list is how they
+ * check they removed the right somebody.
+ */
+async function rotate(values: Values, io: CliIo): Promise<number> {
+  const body = await (
+    await client(values)
+  ).request<{ eraId: string; seq: number; wrappedFor: string[] }>(
+    'POST',
+    `/rotate${buildQuery(values)}`,
+  );
+  if (values.json) {
+    io.out(JSON.stringify(body, null, 2));
+    return 0;
+  }
+  io.out(`Rotated to era ${body.eraId} (rotation ${body.seq}).`);
+  io.out('');
+  io.out(`Readable by ${body.wrappedFor.length} peer${body.wrappedFor.length === 1 ? '' : 's'}:`);
+  for (const peer of [...body.wrappedFor].sort()) io.out(`  ${peer}`);
+  io.err('');
+  io.err('Any peer not listed above cannot read messages written from now on.');
+  io.err('Messages written before this rotation are unaffected, for everybody.');
+  io.err('A peer that is offline picks the new era up on its next presence tick.');
   return 0;
 }
 

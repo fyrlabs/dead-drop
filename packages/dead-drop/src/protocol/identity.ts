@@ -44,6 +44,7 @@ export const PUBLIC_KEY_BYTES = 32;
 const ENROLLMENT_INFO = 'dead-drop/v1/enrollment';
 const WRAP_INFO = 'dead-drop/v1/key-wrap';
 const WRAP_PROOF_INFO = 'dead-drop/v1/key-wrap-proof';
+const ERA_POINTER_INFO = 'dead-drop/v1/era-pointer';
 const ERA_KEY_BYTES = 32;
 
 export interface PeerIdentity {
@@ -231,6 +232,54 @@ export function verifyWrapProof(
   wrapped: WrappedKey,
 ): boolean {
   return safeEqual(wrapProof(secret, workspace, recipientPeerId, wrapped), wrapped.proof);
+}
+
+/** Names the era new frames are sealed under, and how many rotations preceded it. */
+export interface EraPointer {
+  eraId: string;
+  /**
+   * Rotation counter. Strictly increasing, and the only thing that orders two
+   * pointers: a peer refuses one that does not advance it, so an old pointer
+   * replayed by whoever controls the store cannot walk the workspace back onto
+   * an era a revoked peer still holds.
+   */
+  seq: number;
+  proof: Buffer;
+}
+
+/**
+ * Proof that whoever published an era pointer holds the workspace secret.
+ *
+ * The pointer is the one thing that decides what a peer *seals* under, so it is
+ * also the one thing worth attacking: promoting a peer onto an era of the
+ * attacker's choosing would hand them everything written afterwards. Wrapped
+ * keys are proven too, but the pointer is checked separately and deliberately,
+ * because a wrap only ever grants reading and this grants writing.
+ *
+ * `seq` is decimal ascii and null-separated from the era id, so no two
+ * (eraId, seq) pairs share an input.
+ */
+export function eraPointerProof(
+  secret: string,
+  workspace: string,
+  eraId: string,
+  seq: number,
+): Buffer {
+  return createHmac('sha256', proofKey(secret, workspace, ERA_POINTER_INFO))
+    .update(Buffer.from(workspace, 'utf8'))
+    .update(Buffer.from([0]))
+    .update(Buffer.from(eraId, 'ascii'))
+    .update(Buffer.from([0]))
+    .update(Buffer.from(String(seq), 'ascii'))
+    .digest();
+}
+
+export function verifyEraPointerProof(
+  secret: string,
+  workspace: string,
+  pointer: EraPointer,
+): boolean {
+  return safeEqual(eraPointerProof(secret, workspace, pointer.eraId, pointer.seq), pointer.proof);
 }
 
 /** Mints a fresh era key. Its id follows the existing scheme so frames are unchanged. */

@@ -46,11 +46,23 @@ ws/<workspace>/keys/<peer>/<eraId>.ddw
 
 Grouped by peer, not by era. This record originally said `keys/<eraId>/<peer>.ddw` and that was wrong in a way implementation exposed: a peer has to find every key addressed to it, so grouping by era forces it to sweep every era that has ever existed on every cycle, while grouping by peer is a single prefix listing with the same shape as `inbox/<peer>/`.
 
+**Every wrapped key carries a proof too, and this was missed in the first draft.** Wrapping needs nothing but the recipient's public key, and that key is published in the clear on purpose, so as first written anyone who could write to the store could mint an era of their own, wrap it to a victim, and have the victim load it into its `KeyRing`. From there `frame.ts` opens whichever key id a frame names and the sender in an envelope header is only a field, so the next step is a request that decodes cleanly and claims to come from any peer the attacker chooses. Before this record, opening a frame at all proved its author held the secret, because every key in a ring came from `KeyRing.fromSecrets`; taking keys from the store broke that. So a wrapped object carries `HMAC(HKDF(secret, "dead-drop/v1/key-wrap-proof"), workspace || peer || eraId || ...)` and the proof is checked before any Diffie-Hellman. It was found by writing the attack as a test against the implementation, not by reading the design.
+
 A peer reads the objects under its own name, unwraps each with its private key, and loads the results into the `KeyRing` that already exists. Several eras being live at once is not a special case; it is what `KeyRing` was written for, and its asymmetry is exactly what this needs: sealing always uses the primary, opening tries whichever key id the frame names (`crypto.ts:117`). So a peer seals under one era of its own and reads any era it has been given.
 
 **Joining, concretely.** A joiner starts, publishes its identity with a proof, mints its own era key, and wraps that era for every identity it can verify. It can send immediately. It becomes readable-to itself the moment any existing peer notices the new identity and publishes a wrapped copy of that peer's era, which happens on an ordinary poll with no human involved.
 
 **Removing a peer.** Mint a new era, wrap it for everyone except the leaver, and stop sealing under the old one. Nobody redistributes a secret and nobody else re-keys. The leaver keeps whatever it already had, which is unavoidable and true of every scheme.
+
+**Which era seals, concretely.** This record originally left "stop sealing under the old one" as an instruction with no mechanism, and the mechanism turned out to be the interesting part: every peer has to agree, and the store cannot be trusted to tell them. So one object per workspace at `ws/<workspace>/era.dde` names the current era, carrying a rotation counter and a proof under the same secret:
+
+```text
+{ eraId, seq, proof = HMAC(HKDF(secret, "dead-drop/v1/era-pointer"), workspace || eraId || seq) }
+```
+
+A peer promotes only when the proof verifies, `seq` advances past the highest it has seen, and it already holds the named key. The proof is what stops the transport deciding what everyone seals under, which would be strictly worse than the wrapped-key forgery because a wrap only ever grants reading. The counter is what stops the same transport keeping a copy of the pointer from before a rotation and writing it back afterwards, walking the workspace onto an era the removed peer still holds. **That counter is currently in memory, so the protection lasts as long as the process**; a peer restarted after a rotation re-reads whatever pointer the store presents, and re-seals under the secret-derived era for the length of one enrollment pass. Persisting the era locally closes both, and is deliberately its own step.
+
+`rotate` refuses outright if any store failed to list identities, on the reasoning ADR 0006 settled: a peer that is merely unreachable through one transport looks exactly like one that does not exist, and wrapping only for the peers that happened to be visible would deafen the rest with no way back except another rotation by somebody who can see them.
 
 **The opt-in strict tier.** `"enrollment": { "requireApproval": true }` withholds wrapping from a newly seen identity until a human runs `ddrop peer approve <peer> <fingerprint>` with a fingerprint compared outside the transport. Off by default. This is the knob for operators who do not trust their transport at the moment of enrollment, and it is the only part of this that costs a step.
 

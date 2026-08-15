@@ -155,6 +155,11 @@ export async function startControlPlane(options: ControlPlaneOptions): Promise<C
       send(response, 201, { name: handle.name, channel: handle.channel, peerId: workspace.peerId });
       return;
     }
+    if (method === 'POST' && path === '/rotate') {
+      const workspace = resolveWorkspace(runtime, url);
+      send(response, 200, await workspace.rotate());
+      return;
+    }
     if (method === 'POST' && path === '/publish') {
       const body = (await readJson(request, maxBodyBytes)) as {
         channel?: string;

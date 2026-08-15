@@ -190,9 +190,9 @@
     "semantic_hash": "921dafd95732737bfc449a99cfb0ad57"
   },
   "packages/dead-drop/src/core/keys.ts": {
-    "mtime": 1786412664.4328663,
-    "ast_hash": "3cb0143fc012d9b0d1d7cc64032e9c77",
-    "semantic_hash": "3cb0143fc012d9b0d1d7cc64032e9c77"
+    "mtime": 1786752633.4328318,
+    "ast_hash": "12e633ac35c3ea6e983c1092fee3d51a",
+    "semantic_hash": "12e633ac35c3ea6e983c1092fee3d51a"
   },
   "packages/dead-drop/src/core/mailbox.ts": {
     "mtime": 1786408065.371899,
@@ -245,7 +245,7 @@
     "semantic_hash": "fd5f9d6663820d6cf0a1a84ab3fd5df6"
   },
   "packages/dead-drop/src/protocol/crypto.ts": {
-    "mtime": 1786411649.6435635,
+    "mtime": 1786752726.8221266,
     "ast_hash": "07500b3d182b7121d5dbfd3a52272e2c",
     "semantic_hash": "07500b3d182b7121d5dbfd3a52272e2c"
   },
@@ -270,9 +270,9 @@
     "semantic_hash": "b56fd6c075eb87b5582b635f61ebb553"
   },
   "packages/dead-drop/src/protocol/identity.ts": {
-    "mtime": 1786412424.9012904,
-    "ast_hash": "034e344e02a15ccaa3739b6cb4ce68dd",
-    "semantic_hash": "034e344e02a15ccaa3739b6cb4ce68dd"
+    "mtime": 1786752633.4520993,
+    "ast_hash": "a7e9172ca56df3669533e042f740944d",
+    "semantic_hash": "a7e9172ca56df3669533e042f740944d"
   },
   "packages/dead-drop/src/protocol/ids.ts": {
     "mtime": 1786408065.3747118,
@@ -330,9 +330,9 @@
     "semantic_hash": "7b7c6d881c4a7e57a0cc746f22b66bdd"
   },
   "packages/dead-drop/src/runtime/workspace.ts": {
-    "mtime": 1786415396.0617402,
-    "ast_hash": "adc33c19510355c44f5d7b523f4d7b3e",
-    "semantic_hash": "adc33c19510355c44f5d7b523f4d7b3e"
+    "mtime": 1786752772.845389,
+    "ast_hash": "ec475eb3a46cb3f54fa66a602d58e967",
+    "semantic_hash": "ec475eb3a46cb3f54fa66a602d58e967"
   },
   "packages/dead-drop/src/sdk/index.ts": {
     "mtime": 1786408065.3766942,
@@ -475,9 +475,9 @@
     "semantic_hash": "52c5affe4bf386de555699ccc4e043b2"
   },
   "packages/dead-drop/test/protocol/identity.test.ts": {
-    "mtime": 1786412411.925845,
-    "ast_hash": "6e99729fd8417d75c712b54aa4b9138e",
-    "semantic_hash": "6e99729fd8417d75c712b54aa4b9138e"
+    "mtime": 1786752605.2289789,
+    "ast_hash": "d80192c6787effb8501d4ce7357fba7f",
+    "semantic_hash": "d80192c6787effb8501d4ce7357fba7f"
   },
   "packages/dead-drop/test/protocol/ids.test.ts": {
     "mtime": 1786408065.3812225,
@@ -500,14 +500,14 @@
     "semantic_hash": "1a25b24c0188ee083b8b817111ba8c4f"
   },
   "packages/dead-drop/test/runtime/identity-store.test.ts": {
-    "mtime": 1786414645.3608456,
-    "ast_hash": "b734ebf52e5bf0bac568934fdfd2fec0",
-    "semantic_hash": "b734ebf52e5bf0bac568934fdfd2fec0"
+    "mtime": 1786752169.955748,
+    "ast_hash": "13921a00848a8f1b937c6da02e0fc214",
+    "semantic_hash": "13921a00848a8f1b937c6da02e0fc214"
   },
   "packages/dead-drop/test/runtime/workspace.test.ts": {
-    "mtime": 1786415449.6577275,
-    "ast_hash": "ecb31fd5c2d06eee0e2e48fdc346c530",
-    "semantic_hash": "ecb31fd5c2d06eee0e2e48fdc346c530"
+    "mtime": 1786752758.308002,
+    "ast_hash": "10c10140fcce9a6a4e46b46a2573229f",
+    "semantic_hash": "10c10140fcce9a6a4e46b46a2573229f"
   },
   "packages/dead-drop/test/transports/filesystem/index.test.ts": {
     "mtime": 1786408065.3820367,
@@ -750,9 +750,9 @@
     "semantic_hash": "1e4051aaf83a30e624af4827fcd4772b"
   },
   "docs/testing.md": {
-    "mtime": 1786422649.6274962,
-    "ast_hash": "0055d5fc57c1ad26f212074507829a98",
-    "semantic_hash": "0055d5fc57c1ad26f212074507829a98"
+    "mtime": 1786422889.1303136,
+    "ast_hash": "f035af93ee6f1b0000cc73909228f02a",
+    "semantic_hash": "f035af93ee6f1b0000cc73909228f02a"
   },
   "docs/vision.md": {
     "mtime": 1786408065.3644056,

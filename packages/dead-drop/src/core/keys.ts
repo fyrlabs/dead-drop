@@ -8,9 +8,10 @@
  *   ws/<workspace>/dead/<peer>/<messageId>.ddf     dead letters
  *   ws/<workspace>/ids/<peer>.ddi                  enrolled public key
  *   ws/<workspace>/keys/<peer>/<eraId>.ddw         era key wrapped to <peer>
+ *   ws/<workspace>/era.dde                         which era seals new frames
  * ```
  *
- * The last two are [ADR 0007](../../../../docs/adr/0007-per-peer-key-wrapping.md).
+ * The last three are [ADR 0007](../../../../docs/adr/0007-per-peer-key-wrapping.md).
  * Wrapped keys are grouped by peer and not by era so a peer lists exactly one
  * prefix to find everything addressed to it, the same shape as its inbox. Grouped
  * by era it would have to sweep every era that has ever existed to find its own.
@@ -59,6 +60,17 @@ export const peerKey = (workspace: string, peerId: string): string =>
 
 export const IDENTITY_EXTENSION = '.ddi';
 export const WRAPPED_KEY_EXTENSION = '.ddw';
+export const ERA_POINTER_EXTENSION = '.dde';
+
+/**
+ * Names the era new frames are sealed under. One object per workspace.
+ *
+ * At the workspace root rather than under `keys/`, so it cannot collide with a
+ * peer prefix however a peer happens to be named, and so a listing of one
+ * peer's wrapped keys never returns it.
+ */
+export const eraPointerKey = (workspace: string): string =>
+  joinKey(ROOT, workspace, `era${ERA_POINTER_EXTENSION}`);
 
 /** Every enrolled identity. Listed to discover peers that may be wrapped for. */
 export const identityPrefix = (workspace: string): string => joinKey(ROOT, workspace, 'ids');

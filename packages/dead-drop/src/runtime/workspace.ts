@@ -19,14 +19,19 @@ import {
   encodeFrame,
   encodeJson,
   enrollmentProof,
+  eraPointerProof,
+  generateEraKey,
   generateIdentity,
   idTime,
   isErrorPayload,
   senderIdentity,
   unwrapEraKey,
   verifyEnrollmentProof,
+  verifyEraPointerProof,
+  wrapEraKey,
   JSON_CONTENT_TYPE,
   type Envelope,
+  type EraPointer,
   type PeerIdentity,
   type WrappedKey,
 } from '../protocol/index.js';
@@ -34,6 +39,7 @@ import {
   DedupeStore,
   MailboxEngine,
   TransportManager,
+  eraPointerKey,
   identityKey,
   identityPrefix,
   inboxRoot,
@@ -43,6 +49,7 @@ import {
   peersPrefix,
   peerKey,
   systemClock,
+  wrappedKeyKey,
   wrappedKeyPrefix,
   type Clock,
   type Logger,
@@ -237,6 +244,41 @@ export function encodeWrappedKey(wrapped: WrappedKey): Uint8Array {
   });
 }
 
+/**
+ * Reads the era pointer, or `undefined` if the object is not one.
+ *
+ * `seq` must be a non-negative integer rather than merely a number: it is
+ * compared with `>` to decide whether to promote, and a `NaN` from a malformed
+ * object would compare false against everything, which reads as "refused" but
+ * for the wrong reason and would hide a real rotation behind a silent no-op.
+ */
+function decodeEraPointer(raw: Uint8Array): EraPointer | undefined {
+  try {
+    const body = decodeJson(raw) as Record<string, unknown>;
+    if (typeof body.eraId !== 'string' || body.eraId.length === 0) return undefined;
+    if (typeof body.proof !== 'string') return undefined;
+    if (typeof body.seq !== 'number' || !Number.isInteger(body.seq) || body.seq < 0) {
+      return undefined;
+    }
+    return {
+      eraId: body.eraId,
+      seq: body.seq,
+      proof: Buffer.from(body.proof, 'base64url'),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/** The on-store form of the era pointer. Counterpart to `decodeEraPointer`. */
+export function encodeEraPointer(pointer: EraPointer): Uint8Array {
+  return encodeJson({
+    eraId: pointer.eraId,
+    seq: pointer.seq,
+    proof: pointer.proof.toString('base64url'),
+  });
+}
+
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 export class Workspace {
@@ -287,6 +329,12 @@ export class Workspace {
    * a transport that was down at start-up still gets it.
    */
   private identityPublished = false;
+  /**
+   * Rotation counter of the era currently sealing frames. Zero means no rotation
+   * has been seen, so the primary is still the key derived from the workspace
+   * secret. Only ever moves up: see {@link EraPointer}.
+   */
+  private eraSeq = 0;
   private nextReapAt = 0;
   private reapBackoff = 1;
   private started = false;
@@ -1023,6 +1071,7 @@ export class Workspace {
     this.enrolling = (async () => {
       if (!this.identityPublished) await this.publishIdentity();
       await this.loadWrappedKeys();
+      await this.adoptEra();
     })()
       .catch((error: unknown) => {
         this.logger.debug('enrollment pass failed', { error: String(error) });
@@ -1086,7 +1135,23 @@ export class Workspace {
    * enrol themselves, and both are worth seeing rather than swallowing.
    */
   async identities(): Promise<Array<{ peerId: string; publicKey: Buffer }>> {
+    return (await this.readIdentities()).identities;
+  }
+
+  /**
+   * The same listing, plus the transports that could not answer.
+   *
+   * `identities()` discards that, which is right for a read: a caller asking who
+   * is enrolled wants whoever could be found. `rotate()` cannot, because there
+   * the difference between "not enrolled" and "not visible from here" is the
+   * difference between a peer that keeps working and one that goes deaf.
+   */
+  private async readIdentities(): Promise<{
+    identities: Array<{ peerId: string; publicKey: Buffer }>;
+    failed: string[];
+  }> {
     const accepted = new Map<string, Buffer>();
+    const failed: string[] = [];
     for (const entry of this.manager.stores()) {
       const store = entry.transport as StoreTransport;
       let listed;
@@ -1097,6 +1162,7 @@ export class Workspace {
           transport: entry.name,
           error: DeadDropError.from(error).message,
         });
+        failed.push(entry.name);
         continue;
       }
       for (const item of listed.entries) {
@@ -1108,7 +1174,10 @@ export class Workspace {
         if (publicKey) accepted.set(peerId, publicKey);
       }
     }
-    return [...accepted].map(([peerId, publicKey]) => ({ peerId, publicKey }));
+    return {
+      identities: [...accepted].map(([peerId, publicKey]) => ({ peerId, publicKey })),
+      failed,
+    };
   }
 
   private verifyIdentity(peerId: string, raw: Uint8Array): Buffer | undefined {
@@ -1182,6 +1251,146 @@ export class Workspace {
         }
       }
     }
+  }
+
+  /**
+   * Reads the era pointer and starts sealing under the era it names.
+   *
+   * Three conditions, and each is load-bearing for a different reason.
+   *
+   * The proof must verify, or whoever controls the store decides what every
+   * peer seals under, which would be strictly worse than the wrapped-key
+   * forgery: a wrap only ever grants reading.
+   *
+   * `seq` must advance. Without it a pointer captured before a rotation and
+   * written back afterwards walks the workspace onto an era the revoked peer
+   * still holds, and the store operator can do exactly that. This peer's
+   * counter is in memory only, so the guarantee currently lasts as long as the
+   * process; making it durable is what the persisted era file is for.
+   *
+   * The key must already be in the ring, and this one is a diagnostic rather
+   * than a guard: mutation shows the behaviour survives without it, because
+   * `KeyRing.get` throws on an id it does not hold and the enrollment pass
+   * swallows that. What the check contributes is the named warning. "Enrolled,
+   * but nothing has been wrapped for me yet" is the state ADR 0007 says has to
+   * be visible, since from the outside it looks identical to a wrong secret, and
+   * without this the operator gets a debug line nobody will be reading. Staying
+   * on the era already held is the right behaviour either way: the peer remains
+   * readable to everyone rather than going mute, and the next pass promotes it
+   * once the wrap arrives.
+   */
+  private async adoptEra(): Promise<void> {
+    const pointer = await this.readEraPointer();
+    if (!pointer) return;
+    if (pointer.seq <= this.eraSeq) return;
+    if (!this.config.secrets.some((secret) => verifyEraPointerProof(secret, this.name, pointer))) {
+      this.logger.warn('rejected an era pointer with an invalid proof', { eraId: pointer.eraId });
+      return;
+    }
+    if (!this.keys.has(pointer.eraId)) {
+      this.logger.warn('an era was promoted that nothing has wrapped for this peer yet', {
+        eraId: pointer.eraId,
+        held: this.keys.keyIds,
+      });
+      return;
+    }
+    this.keys.promote(this.keys.get(pointer.eraId));
+    this.eraSeq = pointer.seq;
+    this.logger.info('sealing under a new era', { eraId: pointer.eraId, seq: pointer.seq });
+  }
+
+  /** The highest-`seq` pointer any store holds. */
+  private async readEraPointer(): Promise<EraPointer | undefined> {
+    let best: EraPointer | undefined;
+    for (const entry of this.manager.stores()) {
+      const store = entry.transport as StoreTransport;
+      const raw = await store.get(eraPointerKey(this.name)).catch(() => undefined);
+      if (!raw) continue;
+      const pointer = decodeEraPointer(raw);
+      // Highest wins rather than first, because a transport that was down during
+      // a rotation carries a stale pointer and the order stores are listed in is
+      // not something a peer should be silently taking a rotation from.
+      if (pointer && (!best || pointer.seq > best.seq)) best = pointer;
+    }
+    return best;
+  }
+
+  /**
+   * Mints a new era, wraps it for every peer that may still read, and makes it
+   * what new frames are sealed under. [ADR 0007](../../docs/adr/0007-per-peer-key-wrapping.md).
+   *
+   * This is the operation the whole record exists for. Until it runs, the
+   * primary era is the key derived from the workspace secret, which every
+   * member computes for itself and a departed member keeps forever; afterwards
+   * it is 32 random bytes that only the peers wrapped for have any way to get.
+   *
+   * Old eras stay in the ring. A frame sealed a second before the rotation is
+   * still sitting in an inbox, and refusing to open it would turn a rotation
+   * into data loss. That is what `KeyRing`'s asymmetry is for.
+   *
+   * **Refuses outright if any store failed to list identities.** A peer that is
+   * merely unreachable through one transport is indistinguishable from one that
+   * does not exist, and wrapping for the peers that happened to be visible would
+   * silently deafen the rest with no way back except another rotation by
+   * somebody who can see them. Same reasoning as the reaper in ADR 0006, and
+   * the same conclusion: an incomplete listing means do nothing.
+   */
+  async rotate(): Promise<{ eraId: string; seq: number; wrappedFor: string[] }> {
+    const secret = this.config.secrets[0];
+    if (secret === undefined) {
+      throw new DeadDropError('CONFIG_INVALID', 'rotating needs a workspace secret');
+    }
+    const { identities, failed } = await this.readIdentities();
+    if (failed.length > 0) {
+      throw new DeadDropError(
+        'TRANSPORT_ERROR',
+        `refusing to rotate: could not list identities on ${failed.join(', ')}`,
+        { details: { transports: failed } },
+      );
+    }
+    if (!identities.some((peer) => peer.peerId === this.identity)) {
+      // Its own identity is published on the same pass that would read it back,
+      // so a rotation attempted in that window would mint an era this peer
+      // cannot itself receive after a restart.
+      throw new DeadDropError(
+        'TRANSPORT_ERROR',
+        `refusing to rotate: this peer's own identity is not published yet`,
+      );
+    }
+
+    const era = generateEraKey();
+    for (const peer of identities) {
+      const wrapped = wrapEraKey(era, peer, { secret, workspace: this.name });
+      await this.manager.runWrite('put', (transport) =>
+        (transport as StoreTransport).put(
+          wrappedKeyKey(this.name, peer.peerId, era.id),
+          encodeWrappedKey(wrapped),
+          { contentType: JSON_CONTENT_TYPE },
+        ),
+      );
+    }
+
+    // Every wrap is published before the pointer, so no peer is ever told to
+    // seal under an era it has not been handed. A pointer that lands first is
+    // not unsafe — a peer refuses an era it does not hold — but it does make
+    // every peer log a warning about a rotation that is merely in progress.
+    const seq = Math.max(this.eraSeq, (await this.readEraPointer())?.seq ?? 0) + 1;
+    const pointer: EraPointer = {
+      eraId: era.id,
+      seq,
+      proof: eraPointerProof(secret, this.name, era.id, seq),
+    };
+    await this.manager.runWrite('put', (transport) =>
+      (transport as StoreTransport).put(eraPointerKey(this.name), encodeEraPointer(pointer), {
+        contentType: JSON_CONTENT_TYPE,
+      }),
+    );
+
+    this.keys.promote(era);
+    this.eraSeq = seq;
+    const wrappedFor = identities.map((peer) => peer.peerId);
+    this.logger.info('rotated the workspace era', { eraId: era.id, seq, peers: wrappedFor.length });
+    return { eraId: era.id, seq, wrappedFor };
   }
 
   /** Runs one maintenance pass, never more than one at a time. See `reap`. */

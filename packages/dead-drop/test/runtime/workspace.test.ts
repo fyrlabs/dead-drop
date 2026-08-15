@@ -23,7 +23,9 @@ import {
   DeadDropError,
   encodeFrame,
   encodeJson,
+  deriveWorkspaceKey,
   enrollmentProof,
+  eraPointerProof,
   generateEraKey,
   generateIdentity,
   generateWorkspaceSecret,
@@ -31,11 +33,17 @@ import {
   JSON_CONTENT_TYPE,
   KeyRing,
 } from '#dead-drop/protocol/index.js';
-import { identityKey, inboxKey, peerKey, wrappedKeyKey } from '#dead-drop/core/keys.js';
+import {
+  eraPointerKey,
+  identityKey,
+  inboxKey,
+  peerKey,
+  wrappedKeyKey,
+} from '#dead-drop/core/keys.js';
 import { TestClock } from '#dead-drop/core/clock.js';
 import { createLogger, MemoryLogSink } from '#dead-drop/core/observability/logger.js';
 
-import { encodeWrappedKey, Workspace } from '#dead-drop/runtime/workspace.js';
+import { encodeEraPointer, encodeWrappedKey, Workspace } from '#dead-drop/runtime/workspace.js';
 
 const SECRET = 'ddk1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
@@ -604,7 +612,7 @@ describe('reaping orphaned inboxes', () => {
     await ws.stop();
   });
 
-  it('never reaps an identity or a wrapped key, even for the peer it just reaped an inbox for', async () => {
+  it('never reaps an identity, a wrapped key or the era pointer, even for the peer it just reaped an inbox for', async () => {
     // ADR 0007's highest-risk interaction with ADR 0006. An identity and a
     // wrapped era key are long-lived and belong to a peer that may be offline
     // for weeks, which is exactly the profile this reaper collects. Collecting
@@ -622,8 +630,10 @@ describe('reaping orphaned inboxes', () => {
     const orphan = await planted(store, 'peer-b', NOW - 8 * DAY);
     const identity = identityKey('demo', 'peer-b');
     const wrapped = wrappedKeyKey('demo', 'peer-b', 'deadbeef');
+    const pointer = eraPointerKey('demo');
     await store.put(identity, new Uint8Array(64));
     await store.put(wrapped, new Uint8Array(96));
+    await store.put(pointer, new Uint8Array(48));
 
     const ws = workspace(store, clock);
     await ws.start();
@@ -634,6 +644,9 @@ describe('reaping orphaned inboxes', () => {
     expect(store.objects.has(orphan)).toBe(false);
     expect(store.objects.has(identity)).toBe(true);
     expect(store.objects.has(wrapped)).toBe(true);
+    // The pointer is workspace-wide rather than per peer, so losing it would
+    // cost every peer its rotation rather than one peer its addressability.
+    expect(store.objects.has(pointer)).toBe(true);
     expect(store.deleted).toEqual([orphan]);
 
     await ws.stop();
@@ -1022,6 +1035,309 @@ describe('enrollment', () => {
     await ws.mailbox.pollOnce();
 
     expect(reached).toEqual([]);
+
+    await ws.stop();
+  });
+});
+
+/**
+ * Rotation, the half of ADR 0007 that actually revokes anything.
+ *
+ * Until `rotate()` runs, frames are sealed under the key derived from the
+ * workspace secret, which every member computes for itself and a departed
+ * member keeps forever. Afterwards they are sealed under 32 random bytes that
+ * only the peers wrapped for have any way to obtain. Every assertion below is
+ * about which of those two is true.
+ */
+describe('era rotation', () => {
+  const NOW = 1_800_000_000_000;
+  const TICK = 30_000;
+
+  /**
+   * The key id a frame was actually sealed under, read off the wire.
+   *
+   * `frame.ts` puts `keyIdLen` at byte 5 and the ascii id straight after it, in
+   * the clear. Reading it here rather than asking the workspace which era it
+   * thinks is primary is deliberate: a getter would agree with itself even if
+   * nothing changed about what seals.
+   */
+  const sealedUnder = (store: MutableStore, match: string): string[] =>
+    [...store.objects.entries()]
+      .filter(([key]) => key.includes(match))
+      .map(([, raw]) => {
+        const buf = Buffer.from(raw);
+        return buf.subarray(6, 6 + buf.readUInt8(5)).toString('ascii');
+      });
+
+  /** Enrols `peerId` with a valid proof, as a second peer on the same secret would. */
+  const enrol = async (store: MutableStore, peerId: string) => {
+    const identity = generateIdentity();
+    await store.put(
+      identityKey('demo', peerId),
+      encodeJson({
+        publicKey: identity.publicKey.toString('base64url'),
+        proof: enrollmentProof(SECRET, 'demo', peerId, identity.publicKey).toString('base64url'),
+      }),
+    );
+    return identity;
+  };
+
+  it('mints an era, wraps it for every enrolled peer, and seals new frames under it', async () => {
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    await enrol(store, 'peer-b');
+    const ws = workspace(store, clock);
+    await ws.start();
+    await clock.advance(TICK);
+
+    await ws.publish('orders', encodeJson({ before: true }));
+    const before = sealedUnder(store, '/topic/');
+    expect(before).toHaveLength(1);
+
+    const result = await ws.rotate();
+    expect(result.wrappedFor.sort()).toEqual(['peer-a', 'peer-b']);
+    expect(store.objects.has(wrappedKeyKey('demo', 'peer-a', result.eraId))).toBe(true);
+    expect(store.objects.has(wrappedKeyKey('demo', 'peer-b', result.eraId))).toBe(true);
+
+    await ws.publish('orders', encodeJson({ after: true }));
+    const after = sealedUnder(store, '/topic/').filter((id) => id !== before[0]);
+    // The new era, and not the secret-derived one, is what seals now. That is
+    // the entire security claim of ADR 0007 in one assertion.
+    expect(after).toEqual([result.eraId]);
+    expect(result.eraId).not.toBe(before[0]);
+
+    await ws.stop();
+  });
+
+  it('keeps opening frames sealed under the era it has just left', async () => {
+    // A frame written a second before a rotation is still sitting in an inbox.
+    // Refusing it would turn a rotation into data loss, which is what KeyRing's
+    // asymmetry exists to prevent.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const ws = workspace(store, clock);
+    const reached: string[] = [];
+    ws.handle('svc.op', (_payload, context) => {
+      reached.push(context.identity);
+      return undefined;
+    });
+    await ws.start();
+    await clock.advance(TICK);
+
+    const old = ws.keyIds()[0]!;
+    const envelope = createEnvelope({
+      workspace: 'demo',
+      kind: 'request',
+      channel: 'svc.op',
+      from: 'peer-b',
+      to: 'peer-a',
+      ts: clock.now(),
+    });
+    const stale = await encodeFrame(envelope, {
+      key: new KeyRing(deriveWorkspaceKey(SECRET, 'demo')).primary,
+    });
+
+    await ws.rotate();
+    expect(ws.keyIds()).toContain(old);
+
+    await store.put(inboxKey('demo', 'peer-a', envelope.id), stale);
+    await ws.mailbox.pollOnce();
+    expect(reached).toEqual(['peer-b']);
+
+    await ws.stop();
+  });
+
+  it('refuses to rotate when a store could not list identities', async () => {
+    // The partition guard. Wrapping only for the peers that happened to be
+    // visible would deafen the rest with no way back except another rotation by
+    // somebody who can see them. Same reasoning as the reaper in ADR 0006.
+    const a = new MutableStore();
+    const b = new MutableStore();
+    const clock = new TestClock(NOW);
+    const ws = workspace(a, clock, { policy: { mode: 'parallel' } }, [b]);
+    await ws.start();
+    await clock.advance(TICK);
+
+    b.failListWith = new DeadDropError('TRANSPORT_ERROR', 'offline');
+    await expect(ws.rotate()).rejects.toThrow(/refusing to rotate/);
+    // And nothing was half-done: no pointer, no wrapped keys.
+    expect([...a.objects.keys()].some((key) => key.endsWith('.dde'))).toBe(false);
+    expect([...a.objects.keys()].some((key) => key.includes('/keys/'))).toBe(false);
+
+    await ws.stop();
+  });
+
+  it('takes a rotation another peer performed, on an ordinary tick', async () => {
+    // Two workspaces over one store, which is how a rotation actually reaches
+    // anybody: peer-b rotates, peer-a notices on its next enrollment pass.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const a = workspace(store, clock);
+    const b = new Workspace({
+      config: { name: 'demo', peerId: 'peer-b', secrets: [SECRET], transports: [] } as never,
+      registrations: [registration(store)],
+      logger: createLogger({ level: 'silent', sink: new MemoryLogSink().sink, clock }),
+      clock,
+      presenceIntervalMs: 30_000,
+    });
+    await a.start();
+    await b.start();
+    await clock.advance(TICK);
+
+    const { eraId } = await b.rotate();
+    expect(a.keyIds()).not.toContain(eraId);
+
+    await clock.advance(TICK);
+    expect(a.keyIds()).toContain(eraId);
+    await a.publish('orders', encodeJson({ ok: true }));
+    expect(sealedUnder(store, '/topic/')).toEqual([eraId]);
+
+    await a.stop();
+    await b.stop();
+  });
+
+  it('refuses an era pointer whose proof does not verify', async () => {
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const ws = workspace(store, clock);
+    await ws.start();
+    await clock.advance(TICK);
+
+    const before = ws.keyIds()[0]!;
+    // The attacker wraps a real era for the victim, which it can do, but cannot
+    // mint the pointer that would make the victim seal under it.
+    const published = (await ws.identities()).find((entry) => entry.peerId === 'peer-a')!;
+    const era = generateEraKey();
+    await store.put(
+      wrappedKeyKey('demo', 'peer-a', era.id),
+      encodeWrappedKey(wrapEraKey(era, published, { secret: SECRET, workspace: 'demo' })),
+    );
+    await store.put(
+      eraPointerKey('demo'),
+      encodeEraPointer({ eraId: era.id, seq: 1, proof: Buffer.alloc(32) }),
+    );
+    await clock.advance(TICK);
+
+    // The key is taken, because it is properly proven and reading it costs
+    // nothing. Sealing is what the pointer governs, and that has not moved.
+    expect(ws.keyIds()).toContain(era.id);
+    await ws.publish('orders', encodeJson({ ok: true }));
+    expect(sealedUnder(store, '/topic/')).toEqual([before]);
+
+    await ws.stop();
+  });
+
+  it('refuses a pointer replayed at a sequence it has already passed', async () => {
+    // The downgrade: whoever controls the store keeps a copy of the pointer from
+    // before a rotation and writes it back afterwards. It is properly proven, so
+    // only the sequence refuses it.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const ws = workspace(store, clock);
+    await ws.start();
+    await clock.advance(TICK);
+
+    const first = await ws.rotate();
+    const captured = store.objects.get(eraPointerKey('demo'))!;
+    const second = await ws.rotate();
+
+    await store.put(eraPointerKey('demo'), captured);
+    await clock.advance(TICK);
+
+    await ws.publish('orders', encodeJson({ ok: true }));
+    expect(sealedUnder(store, '/topic/')).toEqual([second.eraId]);
+    expect(second.eraId).not.toBe(first.eraId);
+
+    await ws.stop();
+  });
+
+  it('takes the newest rotation when one transport carries a stale pointer', async () => {
+    // A transport that was down during a rotation still holds the pointer from
+    // before it. Reading whichever store answers first would put this peer back
+    // on the older era for a tick, and that tick is exactly the traffic the
+    // rotation existed to keep away from whoever was dropped.
+    const a = new MutableStore();
+    const b = new MutableStore();
+    const clock = new TestClock(NOW);
+    const ws = workspace(a, clock, {}, [b]);
+    await ws.start();
+    await clock.advance(TICK);
+
+    const published = (await ws.identities()).find((entry) => entry.peerId === 'peer-a')!;
+    const [older, newer] = [generateEraKey(), generateEraKey()];
+    for (const era of [older, newer]) {
+      await a.put(
+        wrappedKeyKey('demo', 'peer-a', era.id),
+        encodeWrappedKey(wrapEraKey(era, published, { secret: SECRET, workspace: 'demo' })),
+      );
+    }
+    // The stale one on the store that is listed first, so "first wins" and
+    // "newest wins" disagree.
+    await a.put(
+      eraPointerKey('demo'),
+      encodeEraPointer({
+        eraId: older.id,
+        seq: 1,
+        proof: eraPointerProof(SECRET, 'demo', older.id, 1),
+      }),
+    );
+    await b.put(
+      eraPointerKey('demo'),
+      encodeEraPointer({
+        eraId: newer.id,
+        seq: 2,
+        proof: eraPointerProof(SECRET, 'demo', newer.id, 2),
+      }),
+    );
+    await clock.advance(TICK);
+
+    await ws.publish('orders', encodeJson({ ok: true }));
+    expect([...sealedUnder(a, '/topic/'), ...sealedUnder(b, '/topic/')]).toEqual([newer.id]);
+
+    await ws.stop();
+  });
+
+  it('says so, rather than silently, when a pointer names an era nothing wrapped for it', async () => {
+    // Two things are being asserted, and the second is the one that needed
+    // mutation to find. Staying on the current era rather than going mute is
+    // right, but it is enforced by `KeyRing.get` throwing on an unknown id, so
+    // deleting the explicit check leaves this peer behaving identically. What
+    // the check actually contributes is the named warning: "enrolled but nothing
+    // wrapped for me" is the state ADR 0007 says must be visible, and without it
+    // the operator sees a swallowed debug line and a workspace that looks fine.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const logs = new MemoryLogSink();
+    const ws = new Workspace({
+      config: { name: 'demo', peerId: 'peer-a', secrets: [SECRET], transports: [] } as never,
+      registrations: [registration(store)],
+      logger: createLogger({ level: 'debug', sink: logs.sink, clock }),
+      clock,
+      presenceIntervalMs: 30_000,
+    });
+    await ws.start();
+    await clock.advance(TICK);
+
+    const before = ws.keyIds()[0]!;
+    const unreachable = generateEraKey();
+    await store.put(
+      eraPointerKey('demo'),
+      encodeEraPointer({
+        eraId: unreachable.id,
+        seq: 1,
+        proof: eraPointerProof(SECRET, 'demo', unreachable.id, 1),
+      }),
+    );
+    await clock.advance(TICK);
+
+    await ws.publish('orders', encodeJson({ ok: true }));
+    expect(sealedUnder(store, '/topic/')).toEqual([before]);
+
+    const warned = logs.find(
+      (record) =>
+        record.level === 'warn' && record.message.includes('nothing has wrapped for this peer'),
+    );
+    expect(warned?.fields?.eraId).toBe(unreachable.id);
 
     await ws.stop();
   });

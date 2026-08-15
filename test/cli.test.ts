@@ -8,7 +8,7 @@
  * `call`, `publish`, `logs` and `metrics` can actually talk to.
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -121,6 +121,40 @@ describe('ddrop start and the commands that talk to it', () => {
       await run(['publish', 'events/test', '--socket', socket, '--input', '{"a":1}'], published),
     ).toBe(0);
     expect(published.stdout[0]).toMatch(/^msg_/);
+
+    // Rotation, end to end and observed on the wire rather than in the report.
+    //
+    // `rotate` needs this peer's own identity object to be on the store, and
+    // enrollment is fire-and-forget on start, so the first attempt can land in
+    // that window. Retrying is the honest way to handle it: the refusal is
+    // deliberate, not a flake to sleep past.
+    const beforeRotate = await sealedKeyIds(join(dir, 'store'));
+    expect(beforeRotate.size).toBe(1);
+
+    const rotated = capture();
+    let rotateCode = 1;
+    await waitFor(async () => {
+      rotateCode = await run(['rotate', '--socket', socket, '--json'], rotated);
+      return rotateCode === 0;
+    }, 15_000);
+    const rotation = JSON.parse(rotated.stdout.join('\n')) as {
+      eraId: string;
+      seq: number;
+      wrappedFor: string[];
+    };
+    expect(rotation.seq).toBe(1);
+    expect(rotation.wrappedFor).toContain('cli-peer');
+    expect(rotation.eraId).not.toBe([...beforeRotate][0]);
+
+    const afterRotate = capture();
+    expect(
+      await run(['publish', 'events/test', '--socket', socket, '--input', '{"b":2}'], afterRotate),
+    ).toBe(0);
+    // What the whole feature is for: frames written now are sealed under an era
+    // that exists only as 32 random bytes wrapped per peer, not under a key
+    // every holder of the workspace secret can derive.
+    const sealed = await sealedKeyIds(join(dir, 'store'));
+    expect(sealed.has(rotation.eraId)).toBe(true);
 
     // A call to a peer that does not exist must fail cleanly, not hang.
     const call = capture();
@@ -333,10 +367,39 @@ describe('ddrop start and the commands that talk to it', () => {
   }, 60_000);
 });
 
-async function waitFor(condition: () => boolean, timeoutMs: number): Promise<void> {
+async function waitFor(
+  condition: () => boolean | Promise<boolean>,
+  timeoutMs: number,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  while (!condition()) {
+  while (!(await condition())) {
     if (Date.now() > deadline) throw new Error(`condition not met within ${timeoutMs}ms`);
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+}
+
+/**
+ * Every key id that appears in a topic frame under `root`, read off the bytes.
+ *
+ * `frame.ts` puts `keyIdLen` at byte 5 and the ascii id straight after it, in
+ * the clear and outside the ciphertext. Reading it here is the only way to say
+ * what a message was really sealed under; the runtime's own report would agree
+ * with itself either way.
+ */
+async function sealedKeyIds(root: string): Promise<Set<string>> {
+  const found = new Set<string>();
+  const walk = async (dir: string): Promise<void> => {
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(path);
+      } else if (entry.name.endsWith('.ddf') && dir.includes('topic')) {
+        const raw = await readFile(path);
+        found.add(raw.subarray(6, 6 + raw.readUInt8(5)).toString('ascii'));
+      }
+    }
+  };
+  await walk(root);
+  return found;
 }
