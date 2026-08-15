@@ -33,7 +33,7 @@ The two packages **do not share a version**. `@fyrlabs/dead-drop` churns; `@fyrl
 ## 4. The thing that is never done and always should be
 
 - [ ] `e2e/run.sh fast` is green. No network, no credentials, about ten minutes. It runs real runtimes against real transports and asserts what a user can and cannot do, which is where every bug in the 0.2.x series was found.
-- [ ] `e2e/run.sh live <owner>/<throwaway-repo>` is green, in about fifteen minutes. Everything GitHub-specific is otherwise tested only against a scripted fake `gh` and a local bare repo, so real auth, rate limits, latency and large-repo behaviour are unverified without it. (0.2.4 fixed a silent message loss that only this found: it lost 10 of 50 concurrent requests, and nothing in the suite could see it.)
+- [ ] `e2e/run.sh live <owner>/<throwaway-repo>` is green, in about fifteen minutes. Everything GitHub-specific is otherwise tested only against a scripted fake `gh` and a local bare repo, so real auth, rate limits, latency and large-repo behaviour are unverified without it. (0.2.4 fixed a silent message loss that only this found: it lost 10 of 50 concurrent requests, and nothing in the suite could see it.) Expect it to leave behind one new private `dead-drop-e2e-<timestamp>` repository per run: `03-repository-lifecycle.sh` tests the path `ddrop init --github` takes, which is creating a repository, and the token has no `delete_repo` scope to clean up with.
 
 ## 5. Tag and publish
 

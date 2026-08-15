@@ -65,6 +65,7 @@ No network, no credentials, safe for CI, and it runs before every release. Under
 | `08-git-transport.sh` | The git transport against a local bare repository, including two runtimes sharing one `workDir` |
 | `09-dashboard.sh` | The dashboard binds where it was told, renders with no network, only reads, and starts no runtime |
 | `10-reaping.sh` | Mail for a peer that comes back survives its window; mail for one that never existed is reclaimed, and running peers' beacons are not |
+| `11-enrollment.sh` | Enrollment, approval and revocation, and who a rotation wraps an era for |
 
 ### The live tier
 
@@ -75,7 +76,15 @@ gh repo create <owner>/dead-drop-trial --private
 e2e/run.sh live <owner>/dead-drop-trial
 ```
 
-It covers authentication failure, discovery, a real round trip, fifty concurrent requests, and a 30 MiB object through git. This is the tier that found the `git push` exit-code bug: nothing local reproduced it, because a local push is too fast to interleave.
+| File | What it establishes |
+| --- | --- |
+| `01-github.sh` | Authentication that does not work, discovery, a real round trip, fifty concurrent requests, a 30 MiB object, and a data branch re-orphaning itself on a real host |
+| `02-rotation.sh` | A rotation crossing the internet as a wrapped key plus a pointer, and a revoked peer that can no longer read |
+| `03-repository-lifecycle.sh` | A repository that is not there is named as missing rather than broken, and one that `ddrop init` creates comes up private and usable from no commits at all |
+
+This is the tier that found the `git push` exit-code bug: nothing local reproduced it, because a local push is too fast to interleave.
+
+**`03-repository-lifecycle.sh` creates a repository and cannot delete it.** The `gh` token wants no `delete_repo` scope, so every live run leaves one more private `dead-drop-e2e-<timestamp>` repository on the account. The run prints the name and the command to remove it.
 
 **Do not put the live tier in CI.** It needs credentials and writes to a real repository.
 
