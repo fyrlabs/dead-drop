@@ -77,6 +77,7 @@ Usage
   ddrop transport health [--json]            re-probe transports and show health
   ddrop peer list [--json]                   who is enrolled, and what they fingerprint to
   ddrop peer approve <peer> <fingerprint>    vouch for a peer's key, checked out of band
+  ddrop peer revoke <peer>                   take that back; rotate to enforce it
   ddrop expose --target <url> --name <name>  expose a local http server
   ddrop expose <dir> [--name <name>]         expose a directory (named after it by default)
   ddrop connect <peer>/<exposure> [--port n] serve a remote exposure locally
@@ -829,7 +830,8 @@ async function peer(args: string[], values: Values, io: CliIo): Promise<number> 
   const sub = args[0] ?? 'list';
   if (sub === 'list') return peerList(values, io);
   if (sub === 'approve') return peerApprove(args.slice(1), values, io);
-  io.err('ddrop: peer takes "list" or "approve"');
+  if (sub === 'revoke') return peerRevoke(args.slice(1), values, io);
+  io.err('ddrop: peer takes "list", "approve" or "revoke"');
   return 2;
 }
 
@@ -915,6 +917,33 @@ async function peerApprove(args: string[], values: Values, io: CliIo): Promise<n
   io.out(`Approved ${body.peerId} at ${body.fingerprint}.`);
   io.err('');
   io.err('Nothing has changed yet for this peer. Run "ddrop rotate" to hand it the current era.');
+  return 0;
+}
+
+async function peerRevoke(args: string[], values: Values, io: CliIo): Promise<number> {
+  const peerId = args[0];
+  if (!peerId) {
+    io.err('ddrop: peer revoke takes <peer>');
+    return 2;
+  }
+  const body = await (
+    await client(values)
+  ).request<{ peerId: string; revoked: boolean }>(
+    'POST',
+    `/enrollment/revoke${buildQuery(values)}`,
+    {
+      peerId,
+    },
+  );
+  if (values.json) {
+    io.out(JSON.stringify(body, null, 2));
+    return 0;
+  }
+  io.out(body.revoked ? `Revoked ${body.peerId}.` : `${body.peerId} was not approved anyway.`);
+  io.err('');
+  // Said every time, revoked or not, because the dangerous reading of this
+  // command is that it cut somebody off. It did not; the next rotation does.
+  io.err('This peer still reads everything until you run "ddrop rotate".');
   return 0;
 }
 

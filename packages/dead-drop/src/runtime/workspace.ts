@@ -1300,6 +1300,36 @@ export class Workspace {
   }
 
   /**
+   * Takes an approval back, which is how a peer is actually removed.
+   *
+   * Nothing changes for the revoked peer until the next `rotate()`: it still
+   * holds the era everyone is sealing under, and no scheme can take that back.
+   * What this does is decide who the *next* era is wrapped for, which is why
+   * the CLI says to rotate and the log line says the same.
+   *
+   * Takes a name rather than a fingerprint, unlike `approve`. There is nothing
+   * to compare against: the point of revoking is often that the identity on the
+   * store is one nobody vouched for, and requiring the operator to quote it
+   * would mean quoting the attacker's key back at us before removing it.
+   */
+  async revoke(peerId: string): Promise<{ peerId: string; revoked: boolean }> {
+    if (this.approvalsPath === undefined) {
+      throw new DeadDropError(
+        'CONFIG_INVALID',
+        'this workspace has nowhere to write approvals, so a revocation would not survive a restart',
+      );
+    }
+    const revoked = this.approvals.delete(peerId);
+    if (revoked) {
+      await saveApprovals(this.approvalsPath, this.approvals);
+      this.logger.info('revoked a peer approval; it keeps the current era until a rotation', {
+        peerId,
+      });
+    }
+    return { peerId, revoked };
+  }
+
+  /**
    * The same listing, plus the transports that could not answer.
    *
    * `identities()` discards that, which is right for a read: a caller asking who

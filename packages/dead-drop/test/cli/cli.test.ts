@@ -377,6 +377,10 @@ describe('ddrop commands that need a runtime', () => {
     expect(await run(['peer', 'banish'], badPeer)).toBe(2);
     expect(badPeer.stderr.join('\n')).toContain('list');
 
+    const namelessRevoke = capture();
+    expect(await run(['peer', 'revoke'], namelessRevoke)).toBe(2);
+    expect(namelessRevoke.stderr.join('\n')).toContain('<peer>');
+
     // Approving takes both halves, and the missing half is worth naming: an
     // approval with no fingerprint would be the bare yes this tier refuses.
     const halfApproval = capture();
@@ -431,6 +435,18 @@ describe('ddrop commands that need a runtime', () => {
     expect(io.stdout.join('\n')).toMatch(
       /key changed since approval, which was 1111-2222-3333-4444/,
     );
+  });
+
+  it('says a revoked peer still reads until somebody rotates', async () => {
+    // The dangerous misreading of this command is that it cut somebody off. It
+    // did not, and the line saying so is printed whether or not there was an
+    // approval to take back.
+    const socket = await fakeControlPlane({ peerId: 'peer-b', revoked: true });
+
+    const io = capture();
+    expect(await run(['peer', 'revoke', 'peer-b', '--socket', socket], io)).toBe(0);
+    expect(io.stdout.join('\n')).toContain('Revoked peer-b');
+    expect(io.stderr.join('\n')).toMatch(/still reads everything until you run "ddrop rotate"/);
   });
 
   it('says why nothing is readable when this peer was left out of a rotation', async () => {

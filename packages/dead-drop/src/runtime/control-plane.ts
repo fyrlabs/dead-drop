@@ -172,6 +172,15 @@ export async function startControlPlane(options: ControlPlaneOptions): Promise<C
       send(response, 200, await workspace.approve(body.peerId, body.fingerprint));
       return;
     }
+    if (method === 'POST' && path === '/enrollment/revoke') {
+      const body = (await readJson(request, maxBodyBytes)) as { peerId?: string };
+      if (typeof body.peerId !== 'string') {
+        throw new DeadDropError('BAD_REQUEST', 'revoking requires peerId');
+      }
+      const workspace = resolveWorkspace(runtime, url);
+      send(response, 200, await workspace.revoke(body.peerId));
+      return;
+    }
     if (method === 'POST' && path === '/rotate') {
       const workspace = resolveWorkspace(runtime, url);
       send(response, 200, await workspace.rotate());

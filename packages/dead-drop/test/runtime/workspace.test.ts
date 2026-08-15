@@ -1616,6 +1616,48 @@ describe('the requireApproval tier', () => {
     await ws.stop();
   });
 
+  it('takes an approval back, and the next rotation is what enforces it', async () => {
+    // How a peer is actually removed. Revoking alone changes nothing, because
+    // the revoked peer already holds the era everybody is sealing under and no
+    // scheme can take that back; what it decides is who the next era is for.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const published = await enrol(store, 'peer-b');
+    const path = await approvalsPath();
+    const ws = peerA(store, clock, { requireApproval: true, approvalsPath: path });
+    await ws.start();
+    await clock.advance(TICK);
+    await ws.approve('peer-b', fingerprint(published.publicKey));
+    const shared = await ws.rotate();
+    expect(shared.wrappedFor.sort()).toEqual(['peer-a', 'peer-b']);
+
+    expect(await ws.revoke('peer-b')).toEqual({ peerId: 'peer-b', revoked: true });
+    // Still readable at this point, which is the part the CLI is loud about.
+    expect(store.objects.has(wrappedKeyKey('demo', 'peer-b', shared.eraId))).toBe(true);
+
+    const after = await ws.rotate();
+    expect(after.wrappedFor).toEqual(['peer-a']);
+    expect(after.skipped).toEqual(['peer-b']);
+    expect(store.objects.has(wrappedKeyKey('demo', 'peer-b', after.eraId))).toBe(false);
+
+    // Written through, not just forgotten in memory: a restart that reinstated
+    // the approval would quietly re-admit a peer somebody removed.
+    expect(await loadApprovals(path)).toEqual(new Map());
+
+    await ws.stop();
+  });
+
+  it('reports revoking a peer that was never approved, rather than pretending', async () => {
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const ws = peerA(store, clock, { requireApproval: true, approvalsPath: await approvalsPath() });
+    await ws.start();
+
+    expect(await ws.revoke('peer-z')).toEqual({ peerId: 'peer-z', revoked: false });
+
+    await ws.stop();
+  });
+
   it('refuses to approve a peer that has published no identity', async () => {
     const store = new MutableStore();
     const clock = new TestClock(NOW);
