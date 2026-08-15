@@ -268,7 +268,7 @@ describe('key wrapping', () => {
       { peerId: 'peer-a', publicKey: identity.publicKey },
       AUTH,
     );
-    wrapped.ciphertext[0] ^= 0xff;
+    wrapped.ciphertext[0] = wrapped.ciphertext[0]! ^ 0xff;
     expect(() =>
       unwrapEraKey(reproof(wrapped, 'peer-a'), { peerId: 'peer-a', ...identity }, SECRETS),
     ).toThrow(/failed authenticated decryption/);

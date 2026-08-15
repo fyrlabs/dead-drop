@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "incremental": false,
+    "types": ["node"],
+    "paths": {
+      "#dead-drop/*": ["./packages/dead-drop/src/*"],
+      "#transport-sdk/*": ["./packages/transport-sdk/src/*"],
+      "@fyrlabs/dead-drop-transport-sdk/testing": ["./packages/transport-sdk/src/testing/index.ts"],
+      "@fyrlabs/dead-drop-transport-sdk": ["./packages/transport-sdk/src/index.ts"],
+      "@fyrlabs/dead-drop/transports/filesystem": [
+        "./packages/dead-drop/src/transports/filesystem/index.ts"
+      ],
+      "@fyrlabs/dead-drop/transports/memory": [
+        "./packages/dead-drop/src/transports/memory/index.ts"
+      ],
+      "@fyrlabs/dead-drop/transports/github": [
+        "./packages/dead-drop/src/transports/github/index.ts"
+      ],
+      "@fyrlabs/dead-drop/transports/git": ["./packages/dead-drop/src/transports/git/index.ts"],
+      "@fyrlabs/dead-drop/cli": ["./packages/dead-drop/src/cli/index.ts"],
+      "@fyrlabs/dead-drop/protocol": ["./packages/dead-drop/src/protocol/index.ts"],
+      "@fyrlabs/dead-drop/runtime": ["./packages/dead-drop/src/runtime/index.ts"],
+      "@fyrlabs/dead-drop/core": ["./packages/dead-drop/src/core/index.ts"],
+      "@fyrlabs/dead-drop/sdk": ["./packages/dead-drop/src/sdk/index.ts"],
+      "@fyrlabs/dead-drop": ["./packages/dead-drop/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/test/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+}

@@ -80,7 +80,7 @@ describe('frame codec', () => {
 
   it('rejects a tampered ciphertext', async () => {
     const frame = Buffer.from(await encodeFrame(envelope(), { key: KEY }));
-    frame[frame.length - 20] ^= 0xff;
+    frame[frame.length - 20] = frame[frame.length - 20]! ^ 0xff;
     await expect(decodeFrame(frame, { keys: KEYS })).rejects.toMatchObject({
       code: 'DECRYPT_FAILED',
     });
@@ -88,7 +88,7 @@ describe('frame codec', () => {
 
   it('rejects a tampered auth tag', async () => {
     const frame = Buffer.from(await encodeFrame(envelope(), { key: KEY }));
-    frame[frame.length - 1] ^= 0x01;
+    frame[frame.length - 1] = frame[frame.length - 1]! ^ 0x01;
     await expect(decodeFrame(frame, { keys: KEYS })).rejects.toMatchObject({
       code: 'DECRYPT_FAILED',
     });
@@ -96,7 +96,7 @@ describe('frame codec', () => {
 
   it('rejects tampered additional data (the flags byte is authenticated)', async () => {
     const frame = Buffer.from(await encodeFrame(envelope(), { key: KEY }));
-    frame[4] ^= 0b0000_0010;
+    frame[4] = frame[4]! ^ 0b0000_0010;
     await expect(decodeFrame(frame, { keys: KEYS })).rejects.toBeInstanceOf(DeadDropError);
   });
 
@@ -151,7 +151,7 @@ describe('frame codec', () => {
 
   it('rejects frames that set unknown flag bits', async () => {
     const frame = Buffer.from(await encodeFrame(envelope()));
-    frame[4] |= 0b1000_0000;
+    frame[4] = frame[4]! | 0b1000_0000;
     await expect(decodeFrame(frame)).rejects.toMatchObject({ code: 'DECODE_FAILED' });
   });
 

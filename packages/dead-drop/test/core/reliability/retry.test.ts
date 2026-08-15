@@ -182,10 +182,10 @@ describe('withTimeout', () => {
   it('rejects with TIMEOUT once the deadline passes', async () => {
     const testClock = new TestClock(0);
     const promise = withTimeout(new Promise(() => {}), 1000, 'slow op', testClock).catch(
-      (error: unknown) => error as DeadDropError,
+      (error: unknown) => error,
     );
     await testClock.advance(1500);
-    const error = await promise;
+    const error = (await promise) as DeadDropError;
     expect(error.code).toBe('TIMEOUT');
     expect(error.message).toContain('slow op');
   });

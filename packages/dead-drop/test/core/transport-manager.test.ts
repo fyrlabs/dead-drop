@@ -231,9 +231,9 @@ describe('TransportManager run', () => {
       .run('put', (transport) =>
         (transport as StoreTransport).put('ws/demo/inbox/peer-b/1.ddf', new Uint8Array()),
       )
-      .catch((error: unknown) => error as DeadDropError);
+      .catch((error: unknown) => error);
     await clock.advance(1000);
-    const error = await promise;
+    const error = (await promise) as DeadDropError;
     expect(error.code).toBe('NO_TRANSPORT_AVAILABLE');
     expect(error.details?.tried).toEqual(['alpha', 'beta']);
   });
@@ -286,7 +286,7 @@ describe('TransportManager run', () => {
     });
     await subject.start();
 
-    const write = (key: string, retry?: { maxAttempts: number }): Promise<void> =>
+    const write = (key: string, retry?: { maxAttempts: number }): Promise<unknown> =>
       subject.run(
         'put',
         (transport) => (transport as StoreTransport).put(key, new Uint8Array()),
@@ -325,9 +325,11 @@ describe('TransportManager run', () => {
 
     const promise = subject
       .run('put', () => new Promise<void>(() => {}))
-      .catch((error: unknown) => error as DeadDropError);
+      .catch((error: unknown) => error);
     await clock.advance(2000);
-    expect((await promise).message).toMatch(/failed after 1 attempts|TIMEOUT|timed/i);
+    expect(((await promise) as DeadDropError).message).toMatch(
+      /failed after 1 attempts|TIMEOUT|timed/i,
+    );
   });
 
   it('carries a write on every transport under the parallel policy', async () => {

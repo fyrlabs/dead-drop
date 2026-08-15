@@ -1,3 +1,4 @@
+import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -57,7 +58,6 @@ async function temp(): Promise<string> {
  */
 async function fakeControlPlane(body: unknown): Promise<string> {
   const { createServer } = await import('node:http');
-  const { once } = await import('node:events');
   const socketPath =
     process.platform === 'win32'
       ? `\\\\.\\pipe\\deaddrop-test-${process.pid.toString(16)}-${fakeControlPlanes++}`

@@ -26,6 +26,8 @@ Everything runs with no network, no credentials and no external services. The gi
 
 Each package keeps its tests in a `test/` tree mirroring `src/`, so the subject of `test/core/mailbox.test.ts` is `src/core/mailbox.ts`. Nothing under `src/` is a test. Shared test doubles live in `packages/dead-drop/test/core/testing.ts`.
 
+**The test tree is type-checked separately, by `npm run typecheck:test`.** Both package tsconfigs build `src` alone, so `tsc --build` never sees a test file and for several releases nothing type-checked one. `tsconfig.test.json` covers `packages/*/test/`, the root `test/` and `vitest.config.ts` with `noEmit`, and it repeats vitest's aliases so it checks the same code the suite runs rather than the built `dist`. It runs in `npm run verify` and as its own CI step; vitest strips types without checking them, so a type error in a test is invisible to a green suite.
+
 The end-to-end suite is the one that answers "does it work". It runs two independent runtimes against a shared directory and proxies real HTTP through them. One of its tests reads every byte the transport ever held and asserts that no application data, query string or exposure name appears in clear text.
 
 Time is injected everywhere through a `Clock`, so retry and backoff suites run in milliseconds instead of sleeping. `TestClock.advance` drains the microtask queue through a macrotask boundary before each timer, which is what stops fake-timer tests from hanging on promise chains deeper than a fixed tick count.

@@ -54,8 +54,13 @@ describe('DeadDropError', () => {
     // class, so `instanceof` is false, but the same registry-symbol brand.
     // Before the brand, `from` re-wrapped this as INTERNAL, which is retryable,
     // silently turning a permanent UNAUTHORIZED into an infinite retry loop.
+    // Declared as a `const` of type `unique symbol`, the way `errors.ts`
+    // declares the real one: a computed class-property name has to be a literal
+    // or a `unique symbol`, and `Symbol.for(...)` inline is neither. It still
+    // resolves through the cross-realm registry, which is the whole point.
+    const FOREIGN_BRAND: unique symbol = Symbol.for('@fyrlabs/dead-drop.DeadDropError');
     class ForeignDeadDropError extends Error {
-      readonly [Symbol.for('@fyrlabs/dead-drop.DeadDropError')] = true;
+      readonly [FOREIGN_BRAND] = true;
       readonly code = 'UNAUTHORIZED';
       readonly retryable = false;
     }

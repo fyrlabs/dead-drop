@@ -28,6 +28,9 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+      # `build` compiles `src` only; both package tsconfigs exclude the test
+      # tree, so nothing type-checked it until this step existed.
+      - run: npm run typecheck:test
       - run: npm run format:check
       # The git transport tests drive a real git binary against a local bare
       # repository, so git must be configured enough to commit.

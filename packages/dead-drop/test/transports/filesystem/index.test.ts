@@ -121,6 +121,10 @@ describe('filesystem transport specifics', () => {
   it('notifies watchers when a new object appears', async () => {
     const { transport } = await store({ forcePolling: true, pollIntervalMs: 50 });
     let fired = 0;
+    // `watch` is optional on the store contract and this transport implements
+    // it. Saying so here fails with the reason rather than a TypeError on
+    // `undefined` if that ever stops being true.
+    if (!transport.watch) throw new Error('the filesystem transport must implement watch');
     const stop = await transport.watch('inbox/peer-b', () => {
       fired += 1;
     });

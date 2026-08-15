@@ -31,7 +31,7 @@ describe('CircuitBreaker', () => {
     const breaker = make(clock);
     for (let i = 0; i < 3; i++) breaker.recordFailure();
     const operation = vi.fn(async () => 'ok');
-    const error = await breaker.execute(operation).catch((e: unknown) => e as DeadDropError);
+    const error = (await breaker.execute(operation).catch((e: unknown) => e)) as DeadDropError;
     expect(operation).not.toHaveBeenCalled();
     expect(error.code).toBe('TRANSPORT_ERROR');
     expect(error.retryable).toBe(true);
