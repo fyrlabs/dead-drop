@@ -150,14 +150,14 @@
     "semantic_hash": "39c12cd61b521db2fae220584ae0ec5f"
   },
   "package.json": {
-    "mtime": 1786408065.36959,
-    "ast_hash": "692b53cec63df4c1112371179ad7cd12",
-    "semantic_hash": "692b53cec63df4c1112371179ad7cd12"
+    "mtime": 1786771817.7580864,
+    "ast_hash": "0710446e1493a8ae6f00928bbf71fdaf",
+    "semantic_hash": "0710446e1493a8ae6f00928bbf71fdaf"
   },
   "packages/dead-drop/package.json": {
-    "mtime": 1786408065.3702555,
-    "ast_hash": "75c7fb58dfb01822dd8b11b5535df54e",
-    "semantic_hash": "75c7fb58dfb01822dd8b11b5535df54e"
+    "mtime": 1786771818.968045,
+    "ast_hash": "2347864e49755c20f132af7ffe6968a5",
+    "semantic_hash": "2347864e49755c20f132af7ffe6968a5"
   },
   "packages/dead-drop/src/cli/bin.ts": {
     "mtime": 1786408065.370514,
@@ -625,9 +625,9 @@
     "semantic_hash": "e0846621b81652ad6ded54e2dbdfb26b"
   },
   ".github/RELEASE_CHECKLIST.md": {
-    "mtime": 1786408065.3578498,
-    "ast_hash": "771d25960e5001e3b913c7288559a280",
-    "semantic_hash": "771d25960e5001e3b913c7288559a280"
+    "mtime": 1786771254.5985498,
+    "ast_hash": "f081a85a1fcf644b8a832b10b84ea46f",
+    "semantic_hash": "f081a85a1fcf644b8a832b10b84ea46f"
   },
   ".github/RELEASE_TEMPLATE.md": {
     "mtime": 1786408065.3580153,
@@ -650,14 +650,14 @@
     "semantic_hash": "d55c4cd74749746fd610ef05ee151cc1"
   },
   "AGENTS.md": {
-    "mtime": 1786755038.5821857,
-    "ast_hash": "71d017f714b624598d387c655b1c3816",
-    "semantic_hash": "71d017f714b624598d387c655b1c3816"
+    "mtime": 1786771258.843879,
+    "ast_hash": "c8376ee51d4b7e036c7c6ce3f530cf14",
+    "semantic_hash": "c8376ee51d4b7e036c7c6ce3f530cf14"
   },
   "CHANGELOG.md": {
-    "mtime": 1786769957.3586833,
-    "ast_hash": "294ea4fd8cf0e8c5f34dbd0e1ac43595",
-    "semantic_hash": "294ea4fd8cf0e8c5f34dbd0e1ac43595"
+    "mtime": 1786771822.6955512,
+    "ast_hash": "9f47a4de8bf310c5c78179cc589ccb4e",
+    "semantic_hash": "9f47a4de8bf310c5c78179cc589ccb4e"
   },
   "CLAUDE.md": {
     "mtime": 1786755038.5825655,
