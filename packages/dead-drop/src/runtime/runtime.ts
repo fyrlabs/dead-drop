@@ -27,6 +27,7 @@ import {
 
 import type { RuntimeConfig, WorkspaceConfig } from './config.js';
 import { registerExposure, type ExposureHandle } from './exposure.js';
+import { loadEra } from './era-store.js';
 import { loadOrCreateIdentity } from './identity-store.js';
 import { loadTransports, type ModuleLoader } from './plugins.js';
 import { Workspace } from './workspace.js';
@@ -204,6 +205,8 @@ export class DeadDropRuntime {
       ...(this.loader ? { loader: this.loader } : {}),
       baseDir: this.baseDir,
     });
+    const eraPath = join(this.config.dataDir, `${config.name}.era`);
+    const era = await loadEra(eraPath, this.logger);
     const workspace = new Workspace({
       config,
       registrations,
@@ -216,6 +219,11 @@ export class DeadDropRuntime {
       // `ddrop connect` session resolves the same file as the long-lived runtime,
       // which is what makes a key wrapped to this peer usable by both.
       identity: await loadOrCreateIdentity(join(this.config.dataDir, `${config.name}.identity`)),
+      // Resolved before construction for the same reason as the identity: the
+      // ring has to be right before the first frame is sealed, and reading it
+      // is async. See era-store.ts for the window this closes.
+      eraPath,
+      ...(era ? { era } : {}),
       ...(this.sessionId ? { sessionId: this.sessionId } : {}),
       version: this.version,
     });

@@ -62,6 +62,7 @@ import { MetricsRegistry as Metrics, traceContext } from '../core/index.js';
 import type { StoreTransport, TransportRegistration } from '@fyrlabs/dead-drop-transport-sdk';
 
 import type { WorkspaceConfig } from './config.js';
+import { saveEra, type StoredEra } from './era-store.js';
 import { VERSION } from '../version.js';
 
 /** A handler for inbound requests on one channel. */
@@ -186,6 +187,15 @@ export interface WorkspaceOptions {
    * only as long as the test.
    */
   identity?: PeerIdentity;
+  /**
+   * The era this peer was sealing under when it last stopped, ADR 0007.
+   * Resolved by `Runtime` for the same reason as `identity`: reading it is
+   * async and the ring has to be right before the first frame is sealed, not
+   * one enrollment pass later. See `era-store.ts` for why the window matters.
+   */
+  era?: StoredEra;
+  /** Where to write the era when it changes. Omitted, rotation is not remembered. */
+  eraPath?: string;
   /**
    * Marks this runtime as a short-lived session sharing a config with a
    * longer-lived peer. It takes its own mailbox address so the two do not fight
@@ -335,6 +345,7 @@ export class Workspace {
    * secret. Only ever moves up: see {@link EraPointer}.
    */
   private eraSeq = 0;
+  private readonly eraPath: string | undefined;
   private nextReapAt = 0;
   private reapBackoff = 1;
   private started = false;
@@ -349,6 +360,14 @@ export class Workspace {
     this.metrics = options.metrics ?? new Metrics();
     this.tracer = options.tracer;
     this.keys = KeyRing.fromSecrets(this.name, options.config.secrets);
+    this.eraPath = options.eraPath;
+    // Before anything can seal. A peer that came back up after a rotation must
+    // not spend its first enrollment pass writing frames under the era that
+    // rotation removed somebody from.
+    if (options.era) {
+      this.keys.promote(options.era.key);
+      this.eraSeq = options.era.seq;
+    }
     this.keypair = options.identity ?? generateIdentity();
     // The explicit option wins over the config field so a caller constructing a
     // Workspace directly, which is what the tests do, is not overridden by it.
@@ -1296,6 +1315,7 @@ export class Workspace {
     }
     this.keys.promote(this.keys.get(pointer.eraId));
     this.eraSeq = pointer.seq;
+    await this.rememberEra();
     this.logger.info('sealing under a new era', { eraId: pointer.eraId, seq: pointer.seq });
   }
 
@@ -1388,9 +1408,28 @@ export class Workspace {
 
     this.keys.promote(era);
     this.eraSeq = seq;
+    await this.rememberEra();
     const wrappedFor = identities.map((peer) => peer.peerId);
     this.logger.info('rotated the workspace era', { eraId: era.id, seq, peers: wrappedFor.length });
     return { eraId: era.id, seq, wrappedFor };
+  }
+
+  /**
+   * Writes the current era down so a restart resumes on it.
+   *
+   * Never fatal. Failing to remember an era costs one enrollment pass after the
+   * next restart, and refusing to rotate because a file would not write would
+   * cost the operator the ability to remove anybody.
+   */
+  private async rememberEra(): Promise<void> {
+    if (this.eraPath === undefined) return;
+    await saveEra(this.eraPath, { key: this.keys.primary, seq: this.eraSeq }).catch(
+      (error: unknown) => {
+        this.logger.warn('could not remember the current era; a restart will re-read it', {
+          error: DeadDropError.from(error).message,
+        });
+      },
+    );
   }
 
   /** Runs one maintenance pass, never more than one at a time. See `reap`. */

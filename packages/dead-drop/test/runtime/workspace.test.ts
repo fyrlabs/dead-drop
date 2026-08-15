@@ -25,6 +25,7 @@ import {
   encodeJson,
   deriveWorkspaceKey,
   enrollmentProof,
+  eraKeyFrom,
   eraPointerProof,
   generateEraKey,
   generateIdentity,
@@ -32,6 +33,7 @@ import {
   wrapEraKey,
   JSON_CONTENT_TYPE,
   KeyRing,
+  type WorkspaceKey,
 } from '#dead-drop/protocol/index.js';
 import {
   eraPointerKey,
@@ -1295,6 +1297,77 @@ describe('era rotation', () => {
     expect([...sealedUnder(a, '/topic/'), ...sealedUnder(b, '/topic/')]).toEqual([newer.id]);
 
     await ws.stop();
+  });
+
+  it('seals under the era it last had, from the very first frame after a restart', async () => {
+    // The window this closes. Enrollment is fire-and-forget on start, so a peer
+    // that came back up after a rotation would otherwise spend the whole first
+    // pass writing frames under the secret-derived era, which is readable by
+    // precisely the peer that rotation removed. No pass runs here at all: the
+    // frame is published before the clock ever advances.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    const era = generateEraKey();
+    const ws = new Workspace({
+      config: { name: 'demo', peerId: 'peer-a', secrets: [SECRET], transports: [] } as never,
+      registrations: [registration(store)],
+      logger: createLogger({ level: 'silent', sink: new MemoryLogSink().sink, clock }),
+      clock,
+      era: { key: era, seq: 3 },
+      presenceIntervalMs: 30_000,
+    });
+    await ws.start();
+    await ws.publish('orders', encodeJson({ ok: true }));
+
+    expect(sealedUnder(store, '/topic/')).toEqual([era.id]);
+
+    await ws.stop();
+  });
+
+  it('still refuses a pointer replayed from before the restart', async () => {
+    // What makes the rotation counter a property of the peer rather than of one
+    // process. The store operator's play is to keep the pointer from before a
+    // rotation and write it back; without a remembered counter, all it has to
+    // do is wait for a restart.
+    const store = new MutableStore();
+    const clock = new TestClock(NOW);
+    // One keypair across both, because that is what a restart is: the identity
+    // file outlives the process, and without it the second workspace could not
+    // unwrap the eras the first one published for itself.
+    const keypair = generateIdentity();
+    const peer = (era?: { key: WorkspaceKey; seq: number }) =>
+      new Workspace({
+        config: { name: 'demo', peerId: 'peer-a', secrets: [SECRET], transports: [] } as never,
+        registrations: [registration(store)],
+        logger: createLogger({ level: 'silent', sink: new MemoryLogSink().sink, clock }),
+        clock,
+        identity: keypair,
+        ...(era ? { era } : {}),
+        presenceIntervalMs: 30_000,
+      });
+
+    const first = peer();
+    await first.start();
+    await clock.advance(TICK);
+
+    const before = await first.rotate();
+    const captured = store.objects.get(eraPointerKey('demo'))!;
+    const after = await first.rotate();
+    await first.stop();
+
+    // The restart, carrying only what `era-store.ts` would have written down.
+    const restarted = peer({ key: eraKeyFrom(Buffer.alloc(32)), seq: after.seq });
+    await store.put(eraPointerKey('demo'), captured);
+    await restarted.start();
+    await clock.advance(TICK);
+
+    // It has taken delivery of the era the replayed pointer would drag it off,
+    // so refusing that pointer is a decision rather than an inability.
+    expect(restarted.keyIds()).toContain(after.eraId);
+    await restarted.publish('orders', encodeJson({ ok: true }));
+    expect(sealedUnder(store, '/topic/')).not.toContain(before.eraId);
+
+    await restarted.stop();
   });
 
   it('says so, rather than silently, when a pointer names an era nothing wrapped for it', async () => {
