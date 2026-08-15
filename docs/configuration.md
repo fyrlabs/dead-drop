@@ -158,7 +158,7 @@ Built-in short names: `memory`, `filesystem` (also `fs`), `git`, `github`. All f
 | `remote` | string | **yes** | | Anything `git clone` accepts: https, ssh, or a local path. |
 | `workDir` | string | **yes** | | Local clone directory. Created if missing. |
 | `branch` | string | no | `deaddrop-data` | Orphan branch holding the objects. Your default branch is never touched. |
-| `prefix` | string | no | none | Subdirectory inside the branch, so one repository can host several workspaces. |
+| `prefix` | string | no | none | Subdirectory inside the branch, so one repository can host several workspaces. A namespace, not an access boundary: everything on the branch is readable by anyone who can read the repository, and what stops two workspaces reading each other is their separate secrets, not their separate prefixes. |
 | `freshnessMs` | number | no | `5000` | How stale a local read may be before a fetch is forced. |
 | `batchWindowMs` | number | no | `50` | How long to wait for other writes before committing, so concurrent sends become one commit. |
 | `pushRetries` | number | no | `5` | Attempts to resolve a push race before giving up. |

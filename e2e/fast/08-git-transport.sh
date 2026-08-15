@@ -207,3 +207,106 @@ cannot "leave anything but objects on the branch it rewrote" \
 
 stop_peer "$PACKER_PID"
 stop_peer "$PULLER_PID"
+
+scenario "two workspaces sharing one repository"
+
+# `prefix` is proven at the store level, where two stores write the *same* key
+# and neither overwrites the other. What nothing exercised is the wiring: that a
+# `prefix` written in a config file survives config parsing, the transport
+# manager and `resolveConfig` to reach the checkout. That is precisely the shape
+# of the `parallel` bug, where the field was wired, the value was documented,
+# and nothing between the config and the behaviour was ever run.
+#
+# The peers below deliberately share a workspace name AND a secret, and differ
+# only in `prefix`. Two differently-named workspaces would isolate anyway,
+# because every key already starts `ws/<workspace>/`, and two different secrets
+# would isolate anyway, because neither could decode the other's beacons. Either
+# of those would give a scenario that passes with `prefix` deleted, which is a
+# scenario that proves nothing.
+
+SREMOTE="$GT/shared.git"
+git init --bare --quiet --initial-branch=main "$SREMOTE" 2>/dev/null \
+  || git init --bare --quiet "$SREMOTE"
+git -C "$SREMOTE" config user.name "dead-drop e2e" 2>/dev/null
+git -C "$SREMOTE" config user.email "e2e@example.invalid" 2>/dev/null
+
+prefixed_transport() { # $1 = remote, $2 = work dir, $3 = prefix
+  printf '{ "use": "git", "config": { "remote": "%s", "workDir": "%s", "prefix": "%s", "freshnessMs": 500, "batchWindowMs": 50 } }' \
+    "$1" "$2" "$3"
+}
+
+sees_keeper() { # $1 = peer dir
+  dd "$1" discover --json | grep -q '"shared-keeper"'
+}
+
+# Both prefixes carrying their own `ws/` tree is the direct evidence that the
+# config field reached the checkout. A run where `prefix` was ignored puts every
+# object at the branch root instead.
+#
+# Polled rather than read once. Nothing before this forces the beta peer to have
+# pushed anything: it has no exposures and answers no requests, so its first
+# write to the branch is its presence beacon, on its own schedule. Reading the
+# branch at a single instant passed standalone and failed inside the full tier,
+# where the machine is busier and that beacon lands later.
+both_prefixes_present() {
+  local paths
+  paths=$(git -C "$SREMOTE" ls-tree -r --name-only deaddrop-data 2>/dev/null | grep -v '^README.md$')
+  printf '%s\n' "$paths" | grep -q '^alpha/ws/' && printf '%s\n' "$paths" | grep -q '^beta/ws/'
+}
+
+branch_roots() {
+  git -C "$SREMOTE" ls-tree -r --name-only deaddrop-data 2>/dev/null \
+    | grep -v '^README.md$' | cut -d/ -f1 | sort -u | tr '\n' ' '
+}
+
+write_config "$GT/alpha-keeper" "shared-keeper" \
+  "$(prefixed_transport "$SREMOTE" "$GT/alpha-keeper-work" alpha)" \
+  "{ \"name\": \"site\", \"type\": \"static\", \"directory\": \"$STATIC\" }"
+write_config "$GT/alpha-reader" "shared-reader" \
+  "$(prefixed_transport "$SREMOTE" "$GT/alpha-reader-work" alpha)"
+write_config "$GT/beta-outsider" "shared-outsider" \
+  "$(prefixed_transport "$SREMOTE" "$GT/beta-outsider-work" beta)"
+
+AK_PID=$(start_peer "$GT/alpha-keeper" "$GT/alpha-keeper.log")
+AR_PID=$(start_peer "$GT/alpha-reader" "$GT/alpha-reader.log")
+BO_PID=$(start_peer "$GT/beta-outsider" "$GT/beta-outsider.log")
+
+ON_FAIL="$GT/alpha-keeper.log"
+can "start a peer whose objects live under a prefix" wait_up "$GT/alpha-keeper" "$AK_PID"
+ON_FAIL="$GT/beta-outsider.log"
+can "start another workspace on the same branch under a different prefix" \
+  wait_up "$GT/beta-outsider" "$BO_PID"
+ON_FAIL=""
+
+# This runs before the negative below on purpose. It establishes that beacons
+# are being published and are discoverable inside the polling window, so the
+# negative means "cannot see across the prefix" rather than "nothing has
+# happened yet", which is how a negative assertion passes vacuously.
+ON_FAIL="$GT/alpha-reader.log $GT/alpha-keeper.log"
+can "discover a peer sharing the prefix" wait_for 40 1 sees_keeper "$GT/alpha-reader"
+ON_FAIL=""
+
+ON_FAIL="$GT/alpha-reader.log $GT/alpha-keeper.log"
+can "run a request and response through a prefixed transport" \
+  fetches_content "$GT/alpha-reader" "alpha-connect.log" "shared-keeper/site"
+ON_FAIL=""
+
+can "keep each workspace's objects under its own prefix on the branch" \
+  wait_for 40 1 both_prefixes_present
+note "top-level entries on the shared branch: $(branch_roots)"
+
+# Same workspace name, same secret, same key layout. The prefix is the only
+# thing standing between these two peers.
+#
+# The assertion above is also this one's ordering guard, and it has to stay
+# above it. Beta having its own tree on the branch is what proves beta has
+# completed a full commit-and-push cycle there, so "sees nobody" means the
+# prefix held rather than that beta had not started participating yet.
+ON_FAIL="$GT/beta-outsider.log"
+cannot "see another workspace's peers across a prefix, on a branch you both write to" \
+  not sees_keeper "$GT/beta-outsider"
+ON_FAIL=""
+
+stop_peer "$AK_PID"
+stop_peer "$AR_PID"
+stop_peer "$BO_PID"
