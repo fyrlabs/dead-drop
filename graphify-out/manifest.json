@@ -150,14 +150,14 @@
     "semantic_hash": "39c12cd61b521db2fae220584ae0ec5f"
   },
   "package.json": {
-    "mtime": 1786821622.2675836,
-    "ast_hash": "2a849b14c04e69d51ee114a3982bc8d5",
-    "semantic_hash": "2a849b14c04e69d51ee114a3982bc8d5"
+    "mtime": 1786859692.1819513,
+    "ast_hash": "5d07ac5d14fefc31acef5f835ae73c03",
+    "semantic_hash": "5d07ac5d14fefc31acef5f835ae73c03"
   },
   "packages/dead-drop/package.json": {
-    "mtime": 1786771818.968045,
-    "ast_hash": "2347864e49755c20f132af7ffe6968a5",
-    "semantic_hash": "2347864e49755c20f132af7ffe6968a5"
+    "mtime": 1786859692.182086,
+    "ast_hash": "ed4fd97e7566bb63e6c1cea42c4a0734",
+    "semantic_hash": "ed4fd97e7566bb63e6c1cea42c4a0734"
   },
   "packages/dead-drop/src/cli/bin.ts": {
     "mtime": 1786408065.370514,
@@ -310,9 +310,9 @@
     "semantic_hash": "7149c8ea5e2c1b359802427bcea95faa"
   },
   "packages/dead-drop/src/runtime/identity-store.ts": {
-    "mtime": 1786858238.2433784,
-    "ast_hash": "086a39f40198b4c4b48e452ec43e0065",
-    "semantic_hash": "086a39f40198b4c4b48e452ec43e0065"
+    "mtime": 1786858863.6841698,
+    "ast_hash": "ebe2584b99fe6ff1e0c8d868625c58d3",
+    "semantic_hash": "ebe2584b99fe6ff1e0c8d868625c58d3"
   },
   "packages/dead-drop/src/runtime/index.ts": {
     "mtime": 1786408065.376004,
@@ -655,9 +655,9 @@
     "semantic_hash": "17f2be37ada4440bdd407139b467b209"
   },
   "CHANGELOG.md": {
-    "mtime": 1786858406.9727833,
-    "ast_hash": "1c462cb8f46bc7c18008488945f6d47e",
-    "semantic_hash": "1c462cb8f46bc7c18008488945f6d47e"
+    "mtime": 1786859695.4946573,
+    "ast_hash": "b490e3e46188e343e30767d7912514a2",
+    "semantic_hash": "b490e3e46188e343e30767d7912514a2"
   },
   "CLAUDE.md": {
     "mtime": 1786755038.5825655,
@@ -745,9 +745,9 @@
     "semantic_hash": "0f6fb2784ad991ef73e33488bb78bacb"
   },
   "docs/security-model.md": {
-    "mtime": 1786769946.3988504,
-    "ast_hash": "4b0e5d4c134cdac0659fbd6404902380",
-    "semantic_hash": "4b0e5d4c134cdac0659fbd6404902380"
+    "mtime": 1786858793.3551087,
+    "ast_hash": "3ed00fe8646673e7b36a5b727a80e693",
+    "semantic_hash": "3ed00fe8646673e7b36a5b727a80e693"
   },
   "docs/testing.md": {
     "mtime": 1786826370.0652208,
