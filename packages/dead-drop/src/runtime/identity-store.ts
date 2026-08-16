@@ -17,8 +17,8 @@
  * never leaves this file except as a `KeyObject`.
  */
 
-import { createPublicKey } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createPublicKey, randomBytes } from 'node:crypto';
+import { link, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 import {
@@ -33,10 +33,18 @@ import {
 /**
  * Loads the identity at `path`, creating it if this is the first start.
  *
- * `flag: 'wx'` plus a re-read on `EEXIST` rather than a check-then-write,
- * because two runtimes can start against one data directory and the loser of
- * that race must adopt the winner's key rather than overwrite it. Overwriting
- * would silently orphan every era key already wrapped for the old one.
+ * Write to a temp file, then `link()` it onto the target, rather than a
+ * check-then-write or a `flag: 'wx'` write. Two runtimes can start against one
+ * data directory and the loser of that race must adopt the winner's key rather
+ * than overwrite it: overwriting would silently orphan every era key already
+ * wrapped for the old one. `link` gives that the same `EEXIST` a `wx` write
+ * does, and unlike `wx` it publishes a file that is already complete.
+ *
+ * A `wx` write creates the file and fills it in two steps, so the loser could
+ * see the winner's entry between them and read zero bytes, which `read` below
+ * refuses as corrupt. Measured at roughly 1 in 3000 concurrent starts on macOS,
+ * and it shipped in 0.13.0. `rename` would be wrong here: it replaces the
+ * winner instead of losing to it.
  */
 export async function loadOrCreateIdentity(path: string): Promise<PeerIdentity> {
   const existing = await read(path);
@@ -44,8 +52,10 @@ export async function loadOrCreateIdentity(path: string): Promise<PeerIdentity> 
 
   const identity = generateIdentity();
   await mkdir(dirname(path), { recursive: true }).catch(() => undefined);
+  const temp = `${path}.${randomBytes(8).toString('hex')}.tmp`;
   try {
-    await writeFile(path, exportPrivateKey(identity.privateKey), { flag: 'wx', mode: 0o600 });
+    await writeFile(temp, exportPrivateKey(identity.privateKey), { flag: 'wx', mode: 0o600 });
+    await link(temp, path);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
       throw new DeadDropError('INTERNAL', `could not write the peer identity at ${path}`, {
@@ -57,6 +67,11 @@ export async function loadOrCreateIdentity(path: string): Promise<PeerIdentity> 
       throw new DeadDropError('INTERNAL', `peer identity at ${path} vanished while being created`);
     }
     return raced;
+  } finally {
+    // The link made a second name for the same inode; this drops the first one.
+    // If the process dies before this runs the temp file is inert: nothing reads
+    // the data directory by pattern, and the next start writes its own.
+    await unlink(temp).catch(() => undefined);
   }
   return identity;
 }

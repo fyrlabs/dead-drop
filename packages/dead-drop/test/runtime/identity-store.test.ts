@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -102,5 +102,19 @@ describe('loadOrCreateIdentity', () => {
     for (const result of results) {
       expect(result.publicKey).toEqual(onDisk.publicKey);
     }
+  });
+
+  it('leaves no temp file beside the identity, whether it won the race or lost it', async () => {
+    // The identity is published by linking a temp file onto the target, so the
+    // data directory would collect one `.tmp` per start if the unlink were
+    // dropped. Both outcomes are covered: three concurrent starts means one
+    // writer links its temp and two lose on EEXIST.
+    const dir = await workdir();
+    await Promise.all([
+      loadOrCreateIdentity(join(dir, 'demo.identity')),
+      loadOrCreateIdentity(join(dir, 'demo.identity')),
+      loadOrCreateIdentity(join(dir, 'demo.identity')),
+    ]);
+    expect(await readdir(dir)).toEqual(['demo.identity']);
   });
 });

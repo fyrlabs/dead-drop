@@ -8,6 +8,8 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ### Fixed
 
+- Starting two runtimes at the same moment against one data directory no longer fails with `stored identity is not a valid x25519 private key`. One of them could see the other's identity file after it was created and before it was written, and read nothing. It now waits for the finished file. Retrying was always enough to get past it, and nothing was lost when it happened.
+
 - `DEADDROP_PEER_ID` now does what it says. `ddrop init` ignored it and wrote the machine's hostname instead, and since the id in the file wins, exporting the variable and then running `init` left you with the hostname and no way for the variable to ever apply. Export it before `init` and that is the id you get. A config with no `peerId` in it already read the variable and still does.
 
 ## [0.13.0]
