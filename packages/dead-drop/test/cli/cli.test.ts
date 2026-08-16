@@ -172,6 +172,48 @@ describe('ddrop init', () => {
     expect(parseWorkspaceSecret(secret.trim())).toHaveLength(32);
   });
 
+  // DEADDROP_PEER_ID used to be read by the runtime and not by `init`. Since
+  // `init` always writes `peerId`, and the field wins over the variable, anyone
+  // who exported it and then ran `init` -- the order the docs imply -- got the
+  // hostname and no way for the variable to ever apply. The e2e tier covers this
+  // too, but only on Linux; this is what checks it on the Windows job.
+  it('writes the peer id from DEADDROP_PEER_ID when no --peer is given', async () => {
+    const dir = await temp();
+    const path = join(dir, 'deaddrop.config.json');
+    const previous = process.env.DEADDROP_PEER_ID;
+    process.env.DEADDROP_PEER_ID = 'from-the-environment';
+    try {
+      expect(await run(['init', '--config', path], capture())).toBe(0);
+      const written = JSON.parse(await readFile(path, 'utf8')) as {
+        workspaces: Array<{ peerId: string }>;
+      };
+      expect(written.workspaces[0]?.peerId).toBe('from-the-environment');
+    } finally {
+      if (previous === undefined) delete process.env.DEADDROP_PEER_ID;
+      else process.env.DEADDROP_PEER_ID = previous;
+    }
+  });
+
+  // `--peer` is the explicit choice and outranks the variable. Without this the
+  // test above would pass against a build where the variable won outright, which
+  // would silently rename a peer whose id was typed on the command line.
+  it('prefers --peer over DEADDROP_PEER_ID', async () => {
+    const dir = await temp();
+    const path = join(dir, 'deaddrop.config.json');
+    const previous = process.env.DEADDROP_PEER_ID;
+    process.env.DEADDROP_PEER_ID = 'from-the-environment';
+    try {
+      expect(await run(['init', '--config', path, '--peer', 'typed-in'], capture())).toBe(0);
+      const written = JSON.parse(await readFile(path, 'utf8')) as {
+        workspaces: Array<{ peerId: string }>;
+      };
+      expect(written.workspaces[0]?.peerId).toBe('typed-in');
+    } finally {
+      if (previous === undefined) delete process.env.DEADDROP_PEER_ID;
+      else process.env.DEADDROP_PEER_ID = previous;
+    }
+  });
+
   it('leaves the shared location as a placeholder that refuses to start', async () => {
     const dir = await temp();
     const path = join(dir, 'deaddrop.config.json');

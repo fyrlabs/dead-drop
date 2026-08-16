@@ -125,6 +125,40 @@ describe('git transport specifics', () => {
     expect(branches.stdout).not.toContain('* main');
   }, 60_000);
 
+  // `authorName` and `authorEmail` had no test of any kind and no e2e scenario
+  // set them, which is how a field ends up documented and inert. Read back off
+  // the remote rather than out of the local clone, because what a reader of the
+  // repository sees is the assertion, and asserting the local `git config`
+  // would pass against a transport that set the identity and never used it.
+  it('commits under the configured author, and its own name when none is given', async () => {
+    const remote = await bareRemote();
+    const named = await store(remote, {
+      authorName: 'Release Bot',
+      authorEmail: 'bot@example.com',
+    });
+    await named.put('inbox/peer-b/1.ddf', bytes('signed'));
+
+    const log = await execFileAsync('git', ['log', '-1', '--format=%an <%ae>', 'deaddrop-data'], {
+      cwd: remote,
+    });
+    expect(log.stdout.trim()).toBe('Release Bot <bot@example.com>');
+
+    // The default matters as much as the override: without one, git falls back
+    // to the machine's own `user.email`, and every object this transport writes
+    // would carry the operator's personal address into a repository their peers
+    // can read.
+    const plainRemote = await bareRemote();
+    const defaulted = await store(plainRemote);
+    await defaulted.put('inbox/peer-b/1.ddf', bytes('unsigned'));
+
+    const plainLog = await execFileAsync(
+      'git',
+      ['log', '-1', '--format=%an <%ae>', 'deaddrop-data'],
+      { cwd: plainRemote },
+    );
+    expect(plainLog.stdout.trim()).toBe('dead-drop Runtime <ddrop@localhost>');
+  }, 60_000);
+
   it('does not hijack a repository that encloses its workDir', async () => {
     // `git rev-parse --git-dir` succeeds from inside *any* enclosing repository,
     // so a workDir nested in the user's own project used to be read as this

@@ -145,3 +145,86 @@ missing_config_is_named() {
 }
 cannot "run a client command against a config file that does not exist" \
   missing_config_is_named
+
+# DEADDROP_PEER_ID, which was the one documented setting with no coverage of any
+# kind: no unit test named it, no scenario set it, and the coverage report marked
+# the line that reads it as never executed.
+#
+# It was also wrong. `ddrop init` chose the peer id from the hostname alone and
+# never looked at the variable, and the field `init` writes wins over the
+# variable -- so exporting it and then running `init`, which is the order anyone
+# would do it in, produced a config carrying the hostname and a variable that
+# could never take effect again. The docs said it overrides this machine's id.
+#
+# The assertions go through `discover` rather than reading back a reported
+# string, because a peer id is a mailbox address: a build that announced one
+# name while answering on another would pass every assertion made about its own
+# output, and pass no assertion made from the other side.
+ENVID="$WORK/envid"
+mkdir -p "$ENVID/shared"
+
+mkdir -p "$ENVID/init"
+( cd "$ENVID/init" && DEADDROP_PEER_ID=env-written $DDROP init --name envid --root ../shared >/dev/null 2>&1 )
+envid_written=$(json_get 'j.workspaces[0].peerId' < "$ENVID/init/deaddrop.config.json" 2>/dev/null)
+can "export DEADDROP_PEER_ID and have \`ddrop init\` write that id rather than the hostname" \
+  [ "$envid_written" = "env-written" ]
+
+# The two configs differ in exactly one line, which is the whole scenario: the
+# first omits `peerId` and takes the variable, the second states it and must
+# ignore the variable it is started with.
+envid_config() { # $1 = peer dir, $2 = peerId line, empty to omit it
+  mkdir -p "$1"
+  cat > "$1/deaddrop.config.json" <<JSON
+{
+  "dataDir": "$1/.deaddrop",
+  "logLevel": "info",
+  "workspaces": [
+    {
+      "name": "envid",
+      $2
+      "secrets": ["\${env:DEADDROP_SECRET}"],
+      "transports": [$(fs_transport "$ENVID/shared")]
+    }
+  ]
+}
+JSON
+}
+envid_config "$ENVID/fallback" ''
+envid_config "$ENVID/explicit" '"peerId": "env-explicit",'
+
+# Exported around the two starts and unset immediately: every later scenario in
+# this tier runs in the same shell, and a stray peer id would rename their peers.
+export DEADDROP_PEER_ID=env-fallback
+ENVID_FALLBACK_PID=$(start_peer "$ENVID/fallback" "$ENVID/fallback.log")
+export DEADDROP_PEER_ID=env-ignored
+ENVID_EXPLICIT_PID=$(start_peer "$ENVID/explicit" "$ENVID/explicit.log")
+unset DEADDROP_PEER_ID
+
+ON_FAIL="$ENVID/fallback.log"
+envid_fallback_answers() {
+  wait_up "$ENVID/fallback" "$ENVID_FALLBACK_PID" || return 1
+  wait_up "$ENVID/explicit" "$ENVID_EXPLICIT_PID" || return 1
+  wait_for 40 1 eval 'dd "$ENVID/explicit" discover --json | grep -q env-fallback'
+}
+can "omit \`peerId\` and have the runtime answer on the id DEADDROP_PEER_ID names" \
+  envid_fallback_answers
+ON_FAIL=""
+
+ON_FAIL="$ENVID/explicit.log"
+envid_explicit_answers() {
+  wait_for 40 1 eval 'dd "$ENVID/fallback" discover --json | grep -q env-explicit'
+}
+can "keep answering on the \`peerId\` in the file when the variable says otherwise" \
+  envid_explicit_answers
+ON_FAIL=""
+
+# The negative that makes the assertion above mean something. Without it, a build
+# that ignored the variable entirely would still pass every check so far.
+envid_variable_lost_to_the_field() {
+  not eval 'dd "$ENVID/fallback" discover --json | grep -q env-ignored'
+}
+cannot "have DEADDROP_PEER_ID rename a peer whose config already states its id" \
+  envid_variable_lost_to_the_field
+
+stop_peer "$ENVID_FALLBACK_PID"
+stop_peer "$ENVID_EXPLICIT_PID"

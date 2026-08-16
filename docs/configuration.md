@@ -42,7 +42,7 @@ A Unix socket path cannot exceed 104 bytes. When `<dataDir>/deaddrop.sock` would
 | `name` | string | **yes** | | Identifies the workspace across all peers. Must match on every machine. |
 | `secrets` | string[] | **yes** | | At least one. The first encrypts; the rest still decrypt, which is what makes rotation possible without downtime. Generate with `ddrop keygen`. |
 | `transports` | array | **yes** | | At least one. See below. |
-| `peerId` | string | no | `DEADDROP_PEER_ID`, else the machine's hostname (`ddrop init` writes it explicitly) | This machine's address within the workspace. Set it explicitly if hostnames are not stable: changing a peer id strands messages already addressed to the old one. This field wins over the environment variable, which only supplies the default. |
+| `peerId` | string | no | `DEADDROP_PEER_ID`, else the machine's hostname | This machine's address within the workspace. Set it explicitly if hostnames are not stable: changing a peer id strands messages already addressed to the old one. This field wins over the environment variable, which only supplies the default. See below, because `ddrop init` writes the field for you. |
 | `policy` | object | no | score-based | Transport selection. See below. |
 | `exposures` | array | no | none | Local applications made reachable to peers. See below. |
 | `subscribe` | string[] | no | none | Broadcast channels joined at start-up. |
@@ -55,6 +55,14 @@ A Unix socket path cannot exceed 104 bytes. When `<dataDir>/deaddrop.sock` would
 | `inboxOrphanMs` | number | no | `604800000` | How long mail for an absent peer survives before any peer may delete it. `0` turns reaping off. See below. |
 | `concurrency` | number | no | `1` | How many inbound messages this workspace handles at once. Must be a whole number of at least 1. See below. |
 | `enrollment` | object | no | | `requireApproval` (default `false`), a boolean. See below. |
+
+### `peerId`
+
+`ddrop init` writes this field explicitly rather than leaving it to the default, so the address a machine answers on is visible in the file instead of resolved invisibly at start-up. That is also why exporting `DEADDROP_PEER_ID` after running `init` does nothing: the field is already there and the field wins. Pass `ddrop init --peer <id>`, or edit the file, or delete the field to fall back to the variable.
+
+`init` reads the variable when it chooses what to write, so exporting it *before* `init` gives the value you meant.
+
+The two fallbacks differ in one detail on a machine whose hostname carries a domain. `init` writes the first label only, so `host.local` becomes `host`; a config with no `peerId` at all falls back to the whole hostname, `host.local`. It is only reachable by hand-writing a config that omits the field, and it is left as it is because changing either one would move the mailbox address of a peer already using it, which strands mail addressed to the old one.
 
 ### `enrollment`
 
@@ -294,7 +302,7 @@ It is a guardrail, not a security boundary. Every peer holding the workspace sec
 
 | Variable | Effect |
 | --- | --- |
-| `DEADDROP_PEER_ID` | Overrides this machine's peer id. |
+| `DEADDROP_PEER_ID` | Supplies this machine's peer id where the config does not. `ddrop init` reads it when choosing what to write, and a config with no `peerId` falls back to it at start-up. A `peerId` already in the file wins, so exporting this after `init` changes nothing until you remove the field. |
 | `DEADDROP_SECRET` | Nothing on its own. It is a conventional name to reference from the config as `${env:DEADDROP_SECRET}` when you keep the secret in the environment or a secret manager. `ddrop init` writes `${file:.deaddrop/secret}` instead, so a fresh install needs nothing exported. |
 
 Any variable can be referenced from the config with `${env:NAME}`, and any file with `${file:PATH}`; those two variables are the only ones the runtime reads by name.

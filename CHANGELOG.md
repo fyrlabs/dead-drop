@@ -6,6 +6,10 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+### Fixed
+
+- `DEADDROP_PEER_ID` now does what it says. `ddrop init` ignored it and wrote the machine's hostname instead, and since the id in the file wins, exporting the variable and then running `init` left you with the hostname and no way for the variable to ever apply. Export it before `init` and that is the id you get. A config with no `peerId` in it already read the variable and still does.
+
 ## [0.13.0]
 
 ### Added

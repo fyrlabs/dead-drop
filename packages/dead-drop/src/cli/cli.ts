@@ -411,13 +411,29 @@ async function resolveInitSecret(values: Values, io: CliIo): Promise<string> {
 }
 
 /**
- * The hostname, which is right for the ordinary case of one runtime per machine
- * and wrong for two on one box -- so it is written into the file where it can be
- * seen and changed, rather than defaulted invisibly at load time.
+ * `DEADDROP_PEER_ID` if it is set, otherwise the hostname, which is right for
+ * the ordinary case of one runtime per machine and wrong for two on one box --
+ * so it is written into the file where it can be seen and changed, rather than
+ * defaulted invisibly at load time.
+ *
+ * The environment variable has to be read here as well as in the runtime. It is
+ * documented as overriding this machine's peer id, and `init` always writes the
+ * field, which wins over the variable -- so a machine that exported it and then
+ * ran `init` used to get the hostname and never see the variable take effect
+ * again. The runtime's own fallback keeps the full hostname where this one drops
+ * the domain; that difference only shows up in a hand-written config that omits
+ * the field, and is left alone because changing it would move the mailbox
+ * address of a peer already using it.
  */
 function defaultPeerId(): string {
-  const raw = hostname().split('.')[0] ?? 'peer';
-  const cleaned = raw.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 60);
+  const raw = process.env.DEADDROP_PEER_ID ?? hostname().split('.')[0] ?? 'peer';
+  // Leading punctuation is stripped as well as replaced: a peer id must start
+  // alphanumeric, and writing one that does not would put a config on disk that
+  // the loader refuses, blaming a field the user never typed.
+  const cleaned = raw
+    .replace(/[^A-Za-z0-9._-]/g, '-')
+    .replace(/^[^A-Za-z0-9]+/, '')
+    .slice(0, 60);
   return cleaned.length > 0 ? cleaned : 'peer';
 }
 
