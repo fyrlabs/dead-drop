@@ -6,6 +6,8 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+## [0.14.0]
+
 ### Fixed
 
 - Starting two runtimes at the same moment against one data directory no longer fails with `stored identity is not a valid x25519 private key`. One of them could see the other's identity file after it was created and before it was written, and read nothing. It now waits for the finished file. Retrying was always enough to get past it, and nothing was lost when it happened.

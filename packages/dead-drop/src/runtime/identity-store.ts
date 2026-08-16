@@ -42,9 +42,17 @@ import {
  *
  * A `wx` write creates the file and fills it in two steps, so the loser could
  * see the winner's entry between them and read zero bytes, which `read` below
- * refuses as corrupt. Measured at roughly 1 in 3000 concurrent starts on macOS,
- * and it shipped in 0.13.0. `rename` would be wrong here: it replaces the
- * winner instead of losing to it.
+ * refuses as corrupt. That shipped in 0.13.0, and it failed 18 of 150 rounds of
+ * four simultaneous first starts on macOS: not a rare flake between processes,
+ * however hard it is to hit inside one. `rename` would be wrong here: it
+ * replaces the winner instead of losing to it.
+ *
+ * The temp write keeps `wx` only so a name collision cannot be silent; the
+ * random suffix means it never fires.
+ *
+ * A filesystem without hard links (FAT, exFAT) fails here where the old write
+ * would have worked. That is accepted rather than handled: such a volume cannot
+ * hold the 0600 this file needs either.
  */
 export async function loadOrCreateIdentity(path: string): Promise<PeerIdentity> {
   const existing = await read(path);

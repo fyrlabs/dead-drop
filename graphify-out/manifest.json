@@ -310,9 +310,9 @@
     "semantic_hash": "7149c8ea5e2c1b359802427bcea95faa"
   },
   "packages/dead-drop/src/runtime/identity-store.ts": {
-    "mtime": 1786413886.8312783,
-    "ast_hash": "5082194ab373672ee9466496b3f494d9",
-    "semantic_hash": "5082194ab373672ee9466496b3f494d9"
+    "mtime": 1786858238.2433784,
+    "ast_hash": "086a39f40198b4c4b48e452ec43e0065",
+    "semantic_hash": "086a39f40198b4c4b48e452ec43e0065"
   },
   "packages/dead-drop/src/runtime/index.ts": {
     "mtime": 1786408065.376004,
@@ -500,9 +500,9 @@
     "semantic_hash": "1a25b24c0188ee083b8b817111ba8c4f"
   },
   "packages/dead-drop/test/runtime/identity-store.test.ts": {
-    "mtime": 1786752169.955748,
-    "ast_hash": "13921a00848a8f1b937c6da02e0fc214",
-    "semantic_hash": "13921a00848a8f1b937c6da02e0fc214"
+    "mtime": 1786858224.236991,
+    "ast_hash": "07f0a709d843ed577de772bf7e381909",
+    "semantic_hash": "07f0a709d843ed577de772bf7e381909"
   },
   "packages/dead-drop/test/runtime/workspace.test.ts": {
     "mtime": 1786755153.6913567,
@@ -655,9 +655,9 @@
     "semantic_hash": "17f2be37ada4440bdd407139b467b209"
   },
   "CHANGELOG.md": {
-    "mtime": 1786851828.4199874,
-    "ast_hash": "7269bfe1d9bbeccbe3510e569b3aab15",
-    "semantic_hash": "7269bfe1d9bbeccbe3510e569b3aab15"
+    "mtime": 1786858406.9727833,
+    "ast_hash": "1c462cb8f46bc7c18008488945f6d47e",
+    "semantic_hash": "1c462cb8f46bc7c18008488945f6d47e"
   },
   "CLAUDE.md": {
     "mtime": 1786755038.5825655,
