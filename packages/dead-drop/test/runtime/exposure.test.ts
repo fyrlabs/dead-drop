@@ -8,7 +8,10 @@ import type { ExposureConfig } from '#dead-drop/runtime/config.js';
 import type { Workspace } from '#dead-drop/runtime/workspace.js';
 import { createLogger } from '#dead-drop/core/observability/logger.js';
 
-type Handler = (payload: Uint8Array, context: { identity: string; from: string }) => Promise<Uint8Array>;
+type Handler = (
+  payload: Uint8Array,
+  context: { identity: string; from: string },
+) => Promise<Uint8Array>;
 
 /** Just enough workspace to capture the handler `registerExposure` installs. */
 function stubWorkspace(): { workspace: Workspace; handler: () => Handler } {
@@ -35,12 +38,14 @@ async function proxy(
   request = { method: 'GET', path: '/', headers: {}, body: new Uint8Array(0) },
 ) {
   const { workspace, handler } = stubWorkspace();
-  registerExposure(
-    workspace,
-    { name: 'web', type: 'http', ...config } as ExposureConfig,
-    { logger: createLogger({ level: 'silent' }), fetchImpl },
-  );
-  const payload = await handler()(encodeHttpRequest(request), { identity: 'peer-b', from: 'peer-b' });
+  registerExposure(workspace, { name: 'web', type: 'http', ...config } as ExposureConfig, {
+    logger: createLogger({ level: 'silent' }),
+    fetchImpl,
+  });
+  const payload = await handler()(encodeHttpRequest(request), {
+    identity: 'peer-b',
+    from: 'peer-b',
+  });
   return decodeHttpResponse(payload);
 }
 
