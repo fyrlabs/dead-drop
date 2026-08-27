@@ -103,6 +103,38 @@ It needs no network: the page and the one library it uses ship inside the packag
 
 Each poll costs one listing per store transport, which on `git` and `github` means a fetch. The page polls every five seconds and stops while its tab is hidden.
 
+## Proxy latency on a polled transport
+
+`ddrop connect` over `git` or `github` costs seconds per request, and almost none of it is GitHub. Neither transport can watch (`watch: false`), so a message is found by polling, and two settings decide how late that is. They are documented apart from each other and only make sense together.
+
+Measured against a local bare repository, so the network contributes nothing and what is left is the settings:
+
+| Configuration | Warm request | After 40 seconds idle |
+| --- | --- | --- |
+| Defaults | 4.9s | 14.3s |
+| `polling.maxIntervalMs: 2000` on the peer holding the exposure | 4.7s | 10.2s |
+| and the transport's `freshnessMs: 1000` on both peers | 1.2s | 1.3s |
+
+`polling.maxIntervalMs` is the ceiling the mailbox backs off to while nothing arrives. A peer waiting on a reply already holds itself at the minimum, so this ceiling is what the *answering* peer pays before it notices a request. Lower it on a peer that hosts an exposure, which exists to be asked.
+
+`freshnessMs` is the gate in front of the git fetch itself, and it dominates: a poll inside the window reads the last known state and does no network at all. With the 5000 default, each direction waits up to five seconds, which is where a ten-second floor comes from no matter how fast the poll runs.
+
+Both cost traffic, forever, in exchange:
+
+```json
+"polling": { "minIntervalMs": 250, "maxIntervalMs": 2000 },
+"transports": [
+  { "use": "github",
+    "config": { "repo": "acme/deaddrop-data", "workDir": "./.deaddrop/gh", "freshnessMs": 2000 } }
+]
+```
+
+`freshnessMs: 2000` is the recommendation for GitHub rather than the 1000 in the table. One fetch per second per peer against a shared remote is rude, and the default is 5000 because it has to be safe for a peer nobody turns off for a month. Watch `deaddrop_transport_rate_limit_remaining` after lowering either.
+
+Raise `presenceIntervalMs` at the same time. Every peer publishes a beacon on that interval and on a git transport each one is a commit and a push, so two idle peers at the 30000 default write a few thousand commits a day for nothing.
+
+None of this touches the two costs that are not settings: the request body still crosses the transport twice, and a browser's first page load is several serialised round trips.
+
 ## Metrics
 
 `ddrop metrics` emits Prometheus text. The ones worth alerting on:
