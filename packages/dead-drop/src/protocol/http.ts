@@ -102,7 +102,14 @@ export function sanitiseHeaders(
   return out;
 }
 
-function encodePart(head: unknown, body: Uint8Array): Uint8Array {
+/**
+ * `u32be(headLen) || headJson || bodyBytes`.
+ *
+ * Exported because `stream.ts` frames its parts the same way and for the same
+ * reason: a chunk of a response body should not cost a third more on the wire
+ * for having been base64'd into a JSON field.
+ */
+export function encodePart(head: unknown, body: Uint8Array): Uint8Array {
   const json = Buffer.from(JSON.stringify(head), 'utf8');
   const out = Buffer.allocUnsafe(4 + json.length + body.length);
   out.writeUInt32BE(json.length, 0);
@@ -111,7 +118,11 @@ function encodePart(head: unknown, body: Uint8Array): Uint8Array {
   return out;
 }
 
-function decodePart(payload: Uint8Array): { head: Record<string, unknown>; body: Uint8Array } {
+/** Inverse of `encodePart`. Rejects a length prefix that does not fit the buffer. */
+export function decodePart(payload: Uint8Array): {
+  head: Record<string, unknown>;
+  body: Uint8Array;
+} {
   const buf = Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength);
   if (buf.length < 4) throw new DeadDropError('DECODE_FAILED', 'truncated http message');
   const headLen = buf.readUInt32BE(0);
