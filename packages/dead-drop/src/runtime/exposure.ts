@@ -103,6 +103,16 @@ function httpProxyHandler(
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return async (request) => {
+    // Ask the target for identity, whatever the browser asked us for. `fetch`
+    // decodes a compressed response before `arrayBuffer` sees it but leaves
+    // `content-encoding` on the headers, so proxying both through means a
+    // browser is handed plaintext labelled gzip and fails the page with
+    // ERR_CONTENT_DECODING_FAILED. Nothing is lost on the wire: `frame.ts`
+    // already gzips any payload over 1 KiB where that shrinks it, so the bytes
+    // are compressed for the hop that is actually slow.
+    const headers = toFetchHeaders(request.headers);
+    headers.set('accept-encoding', 'identity');
+
     // Build the upstream URL from the origin plus the requested path. Using the
     // URL constructor with the path as-is means a path like `//evil.com` cannot
     // redirect the request to another host.
@@ -119,7 +129,7 @@ function httpProxyHandler(
     try {
       const upstream = await fetchImpl(url, {
         method: request.method,
-        headers: toFetchHeaders(request.headers),
+        headers,
         ...(request.body.length > 0 ? { body: Buffer.from(request.body) } : {}),
         signal: controller.signal,
         redirect: 'manual',
@@ -132,7 +142,7 @@ function httpProxyHandler(
       return {
         status: upstream.status,
         statusText: upstream.statusText,
-        headers: sanitiseHeaders(Object.fromEntries(upstream.headers.entries())),
+        headers: withoutContentEncoding(Object.fromEntries(upstream.headers.entries())),
         body: buffer,
       };
     } catch (error) {
@@ -249,6 +259,25 @@ function joinPath(base: string, path: string): string {
   const left = base.endsWith('/') ? base.slice(0, -1) : base;
   const right = path.startsWith('/') ? path : `/${path}`;
   return `${left}${right}` || '/';
+}
+
+/**
+ * Response headers with `content-encoding` dropped, on top of the usual
+ * hop-by-hop strip.
+ *
+ * A belt to the `accept-encoding: identity` braces above: a target that
+ * compresses anyway, or serves a pre-compressed asset regardless of what was
+ * asked for, would still hand back a header describing an encoding that `fetch`
+ * has already undone. This is deliberately not folded into `sanitiseHeaders`,
+ * which also runs over *requests* in `connect.ts`, where a client's gzipped
+ * body makes `content-encoding` true and load-bearing.
+ */
+function withoutContentEncoding(
+  headers: Record<string, string | string[] | number | undefined>,
+): Record<string, string | string[]> {
+  const out = sanitiseHeaders(headers);
+  delete out['content-encoding'];
+  return out;
 }
 
 function toFetchHeaders(headers: Record<string, string | string[]>): Headers {
