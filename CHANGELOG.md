@@ -6,6 +6,18 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+## [0.15.0]
+
+### Fixed
+
+- A website proxied with `ddrop expose --target` now renders in a browser. If the app compressed its responses, which most do when asked, the page failed with `ERR_CONTENT_DECODING_FAILED`: dead-drop handed over the decompressed bytes still labelled `content-encoding: gzip`. It now asks the target not to compress, and drops the header if one arrives anyway. Nothing grows on the wire, because frames were already compressed a layer down.
+
+### Changed
+
+- A proxied request over `git` or `github` is several times faster. A peer waiting for a reply used to back off its polling to 15 seconds as though nothing were happening, so a request was sent and then slept on. Measured against a local git remote: 18s per request before, 5s after, and 1.2s with `polling.maxIntervalMs` and the transport's `freshnessMs` lowered to match. A peer with nothing outstanding backs off exactly as it did, so a quiet workspace costs no more than before.
+
+- [Operations](docs/operations.md) now explains what makes a proxied request slow and which two settings change it, with measured numbers for each combination.
+
 ## [0.14.0]
 
 ### Fixed
