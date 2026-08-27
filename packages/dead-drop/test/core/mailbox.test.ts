@@ -636,3 +636,43 @@ describe('mailbox keys', () => {
     expect(messageIdFromKey('ws/demo/inbox/peer-b/.ddf')).toBeUndefined();
   });
 });
+
+describe('poll interval while a reply is outstanding', () => {
+  it('holds the poll at its minimum until the last handle is released', async () => {
+    const context = await fixture();
+
+    // Two overlapping requests, as six parallel browser connections would be.
+    const releaseFirst = context.mailbox.expectReply();
+    const releaseSecond = context.mailbox.expectReply();
+    expect(context.mailbox.stats().pollIntervalMs).toBe(250);
+
+    releaseFirst();
+    await context.mailbox.pollOnce();
+    // One request is still outstanding, so nothing may back off yet.
+    expect(context.mailbox.stats().pollIntervalMs).toBe(250);
+
+    releaseSecond();
+    // Releasing a handle twice must not drive the count below zero and pin the
+    // poll on for the life of the process.
+    releaseSecond();
+    releaseFirst();
+    await context.stop();
+  });
+
+  it('backs off on an idle poll once nothing is expected', async () => {
+    const context = await fixture();
+    await context.start();
+    try {
+      const release = context.mailbox.expectReply();
+      expect(context.mailbox.stats().pollIntervalMs).toBe(250);
+      release();
+
+      // Two empty cycles with no handle held: the backoff is free to climb,
+      // which is what keeps a quiet peer off a rate-limited transport.
+      await context.clock.advance(60_000);
+      expect(context.mailbox.stats().pollIntervalMs).toBeGreaterThan(250);
+    } finally {
+      await context.stop();
+    }
+  });
+});

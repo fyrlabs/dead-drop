@@ -707,6 +707,10 @@ export class Workspace {
       ? AbortSignal.any([options.signal, deadline.signal])
       : deadline.signal;
 
+    // Taken before the send, not after: the reply can land while `mailbox.send`
+    // is still pushing, and a poll that has already backed off would sit on it.
+    const stopExpecting = this.mailbox.expectReply();
+
     try {
       const trace = traceContext(span);
       try {
@@ -732,6 +736,7 @@ export class Workspace {
       span?.end(deadDropError.code === 'CANCELLED' ? 'cancelled' : 'error');
       throw deadDropError;
     } finally {
+      stopExpecting();
       cancelDeadline();
       this.metrics.inflightRequests.add(-1, { workspace: this.name });
     }

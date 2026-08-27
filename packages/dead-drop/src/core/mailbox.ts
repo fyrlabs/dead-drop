@@ -165,6 +165,7 @@ export class MailboxEngine {
   private wake: (() => void) | undefined;
   private inflight = 0;
   private lastReapAt = 0;
+  private awaitingReplies = 0;
 
   constructor(options: MailboxOptions) {
     this.workspace = options.workspace;
@@ -367,8 +368,14 @@ export class MailboxEngine {
       }
       // Speed up while traffic flows, back off when idle. Polling a rate-limited
       // API every 250ms forever is how a transport gets throttled.
+      //
+      // An outstanding request counts as traffic even though nothing arrived
+      // yet, because a reply is known to be coming and the backoff is what
+      // decides how late it is noticed. Without this a `ddrop connect` proxy
+      // that had been quiet paid the full idle interval on every request: it
+      // sent, then slept 15s before looking, on a transport that cannot watch.
       this.pollIntervalMs =
-        delivered > 0
+        delivered > 0 || this.awaitingReplies > 0
           ? this.minPollIntervalMs
           : Math.min(
               this.maxPollIntervalMs,
@@ -393,6 +400,27 @@ export class MailboxEngine {
       const cancel = this.clock.setTimeout(this.pollIntervalMs, finish);
       this.wake = finish;
     });
+  }
+
+  /**
+   * Declares that a reply is expected, and holds the poll at its minimum
+   * interval until the returned function is called.
+   *
+   * Idempotent per handle and safe to call before `start`, so a caller can pair
+   * it with a request in a `finally` without checking whether the loop is
+   * running. The count is what makes it safe under concurrency: six parallel
+   * requests take six handles, and the backoff resumes when the last one is
+   * released rather than the first.
+   */
+  expectReply(): () => void {
+    this.awaitingReplies += 1;
+    this.nudge();
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.awaitingReplies -= 1;
+    };
   }
 
   /** Interrupts the poll delay, e.g. because a transport watcher fired. */
