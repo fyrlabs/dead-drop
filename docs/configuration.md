@@ -291,8 +291,32 @@ An exposure makes a local application reachable to peers. Peers reach it with `d
 | `directory` | string | for `static` | | Directory to serve. Paths are clamped inside it, so no request can escape the root. |
 | `allowPeers` | string[] | no | every workspace member | Peer ids allowed to call this exposure, written exactly as they appear in each caller's `peerId`. |
 | `timeoutMs` | number | no | `30000` | Per-request timeout. Must be positive. |
+| `streaming` | object | no | off | Streams response bodies instead of buffering them. See below. |
 
 Static exposures serve `GET` and `HEAD` only, fall back to `index.html` for a directory, and refuse files larger than 32 MiB.
+
+### Streaming a response body
+
+An `http` exposure buffers each response whole before replying, which caps a body at 32 MiB and makes a response that never ends impossible: server-sent events hang until `timeoutMs` and come back as 504. Turning `streaming` on sends the head first and the body after it, in numbered parts the caller reassembles.
+
+```json
+{
+  "name": "api",
+  "type": "http",
+  "target": "http://localhost:3000",
+  "streaming": { "enabled": true, "thresholdBytes": 1048576, "maxDurationMs": 3600000 }
+}
+```
+
+| Field | Type | Required | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `enabled` | boolean | **yes** | | Off unless set. Leave `streaming` out entirely and the exposure behaves exactly as it always has. |
+| `thresholdBytes` | number | no | `1048576` | Smallest declared body that is streamed rather than buffered. Must be positive. |
+| `maxDurationMs` | number | no | `3600000` | Ceiling on one stream, and the time to live on its parts. Must be positive. |
+
+A response is streamed when it declares no `content-length`, when that length is at least `thresholdBytes`, or when it is `text/event-stream`. Everything else is buffered, so switching this on does not change small responses.
+
+Two things worth knowing. **The caller has to understand streams too**: a request carries a stream id the exposure replies on, and a caller too old to send one is always answered with a buffered body, so a mixed-version workspace degrades rather than breaking. And **`timeoutMs` stops applying once a body is streaming**, because bounding an open event stream by the request timeout would defeat the point. `maxDurationMs` is what bounds it instead. A caller that stops reading tells the exposure to stop, which also closes its connection to your local server.
 
 `allowPeers` matches the caller's configured `peerId`, not the address its replies go to. Those differ for a `ddrop connect` client: it runs a runtime of its own and takes a per-process mailbox address so it never polls the same inbox as an already-running peer sharing the config file. Write the list against the `peerId` in the caller's config and it matches either way.
 

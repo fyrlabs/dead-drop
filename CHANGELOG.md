@@ -6,6 +6,10 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+### Added
+
+- An exposure can stream a response body instead of buffering it whole. Server-sent events and anything else that never ends now work, and a large file no longer has to fit in memory on both peers. Turn it on per exposure with `"streaming": { "enabled": true }`; leave it out and nothing changes. A caller that stops reading stops the sender, so closing a tab does not leave a body being pushed to nobody. See [configuration](docs/configuration.md).
+
 ## [0.15.0]
 
 ### Fixed
