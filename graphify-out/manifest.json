@@ -290,14 +290,14 @@
     "semantic_hash": "2b153d788c4f56e320a3dceedae24d00"
   },
   "packages/dead-drop/src/runtime/config.ts": {
-    "mtime": 1787889240.306328,
-    "ast_hash": "a55c9a7340cbff0c994a879204c86945",
-    "semantic_hash": "a55c9a7340cbff0c994a879204c86945"
+    "mtime": 1787890694.1130505,
+    "ast_hash": "f4ae413a3be27a4952af8e28efe7c4e8",
+    "semantic_hash": "f4ae413a3be27a4952af8e28efe7c4e8"
   },
   "packages/dead-drop/src/runtime/connect.ts": {
-    "mtime": 1787889964.6731668,
-    "ast_hash": "08d4d9e831d1d1469b5f4f806fe65745",
-    "semantic_hash": "08d4d9e831d1d1469b5f4f806fe65745"
+    "mtime": 1787890731.1026673,
+    "ast_hash": "b494a6b31aa628cc2447675918bd5195",
+    "semantic_hash": "b494a6b31aa628cc2447675918bd5195"
   },
   "packages/dead-drop/src/runtime/control-plane.ts": {
     "mtime": 1786755122.8675761,
@@ -305,9 +305,9 @@
     "semantic_hash": "aa97ddec02f0c72ef07f0fdaf758ff8f"
   },
   "packages/dead-drop/src/runtime/exposure.ts": {
-    "mtime": 1787889329.3566232,
-    "ast_hash": "affa5dbbdb16f90e90bccd5d0411f13a",
-    "semantic_hash": "affa5dbbdb16f90e90bccd5d0411f13a"
+    "mtime": 1787891071.1091132,
+    "ast_hash": "55b9c7befb1452dd6124b93e7af10f87",
+    "semantic_hash": "55b9c7befb1452dd6124b93e7af10f87"
   },
   "packages/dead-drop/src/runtime/identity-store.ts": {
     "mtime": 1786858863.6841698,
@@ -830,9 +830,9 @@
     "semantic_hash": "f1e57defcb2b97e53e3cb19ce29e3f82"
   },
   "packages/dead-drop/src/protocol/stream.ts": {
-    "mtime": 1787889221.1382205,
-    "ast_hash": "eb7d47bd44e65e7aaea06da6cf059ec9",
-    "semantic_hash": "eb7d47bd44e65e7aaea06da6cf059ec9"
+    "mtime": 1787890617.4840155,
+    "ast_hash": "9aef4c5592f70c0dadb043bd6fa053f2",
+    "semantic_hash": "9aef4c5592f70c0dadb043bd6fa053f2"
   },
   "packages/dead-drop/src/runtime/stream-reader.ts": {
     "mtime": 1787807271.1804328,
@@ -850,13 +850,13 @@
     "semantic_hash": "cb6614e43e3d852525404ab551dd6792"
   },
   "packages/dead-drop/test/runtime/exposure-stream.test.ts": {
-    "mtime": 1787889426.755139,
-    "ast_hash": "abe7d7f17f4bd8623fa8985637406004",
-    "semantic_hash": "abe7d7f17f4bd8623fa8985637406004"
+    "mtime": 1787891058.318523,
+    "ast_hash": "0f846cc6c68d82f3588d573ab1a5bd73",
+    "semantic_hash": "0f846cc6c68d82f3588d573ab1a5bd73"
   },
   "packages/dead-drop/test/runtime/connect-stream.test.ts": {
-    "mtime": 1787890040.8682554,
-    "ast_hash": "78a94b37dc1bb78f64fc28fe96bb5d04",
-    "semantic_hash": "78a94b37dc1bb78f64fc28fe96bb5d04"
+    "mtime": 1787891015.2682986,
+    "ast_hash": "5cf52d4fb74d214c7c010f33f635075d",
+    "semantic_hash": "5cf52d4fb74d214c7c010f33f635075d"
   }
 }
