@@ -5,6 +5,7 @@ import {
   HTTP_STREAM_OFFER_HEADER,
   encodeHttpStreamHead,
   encodeHttpStreamPart,
+  httpStreamCancelChannel,
   httpStreamChannel,
   type HttpStreamPart,
 } from '#dead-drop/protocol/stream.js';
@@ -25,6 +26,8 @@ type EventHandler = (payload: Uint8Array, context: unknown) => void;
  */
 function stubWorkspace(reply: (streamId: string | undefined) => Uint8Array) {
   const subscriptions = new Map<string, Set<EventHandler>>();
+  /** Every one-way message sent back to the exposure, which is only ever a cancel. */
+  const cancels: Array<{ target: string; channel: string }> = [];
   let offered: string | undefined;
 
   const workspace = {
@@ -39,6 +42,10 @@ function stubWorkspace(reply: (streamId: string | undefined) => Uint8Array) {
         handlers.delete(handler);
         if (handlers.size === 0) subscriptions.delete(channel);
       };
+    },
+    async sendTo(target: string, channel: string) {
+      cancels.push({ target, channel });
+      return 'msg_stub';
     },
     async request(_target: string, _channel: string, payload: Uint8Array) {
       const request = decodeHttpRequest(payload);
@@ -59,6 +66,7 @@ function stubWorkspace(reply: (streamId: string | undefined) => Uint8Array) {
     workspace,
     subscriptions,
     post,
+    cancels,
     streamId: () => offered,
     /** True while the connect server is still listening for parts. */
     listening: () => (offered ? subscriptions.has(httpStreamChannel(offered)) : false),
@@ -205,6 +213,57 @@ describe('receiving a streamed response', () => {
     // An event stream ends by the reader going away. That has to release the
     // subscription, or every closed tab leaks one.
     await until(() => !stub.listening(), 'the subscription to be released');
+  });
+});
+
+describe('telling the sender to stop', () => {
+  it('sends a cancel when the local client hangs up', async () => {
+    const stub = stubWorkspace(streamHead);
+    const handle = await start(stub.workspace);
+
+    const aborter = new AbortController();
+    const response = fetch(`${handle.url}/`, { signal: aborter.signal });
+    await until(() => stub.listening(), 'the stream subscription');
+    stub.post(chunk(0, 'started'));
+    const settled = await response;
+
+    aborter.abort();
+    await expect(settled.text()).rejects.toThrow();
+
+    await until(() => stub.cancels.length > 0, 'the cancel to be sent');
+    expect(stub.cancels[0]).toEqual({
+      target: 'peer-a',
+      channel: httpStreamCancelChannel(stub.streamId() ?? ''),
+    });
+  });
+
+  it('sends a cancel when the stream stalls', async () => {
+    const clock = new TestClock(1000);
+    const stub = stubWorkspace(streamHead);
+    const handle = await start(stub.workspace, clock, 400);
+
+    const response = fetch(`${handle.url}/`);
+    await until(() => stub.listening(), 'the stream subscription');
+    stub.post(chunk(0, 'first'));
+    await clock.advance(500);
+    await expect((await response).text()).rejects.toThrow();
+
+    expect(stub.cancels).toHaveLength(1);
+  });
+
+  it('sends no cancel when the stream ends on its own', async () => {
+    const stub = stubWorkspace(streamHead);
+    const handle = await start(stub.workspace);
+
+    const response = fetch(`${handle.url}/`);
+    await until(() => stub.listening(), 'the stream subscription');
+    stub.post(chunk(0, 'all of it'));
+    stub.post({ kind: 'end', seq: 1 });
+    expect(await (await response).text()).toBe('all of it');
+
+    // The sender finished and has already released everything. A cancel here
+    // would be a transport write for nothing.
+    expect(stub.cancels).toHaveLength(0);
   });
 });
 

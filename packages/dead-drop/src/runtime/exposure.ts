@@ -26,10 +26,11 @@ import {
   HTTP_STREAM_PART_CONTENT_TYPE,
   encodeHttpStreamHead,
   encodeHttpStreamPart,
+  httpStreamCancelChannel,
   httpStreamChannel,
   type HttpStreamHead,
 } from '../protocol/stream.js';
-import type { Logger } from '../core/index.js';
+import { systemClock, type Clock, type Logger } from '../core/index.js';
 
 import type { ExposureConfig } from './config.js';
 import type { RequestContext, Workspace } from './workspace.js';
@@ -48,11 +49,13 @@ export interface ExposureOptions {
   fetchImpl?: typeof fetch;
   /** Largest response body proxied back. Default 32 MiB. */
   maxBodyBytes?: number;
+  clock?: Clock;
 }
 
 const DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_STREAM_THRESHOLD_BYTES = 1024 * 1024;
+const DEFAULT_STREAM_MAX_DURATION_MS = 60 * 60_000;
 
 export function registerExposure(
   workspace: Workspace,
@@ -137,6 +140,8 @@ function httpProxyHandler(
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const streaming = config.streaming?.enabled === true;
   const thresholdBytes = config.streaming?.thresholdBytes ?? DEFAULT_STREAM_THRESHOLD_BYTES;
+  const maxDurationMs = config.streaming?.maxDurationMs ?? DEFAULT_STREAM_MAX_DURATION_MS;
+  const clock = options.clock ?? systemClock;
 
   return async (request, context) => {
     // Ask the target for identity, whatever the browser asked us for. `fetch`
@@ -164,8 +169,8 @@ function httpProxyHandler(
     // The timeout bounds how long the target may take to answer, not how long
     // its body may take to arrive. Once we have decided to stream, the whole
     // point is a response that outlives this deadline, so the timeout stops
-    // being allowed to abort it. Bounding an open stream belongs to the
-    // cancellation slice, not here.
+    // being allowed to abort it. A streaming body is bounded instead by
+    // `streaming.maxDurationMs` and by the caller's cancel, both in `pumpBody`.
     let handedOff = false;
     timeout.addEventListener(
       'abort',
@@ -198,14 +203,45 @@ function httpProxyHandler(
           path: request.path,
           status: upstream.status,
         });
+        // Subscribed for the life of the stream, so a caller that hangs up can
+        // stop us. Registered before pumping starts, because a cancel can
+        // arrive as soon as the head does.
+        let signalCancel = (): void => undefined;
+        const cancelled = new Promise<void>((resolve) => {
+          signalCancel = resolve;
+        });
+        const releaseCancel = options.workspace.subscribe(httpStreamCancelChannel(streamId), () => {
+          options.logger.debug('caller cancelled the stream', { streamId });
+          signalCancel();
+        });
+
         return {
           head,
-          pump: () =>
-            pumpBody(body, async (payload) => {
-              await options.workspace.sendTo(context.from, httpStreamChannel(streamId), payload, {
-                contentType: HTTP_STREAM_PART_CONTENT_TYPE,
+          pump: async () => {
+            try {
+              await pumpBody({
+                body,
+                cancelled,
+                clock,
+                maxDurationMs,
+                send: async (payload) => {
+                  await options.workspace.sendTo(
+                    context.from,
+                    httpStreamChannel(streamId),
+                    payload,
+                    {
+                      contentType: HTTP_STREAM_PART_CONTENT_TYPE,
+                      // A part outliving the caller that wanted it is landfill
+                      // in that peer's inbox. `sendTo` has no default ttl.
+                      ttlMs: maxDurationMs,
+                    },
+                  );
+                },
               });
-            }),
+            } finally {
+              releaseCancel();
+            }
+          },
         };
       }
 
@@ -400,15 +436,54 @@ function shouldStream(upstream: Response, thresholdBytes: number): boolean {
  * short one. If even that send fails there is nothing left to try, and the
  * reader's gap timeout is what ends the stream.
  */
-async function pumpBody(
-  body: ReadableStream<Uint8Array>,
-  send: (payload: Uint8Array) => Promise<void>,
-): Promise<void> {
+async function pumpBody(options: {
+  body: ReadableStream<Uint8Array>;
+  send: (payload: Uint8Array) => Promise<void>;
+  cancelled: Promise<void>;
+  clock: Clock;
+  maxDurationMs: number;
+}): Promise<void> {
+  const { body, send, cancelled, clock, maxDurationMs } = options;
   const reader = body.getReader();
   let seq = 0;
+
+  // Raced against the read rather than checked between chunks. An event stream
+  // sits inside `read()` for minutes at a time, so a flag tested at the top of
+  // the loop would not be looked at again until the next event arrived, which
+  // is exactly when it no longer matters.
+  let expired = false;
+  let reachDeadline = (): void => undefined;
+  const deadline = new Promise<void>((resolve) => {
+    reachDeadline = resolve;
+  });
+  const cancelTimer = clock.setTimeout(maxDurationMs, () => {
+    expired = true;
+    reachDeadline();
+  });
+  const stopped = Promise.race([cancelled, deadline]).then(() => 'stopped' as const);
+
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const next = await Promise.race([reader.read().then((result) => ({ result })), stopped]);
+      if (next === 'stopped') {
+        // Cancelling the reader closes the connection to the target too, which
+        // is the point: nobody is reading, so nothing should still be produced.
+        await reader.cancel();
+        if (expired) {
+          await send(
+            encodeHttpStreamPart({
+              kind: 'error',
+              seq,
+              code: 'TIMEOUT',
+              message: `stream ran longer than ${maxDurationMs}ms`,
+            }),
+          );
+        }
+        // A cancelled stream sends nothing. The caller asked us to stop and is
+        // no longer listening, so an `end` would be talking to an empty room.
+        return;
+      }
+      const { done, value } = next.result;
       if (done) break;
       if (value && value.length > 0) {
         await send(encodeHttpStreamPart({ kind: 'chunk', seq, body: value }));
@@ -427,6 +502,7 @@ async function pumpBody(
       }),
     );
   } finally {
+    cancelTimer();
     reader.releaseLock();
   }
 }

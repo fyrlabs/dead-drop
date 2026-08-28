@@ -55,6 +55,14 @@ export interface ExposureConfig {
     enabled: boolean;
     /** Smallest declared body that is streamed rather than buffered. Default 1 MiB. */
     thresholdBytes?: number;
+    /**
+     * Ceiling on how long one stream may run. Default one hour.
+     *
+     * The per-request timeout stops applying once a body is streaming, so
+     * without this a stream has no bound at all. It is also the time-to-live on
+     * the body parts, so parts for a caller that vanished expire.
+     */
+    maxDurationMs?: number;
   };
 }
 
@@ -656,6 +664,12 @@ function parseExposure(raw: unknown, label: string, baseDir?: string): ExposureC
         fail(`${label}: streaming.thresholdBytes must be a positive number`);
       }
       exposure.streaming.thresholdBytes = entry.thresholdBytes;
+    }
+    if (entry.maxDurationMs !== undefined) {
+      if (typeof entry.maxDurationMs !== 'number' || entry.maxDurationMs <= 0) {
+        fail(`${label}: streaming.maxDurationMs must be a positive number`);
+      }
+      exposure.streaming.maxDurationMs = entry.maxDurationMs;
     }
   }
   return exposure;

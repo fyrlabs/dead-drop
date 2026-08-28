@@ -35,6 +35,16 @@ export const HTTP_STREAM_OFFER_HEADER = 'x-deaddrop-stream';
 /** Channel the body parts of one stream travel on. */
 export const httpStreamChannel = (streamId: string): string => `httpstream/${streamId}`;
 
+/**
+ * Channel a caller uses to tell the sender it has stopped reading.
+ *
+ * Without it a browser tab closing leaves the exposure pumping a body nobody
+ * will ever read, which on the git transport is a push per chunk. Channels are
+ * matched exactly, so this never collides with the body channel above.
+ */
+export const httpStreamCancelChannel = (streamId: string): string =>
+  `httpstream/${streamId}/cancel`;
+
 /** A fresh stream id in the accepted alphabet. */
 export const createStreamId = (): string => createPrefixedId('str');
 

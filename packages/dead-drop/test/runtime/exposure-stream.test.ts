@@ -5,6 +5,7 @@ import {
   HTTP_STREAM_OFFER_HEADER,
   decodeHttpStreamHead,
   decodeHttpStreamPart,
+  httpStreamCancelChannel,
   httpStreamChannel,
   isHttpStreamHead,
   type HttpStreamPart,
@@ -12,6 +13,7 @@ import {
 import { registerExposure } from '#dead-drop/runtime/exposure.js';
 import type { ExposureConfig } from '#dead-drop/runtime/config.js';
 import type { Workspace } from '#dead-drop/runtime/workspace.js';
+import { TestClock, type Clock } from '#dead-drop/core/clock.js';
 import { createLogger } from '#dead-drop/core/observability/logger.js';
 
 const STREAM_ID = 'str_01JQTESTSTREAMIDAAAAAAAAAA';
@@ -25,6 +27,7 @@ interface Sent {
   target: string;
   channel: string;
   part: HttpStreamPart;
+  ttlMs: number | undefined;
 }
 
 /**
@@ -38,9 +41,12 @@ function stubWorkspace(): {
   handler: () => Handler;
   sent: Sent[];
   settled: Promise<void>;
+  cancels: Map<string, (payload: Uint8Array) => void>;
 } {
   let installed: Handler | undefined;
   const sent: Sent[] = [];
+  /** Cancel subscriptions the sender registers, keyed by channel. */
+  const cancels = new Map<string, (payload: Uint8Array) => void>();
   let finish: () => void;
   const settled = new Promise<void>((resolve) => {
     finish = resolve;
@@ -51,9 +57,18 @@ function stubWorkspace(): {
       return () => undefined;
     },
     registerExposure() {},
-    async sendTo(target: string, channel: string, payload: Uint8Array) {
+    subscribe(channel: string, handler: (payload: Uint8Array) => void) {
+      cancels.set(channel, handler);
+      return () => cancels.delete(channel);
+    },
+    async sendTo(
+      target: string,
+      channel: string,
+      payload: Uint8Array,
+      sendOptions: { ttlMs?: number } = {},
+    ) {
       const part = decodeHttpStreamPart(payload);
-      sent.push({ target, channel, part });
+      sent.push({ target, channel, part, ttlMs: sendOptions.ttlMs });
       if (part.kind !== 'chunk') finish();
       return 'msg_stub';
     },
@@ -66,6 +81,7 @@ function stubWorkspace(): {
     },
     sent,
     settled,
+    cancels,
   };
 }
 
@@ -84,14 +100,16 @@ async function proxy(
   config: Omit<ExposureConfig, 'name' | 'type'>,
   response: Response,
   offer: string | null = STREAM_ID,
+  clock?: Clock,
 ) {
-  const { workspace, handler, sent, settled } = stubWorkspace();
+  const { workspace, handler, sent, settled, cancels } = stubWorkspace();
   registerExposure(workspace, { name: 'web', type: 'http', ...config } as ExposureConfig, {
     logger: createLogger({ level: 'silent' }),
     fetchImpl: (async () => response) as unknown as typeof fetch,
+    ...(clock ? { clock } : {}),
   });
   const payload = await handler()(request(offer), { identity: 'peer-b', from: 'peer-b-c1' });
-  return { payload, sent, settled };
+  return { payload, sent, settled, cancels };
 }
 
 const streamingOn = {
@@ -189,6 +207,87 @@ describe('streaming a proxied response body', () => {
     expect(isHttpStreamHead(small.payload)).toBe(false);
     expect(decodeHttpResponse(small.payload).status).toBe(200);
     expect(small.sent).toHaveLength(0);
+  });
+});
+
+/** A body that yields `first`, then parks for ever. Records its own cancel. */
+function parkedBody(): { response: Response; wasCancelled: () => boolean } {
+  let cancelled = false;
+  let pulls = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (pulls++ === 0) {
+        controller.enqueue(Buffer.from('first', 'utf8'));
+        return undefined;
+      }
+      // Never resolves, which is what an open event stream looks like from here.
+      return new Promise<void>(() => undefined);
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  return { response: new Response(body, { status: 200 }), wasCancelled: () => cancelled };
+}
+
+async function until(predicate: () => boolean, what: string): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
+describe('ending a stream early', () => {
+  it('stops pumping and closes the target when the caller cancels', async () => {
+    const upstream = parkedBody();
+    const { sent, cancels } = await proxy(streamingOn, upstream.response);
+    await until(() => sent.length === 1, 'the first chunk');
+
+    const cancel = cancels.get(httpStreamCancelChannel(STREAM_ID));
+    expect(cancel).toBeDefined();
+    cancel?.(new Uint8Array(0));
+
+    // The target connection is released rather than drained: nobody is reading,
+    // so nothing more should be produced.
+    await until(upstream.wasCancelled, 'the upstream body to be cancelled');
+
+    // And nothing further goes out. No `end`, because a cancelled caller is not
+    // listening for one, and one more chunk is one more transport write.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(sent).toHaveLength(1);
+    expect(sent.at(-1)?.part.kind).toBe('chunk');
+  });
+
+  it('fails a stream that outruns maxDurationMs', async () => {
+    const clock = new TestClock(1000);
+    const upstream = parkedBody();
+    const { sent, settled } = await proxy(
+      { ...streamingOn, streaming: { enabled: true, maxDurationMs: 5000 } },
+      upstream.response,
+      STREAM_ID,
+      clock,
+    );
+    await until(() => sent.length === 1, 'the first chunk');
+
+    await clock.advance(6000);
+    await settled;
+
+    const last = sent.at(-1)?.part;
+    expect(last?.kind).toBe('error');
+    expect((last as { code: string }).code).toBe('TIMEOUT');
+    expect(upstream.wasCancelled()).toBe(true);
+  });
+
+  it('gives every part a time to live, so one for a vanished caller expires', async () => {
+    const { sent, settled } = await proxy(
+      { ...streamingOn, streaming: { enabled: true, maxDurationMs: 5000 } },
+      chunked(['a']),
+    );
+    await settled;
+
+    // `sendTo` has no default ttl of its own, so an unset one means for ever.
+    expect(sent.every((entry) => entry.ttlMs === 5000)).toBe(true);
   });
 });
 

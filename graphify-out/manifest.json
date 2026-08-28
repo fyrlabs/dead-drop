@@ -295,9 +295,9 @@
     "semantic_hash": "a55c9a7340cbff0c994a879204c86945"
   },
   "packages/dead-drop/src/runtime/connect.ts": {
-    "mtime": 1786408065.3755627,
-    "ast_hash": "7cb241f0ddbba077bedfcf6b0d10a8a3",
-    "semantic_hash": "7cb241f0ddbba077bedfcf6b0d10a8a3"
+    "mtime": 1787889964.6731668,
+    "ast_hash": "08d4d9e831d1d1469b5f4f806fe65745",
+    "semantic_hash": "08d4d9e831d1d1469b5f4f806fe65745"
   },
   "packages/dead-drop/src/runtime/control-plane.ts": {
     "mtime": 1786755122.8675761,
@@ -853,5 +853,10 @@
     "mtime": 1787889426.755139,
     "ast_hash": "abe7d7f17f4bd8623fa8985637406004",
     "semantic_hash": "abe7d7f17f4bd8623fa8985637406004"
+  },
+  "packages/dead-drop/test/runtime/connect-stream.test.ts": {
+    "mtime": 1787890040.8682554,
+    "ast_hash": "78a94b37dc1bb78f64fc28fe96bb5d04",
+    "semantic_hash": "78a94b37dc1bb78f64fc28fe96bb5d04"
   }
 }

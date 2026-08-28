@@ -24,6 +24,7 @@ import {
   createStreamId,
   decodeHttpStreamHead,
   decodeHttpStreamPart,
+  httpStreamCancelChannel,
   httpStreamChannel,
   isHttpStreamHead,
 } from '../protocol/stream.js';
@@ -110,6 +111,7 @@ export async function connect(options: ConnectOptions): Promise<ConnectHandle> {
     const stream = receiveStream({
       workspace: options.workspace,
       streamId,
+      target: options.target,
       response,
       clock,
       gapTimeoutMs,
@@ -196,13 +198,36 @@ interface StreamSession {
 function receiveStream(options: {
   workspace: Workspace;
   streamId: string;
+  /** Peer hosting the exposure, and so the one to tell when we stop reading. */
+  target: string;
   response: ServerResponse;
   clock: Clock;
   gapTimeoutMs: number;
   logger: Logger;
 }): StreamSession {
-  const { workspace, streamId, response, clock, gapTimeoutMs, logger } = options;
+  const { workspace, streamId, target, response, clock, gapTimeoutMs, logger } = options;
   const reader = new HttpStreamReader(clock.now(), { gapTimeoutMs });
+
+  /**
+   * Tells the sender to stop, for any ending that is not the stream finishing.
+   *
+   * Best effort on purpose: we are already tearing down and there is nothing
+   * useful to do if it fails. Without it a closed browser tab leaves the
+   * exposure pumping a body nobody will read, one transport write per chunk.
+   */
+  const notifySender = (why: string): void => {
+    void workspace
+      .sendTo(target, httpStreamCancelChannel(streamId), new Uint8Array(0), {
+        ttlMs: gapTimeoutMs,
+      })
+      .catch((error: unknown) => {
+        logger.debug('could not tell the sender to stop streaming', {
+          streamId,
+          why,
+          error: String(error),
+        });
+      });
+  };
 
   let settle: { resolve: () => void; reject: (error: unknown) => void } | undefined;
   const finished = new Promise<void>((resolve, reject) => {
@@ -225,7 +250,9 @@ function receiveStream(options: {
   };
 
   const fail = (error: unknown): void => {
+    const wasOpen = !closed;
     stop();
+    if (wasOpen) notifySender('the stream failed here');
     settle?.reject(error);
   };
 
@@ -266,6 +293,7 @@ function receiveStream(options: {
   response.on('close', () => {
     if (closed) return;
     stop();
+    notifySender('the local client hung up');
     settle?.resolve();
   });
 
