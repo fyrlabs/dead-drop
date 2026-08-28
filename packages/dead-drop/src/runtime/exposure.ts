@@ -13,6 +13,7 @@ import { stat } from 'node:fs/promises';
 import { join, normalize, resolve, sep } from 'node:path';
 
 import {
+  DeadDropError,
   HTTP_RESPONSE_CONTENT_TYPE,
   decodeHttpRequest,
   encodeHttpResponse,
@@ -20,7 +21,14 @@ import {
   type HttpRequestMessage,
   type HttpResponseMessage,
 } from '../protocol/index.js';
-import type { DeadDropError } from '../protocol/index.js';
+import {
+  HTTP_STREAM_OFFER_HEADER,
+  HTTP_STREAM_PART_CONTENT_TYPE,
+  encodeHttpStreamHead,
+  encodeHttpStreamPart,
+  httpStreamChannel,
+  type HttpStreamHead,
+} from '../protocol/stream.js';
 import type { Logger } from '../core/index.js';
 
 import type { ExposureConfig } from './config.js';
@@ -44,6 +52,7 @@ export interface ExposureOptions {
 
 const DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_STREAM_THRESHOLD_BYTES = 1024 * 1024;
 
 export function registerExposure(
   workspace: Workspace,
@@ -54,7 +63,7 @@ export function registerExposure(
   const logger = options.logger.child({ exposure: config.name, type: config.type });
   const handler =
     config.type === 'http'
-      ? httpProxyHandler(config, { ...options, logger })
+      ? httpProxyHandler(config, { ...options, logger, workspace })
       : staticHandler(config, { ...options, logger });
 
   const stop = workspace.handle(channel, async (payload, context) => {
@@ -76,8 +85,22 @@ export function registerExposure(
       });
     }
     const request = decodeHttpRequest(payload);
-    const response = await handler(request, context);
-    return encodeHttpResponse(response);
+    const reply = await handler(request, context);
+    if (!('pump' in reply)) return encodeHttpResponse(reply);
+
+    // The head is this handler's return value, so the workspace sends it once
+    // we return. Pumping is therefore started and deliberately not awaited:
+    // awaiting it would hold the head back until the last byte, which is the
+    // thing streaming exists to avoid. Parts may still overtake the head on the
+    // wire, which is why the caller names the stream id in its request and has
+    // its reader listening before any of this runs.
+    void reply.pump().catch((error: unknown) => {
+      logger.warn('streamed response failed after the head was sent', {
+        streamId: reply.head.streamId,
+        error: String((error as Error)?.message ?? error),
+      });
+    });
+    return encodeHttpStreamHead(reply.head);
   });
 
   workspace.registerExposure(config.name);
@@ -88,21 +111,34 @@ export function registerExposure(
 /** Content type a caller should expect back from an exposure. */
 export const EXPOSURE_RESPONSE_CONTENT_TYPE = HTTP_RESPONSE_CONTENT_TYPE;
 
+/**
+ * A response whose body follows the head as separate messages.
+ *
+ * `pump` is started by `registerExposure` after the head has been handed back,
+ * never before, and it owns every part from the first chunk to the `end`.
+ */
+interface StreamedReply {
+  head: HttpStreamHead;
+  pump(): Promise<void>;
+}
+
 type Handler = (
   request: HttpRequestMessage,
   context: RequestContext,
-) => Promise<HttpResponseMessage>;
+) => Promise<HttpResponseMessage | StreamedReply>;
 
 function httpProxyHandler(
   config: ExposureConfig,
-  options: ExposureOptions & { logger: Logger },
+  options: ExposureOptions & { logger: Logger; workspace: Workspace },
 ): Handler {
   const target = new URL(config.target as string);
   const fetchImpl = options.fetchImpl ?? fetch;
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const streaming = config.streaming?.enabled === true;
+  const thresholdBytes = config.streaming?.thresholdBytes ?? DEFAULT_STREAM_THRESHOLD_BYTES;
 
-  return async (request) => {
+  return async (request, context) => {
     // Ask the target for identity, whatever the browser asked us for. `fetch`
     // decodes a compressed response before `arrayBuffer` sees it but leaves
     // `content-encoding` on the headers, so proxying both through means a
@@ -125,7 +161,19 @@ function httpProxyHandler(
     // lint exception for a bare global timer in runtime code.
     const controller = new AbortController();
     const timeout = AbortSignal.timeout(timeoutMs);
-    timeout.addEventListener('abort', () => controller.abort(), { once: true });
+    // The timeout bounds how long the target may take to answer, not how long
+    // its body may take to arrive. Once we have decided to stream, the whole
+    // point is a response that outlives this deadline, so the timeout stops
+    // being allowed to abort it. Bounding an open stream belongs to the
+    // cancellation slice, not here.
+    let handedOff = false;
+    timeout.addEventListener(
+      'abort',
+      () => {
+        if (!handedOff) controller.abort();
+      },
+      { once: true },
+    );
     try {
       const upstream = await fetchImpl(url, {
         method: request.method,
@@ -134,6 +182,32 @@ function httpProxyHandler(
         signal: controller.signal,
         redirect: 'manual',
       });
+
+      const streamId = streamIdOffered(request.headers);
+      if (streaming && streamId && upstream.body && shouldStream(upstream, thresholdBytes)) {
+        handedOff = true;
+        const head: HttpStreamHead = {
+          status: upstream.status,
+          statusText: upstream.statusText,
+          headers: withoutContentEncoding(Object.fromEntries(upstream.headers.entries())),
+          streamId,
+        };
+        const body = upstream.body;
+        options.logger.debug('streaming the response body', {
+          streamId,
+          path: request.path,
+          status: upstream.status,
+        });
+        return {
+          head,
+          pump: () =>
+            pumpBody(body, async (payload) => {
+              await options.workspace.sendTo(context.from, httpStreamChannel(streamId), payload, {
+                contentType: HTTP_STREAM_PART_CONTENT_TYPE,
+              });
+            }),
+        };
+      }
 
       const buffer = new Uint8Array(await upstream.arrayBuffer());
       if (buffer.length > maxBodyBytes) {
@@ -287,6 +361,74 @@ function toFetchHeaders(headers: Record<string, string | string[]>): Headers {
     else out.set(name, value);
   }
   return out;
+}
+
+/** The stream id a caller offered, if it offered one and it is usable. */
+function streamIdOffered(headers: Record<string, string | string[]>): string | undefined {
+  const raw = headers[HTTP_STREAM_OFFER_HEADER];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  // The id ends up in a channel name, so anything outside the alphabet is
+  // dropped rather than sanitised: a caller that sent a bad id is not listening
+  // on whatever we would have corrected it to, and gets a buffered reply.
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(value) ? value : undefined;
+}
+
+/**
+ * Whether this response is worth streaming.
+ *
+ * An event stream never ends, and a body with no declared length may not
+ * either, so both stream regardless of size. A declared length is compared
+ * against the threshold, which keeps small responses on the single-message path
+ * they already work well on.
+ */
+function shouldStream(upstream: Response, thresholdBytes: number): boolean {
+  const contentType = upstream.headers.get('content-type') ?? '';
+  if (contentType.includes('text/event-stream')) return true;
+  const declared = upstream.headers.get('content-length');
+  if (declared === null) return true;
+  const length = Number(declared);
+  return Number.isFinite(length) && length >= thresholdBytes;
+}
+
+/**
+ * Reads a body and sends it as numbered parts, ending with `end` or `error`.
+ *
+ * `end` carries the sequence number after the last chunk, so a reader knows the
+ * stream is complete without a separate count that could disagree with what it
+ * received. A failure mid-body is reported as an `error` part, because a caller
+ * that is handed a truncated body with no explanation cannot tell it from a
+ * short one. If even that send fails there is nothing left to try, and the
+ * reader's gap timeout is what ends the stream.
+ */
+async function pumpBody(
+  body: ReadableStream<Uint8Array>,
+  send: (payload: Uint8Array) => Promise<void>,
+): Promise<void> {
+  const reader = body.getReader();
+  let seq = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value && value.length > 0) {
+        await send(encodeHttpStreamPart({ kind: 'chunk', seq, body: value }));
+        seq += 1;
+      }
+    }
+    await send(encodeHttpStreamPart({ kind: 'end', seq }));
+  } catch (error) {
+    const failure = DeadDropError.from(error, 'TRANSPORT_ERROR');
+    await send(
+      encodeHttpStreamPart({
+        kind: 'error',
+        seq,
+        code: failure.code,
+        message: failure.message,
+      }),
+    );
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function textResponse(status: number, message: string): HttpResponseMessage {

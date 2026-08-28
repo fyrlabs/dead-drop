@@ -43,6 +43,19 @@ export interface ExposureConfig {
   allowPeers?: string[];
   /** Per-request timeout in milliseconds. Default 30000. */
   timeoutMs?: number;
+  /**
+   * Streams a response body instead of buffering it whole.
+   *
+   * Off unless configured, because buffering is what every existing caller
+   * expects and a streamed response only works against a caller new enough to
+   * ask for one. A response is streamed when it has no `content-length`, when
+   * that length is at least `thresholdBytes`, or when it is an event stream.
+   */
+  streaming?: {
+    enabled: boolean;
+    /** Smallest declared body that is streamed rather than buffered. Default 1 MiB. */
+    thresholdBytes?: number;
+  };
 }
 
 export interface WorkspaceConfig {
@@ -627,6 +640,23 @@ function parseExposure(raw: unknown, label: string, baseDir?: string): ExposureC
       fail(`${label}: timeoutMs must be a positive number`);
     }
     exposure.timeoutMs = source.timeoutMs;
+  }
+  if (source.streaming !== undefined) {
+    const streaming = source.streaming;
+    if (typeof streaming !== 'object' || streaming === null || Array.isArray(streaming)) {
+      fail(`${label}: streaming must be an object`);
+    }
+    const entry = streaming as Record<string, unknown>;
+    if (typeof entry.enabled !== 'boolean') {
+      fail(`${label}: streaming.enabled must be true or false`);
+    }
+    exposure.streaming = { enabled: entry.enabled as boolean };
+    if (entry.thresholdBytes !== undefined) {
+      if (typeof entry.thresholdBytes !== 'number' || entry.thresholdBytes <= 0) {
+        fail(`${label}: streaming.thresholdBytes must be a positive number`);
+      }
+      exposure.streaming.thresholdBytes = entry.thresholdBytes;
+    }
   }
   return exposure;
 }

@@ -612,6 +612,38 @@ export class Workspace {
   }
 
   /**
+   * Sends a one-way message to one peer's mailbox address.
+   *
+   * `publish` broadcasts to whoever subscribes and `request` waits for a reply.
+   * The parts of a streamed response body need neither: they are addressed to
+   * the one caller that asked, and nothing answers them. Delivery still follows
+   * the mailbox rules, so a part can arrive late or out of order and the reader
+   * reorders by sequence number.
+   */
+  async sendTo(
+    target: string,
+    channel: string,
+    payload: Uint8Array,
+    options: { headers?: Record<string, string>; contentType?: string; ttlMs?: number } = {},
+  ): Promise<string> {
+    const envelope = createEnvelope({
+      workspace: this.name,
+      kind: 'event',
+      channel,
+      from: this.peerId,
+      identity: this.identity,
+      to: target,
+      contentType: options.contentType ?? JSON_CONTENT_TYPE,
+      ts: this.clock.now(),
+      payload,
+      ...(options.headers ? { headers: options.headers } : {}),
+      ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}),
+    });
+    await this.mailbox.send(envelope);
+    return envelope.id;
+  }
+
+  /**
    * Sends a request to `target` and waits for its response.
    *
    * The timeout is the caller's only guarantee: the transport may be a git push

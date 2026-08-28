@@ -15,12 +15,28 @@
 
 import { DeadDropError } from './errors.js';
 import { decodePart, encodePart, sanitiseHeaders, type HttpResponseHead } from './http.js';
+import { createPrefixedId } from './ids.js';
 
 export const HTTP_STREAM_HEAD_CONTENT_TYPE = 'application/vnd.deaddrop.http-stream-head';
 export const HTTP_STREAM_PART_CONTENT_TYPE = 'application/vnd.deaddrop.http-stream-part';
 
+/**
+ * Request header by which a caller offers to receive a streamed response, and
+ * names the id it will listen on.
+ *
+ * The caller picks the id, not the sender, so that it can register its handler
+ * before the request goes out. If the sender picked it, the id would only reach
+ * the caller in the response head, and any part that overtook the head would
+ * arrive for a stream nobody was listening to yet. It doubles as capability
+ * negotiation: a caller that does not send this header cannot be sent a stream.
+ */
+export const HTTP_STREAM_OFFER_HEADER = 'x-deaddrop-stream';
+
 /** Channel the body parts of one stream travel on. */
 export const httpStreamChannel = (streamId: string): string => `httpstream/${streamId}`;
+
+/** A fresh stream id in the accepted alphabet. */
+export const createStreamId = (): string => createPrefixedId('str');
 
 export interface HttpStreamHead extends HttpResponseHead {
   /** Names the channel the body will arrive on. */
@@ -68,6 +84,23 @@ export function decodeHttpStreamHead(payload: Uint8Array): HttpStreamHead {
   const result: HttpStreamHead = { status, streamId, headers: readHeaders(head.headers) };
   if (typeof head.statusText === 'string') result.statusText = head.statusText;
   return result;
+}
+
+/**
+ * Whether a reply is a stream head rather than a whole response.
+ *
+ * A handler cannot label its own reply: the workspace sets the response content
+ * type from the caller's `accept` header, so a stream head and an ordinary
+ * response come back wearing the same one. The discriminator is therefore the
+ * payload itself, and `streamId` is a field an ordinary response never carries.
+ */
+export function isHttpStreamHead(payload: Uint8Array): boolean {
+  try {
+    const { head } = decodePart(payload);
+    return typeof head.streamId === 'string' && STREAM_ID.test(head.streamId);
+  } catch {
+    return false;
+  }
 }
 
 export function encodeHttpStreamPart(part: HttpStreamPart): Uint8Array {
