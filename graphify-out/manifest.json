@@ -290,9 +290,9 @@
     "semantic_hash": "2b153d788c4f56e320a3dceedae24d00"
   },
   "packages/dead-drop/src/runtime/config.ts": {
-    "mtime": 1786754071.0385158,
-    "ast_hash": "77fc3c5f589cf9a67c8d6a6bc821f6bd",
-    "semantic_hash": "77fc3c5f589cf9a67c8d6a6bc821f6bd"
+    "mtime": 1787889240.306328,
+    "ast_hash": "a55c9a7340cbff0c994a879204c86945",
+    "semantic_hash": "a55c9a7340cbff0c994a879204c86945"
   },
   "packages/dead-drop/src/runtime/connect.ts": {
     "mtime": 1786408065.3755627,
@@ -305,9 +305,9 @@
     "semantic_hash": "aa97ddec02f0c72ef07f0fdaf758ff8f"
   },
   "packages/dead-drop/src/runtime/exposure.ts": {
-    "mtime": 1787802773.1605341,
-    "ast_hash": "c23e1e9a55b102fa0b711da695ad963b",
-    "semantic_hash": "c23e1e9a55b102fa0b711da695ad963b"
+    "mtime": 1787889329.3566232,
+    "ast_hash": "affa5dbbdb16f90e90bccd5d0411f13a",
+    "semantic_hash": "affa5dbbdb16f90e90bccd5d0411f13a"
   },
   "packages/dead-drop/src/runtime/identity-store.ts": {
     "mtime": 1786858863.6841698,
@@ -330,9 +330,9 @@
     "semantic_hash": "877d1d4a994904e4718124e737b6c3a6"
   },
   "packages/dead-drop/src/runtime/workspace.ts": {
-    "mtime": 1787803501.7225835,
-    "ast_hash": "371251e4e8024e31ede44f58c4c4ea98",
-    "semantic_hash": "371251e4e8024e31ede44f58c4c4ea98"
+    "mtime": 1787889228.7430327,
+    "ast_hash": "845d4357571ddb8cb2a5f1d11e8f6fa4",
+    "semantic_hash": "845d4357571ddb8cb2a5f1d11e8f6fa4"
   },
   "packages/dead-drop/src/sdk/index.ts": {
     "mtime": 1786408065.3766942,
@@ -830,9 +830,9 @@
     "semantic_hash": "f1e57defcb2b97e53e3cb19ce29e3f82"
   },
   "packages/dead-drop/src/protocol/stream.ts": {
-    "mtime": 1787806928.4078393,
-    "ast_hash": "682e3a1936df276d8eb4190b8afbb278",
-    "semantic_hash": "682e3a1936df276d8eb4190b8afbb278"
+    "mtime": 1787889221.1382205,
+    "ast_hash": "eb7d47bd44e65e7aaea06da6cf059ec9",
+    "semantic_hash": "eb7d47bd44e65e7aaea06da6cf059ec9"
   },
   "packages/dead-drop/src/runtime/stream-reader.ts": {
     "mtime": 1787807271.1804328,
@@ -848,5 +848,10 @@
     "mtime": 1787807271.180653,
     "ast_hash": "cb6614e43e3d852525404ab551dd6792",
     "semantic_hash": "cb6614e43e3d852525404ab551dd6792"
+  },
+  "packages/dead-drop/test/runtime/exposure-stream.test.ts": {
+    "mtime": 1787889426.755139,
+    "ast_hash": "abe7d7f17f4bd8623fa8985637406004",
+    "semantic_hash": "abe7d7f17f4bd8623fa8985637406004"
   }
 }

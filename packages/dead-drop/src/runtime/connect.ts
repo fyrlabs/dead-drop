@@ -19,9 +19,18 @@ import {
   isErrorPayload,
   sanitiseHeaders,
 } from '../protocol/index.js';
-import type { Logger } from '../core/index.js';
+import {
+  HTTP_STREAM_OFFER_HEADER,
+  createStreamId,
+  decodeHttpStreamHead,
+  decodeHttpStreamPart,
+  httpStreamChannel,
+  isHttpStreamHead,
+} from '../protocol/stream.js';
+import { systemClock, type Clock, type Logger } from '../core/index.js';
 
 import { httpChannel, statusForError } from './exposure.js';
+import { HttpStreamReader } from './stream-reader.js';
 import type { Workspace } from './workspace.js';
 
 export interface ConnectOptions {
@@ -38,6 +47,13 @@ export interface ConnectOptions {
   timeoutMs?: number;
   /** Largest request body accepted from a local client. Default 32 MiB. */
   maxBodyBytes?: number;
+  /**
+   * Longest a streamed body may stall mid-flight before the response is failed.
+   * Default 60s. This bounds a gap between parts, not the stream: an event
+   * stream that keeps sending may run as long as it likes.
+   */
+  streamGapTimeoutMs?: number;
+  clock?: Clock;
 }
 
 export interface ConnectHandle {
@@ -48,12 +64,15 @@ export interface ConnectHandle {
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024;
+const DEFAULT_STREAM_GAP_TIMEOUT_MS = 60_000;
 
 export async function connect(options: ConnectOptions): Promise<ConnectHandle> {
   const logger = options.logger.child({ connect: options.exposure, target: options.target });
   const channel = httpChannel(options.exposure);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+  const gapTimeoutMs = options.streamGapTimeoutMs ?? DEFAULT_STREAM_GAP_TIMEOUT_MS;
+  const clock = options.clock ?? systemClock;
 
   const server = createServer((request, response) => {
     void handle(request, response).catch((error: unknown) => {
@@ -71,11 +90,30 @@ export async function connect(options: ConnectOptions): Promise<ConnectHandle> {
       return;
     }
 
+    // We mint the stream id and offer it, rather than letting the exposure name
+    // one in its head. Body parts are sent the moment the head is handed back
+    // and nothing orders the two, so an id we learned from the head would let a
+    // part arrive for a stream we were not yet listening to. Offering it also
+    // means an exposure can tell we understand streams at all.
+    const streamId = createStreamId();
     const payload = encodeHttpRequest({
       method: request.method ?? 'GET',
       path: request.url ?? '/',
-      headers: sanitiseHeaders(request.headers as Record<string, string | string[] | undefined>),
+      headers: {
+        ...sanitiseHeaders(request.headers as Record<string, string | string[] | undefined>),
+        [HTTP_STREAM_OFFER_HEADER]: streamId,
+      },
       body,
+    });
+
+    // Subscribed before the request goes out, for the same reason.
+    const stream = receiveStream({
+      workspace: options.workspace,
+      streamId,
+      response,
+      clock,
+      gapTimeoutMs,
+      logger,
     });
 
     try {
@@ -83,10 +121,24 @@ export async function connect(options: ConnectOptions): Promise<ConnectHandle> {
         timeoutMs,
         contentType: HTTP_REQUEST_CONTENT_TYPE,
       });
-      const remote = decodeHttpResponse(unwrapRemoteError(envelope.payload));
+      const reply = unwrapRemoteError(envelope.payload);
+
+      if (isHttpStreamHead(reply)) {
+        const head = decodeHttpStreamHead(reply);
+        response.writeHead(head.status, head.statusText, head.headers);
+        // `flushHeaders` matters for an event stream: without it the browser
+        // sees nothing until the first chunk is large enough to flush itself.
+        response.flushHeaders();
+        await stream.finished;
+        return;
+      }
+
+      stream.cancel();
+      const remote = decodeHttpResponse(reply);
       response.writeHead(remote.status, remote.statusText, remote.headers);
       response.end(Buffer.from(remote.body));
     } catch (error) {
+      stream.cancel();
       const deadDropError = DeadDropError.from(error);
       logger.warn('remote request failed', {
         method: request.method,
@@ -94,6 +146,14 @@ export async function connect(options: ConnectOptions): Promise<ConnectHandle> {
         code: deadDropError.code,
         error: deadDropError.message,
       });
+      // A stream that failed part-way has already sent its status and some of
+      // its body, so there is no status left to send. Destroying the socket is
+      // the only signal left that the body is truncated; ending it cleanly
+      // would tell the client it received everything.
+      if (response.headersSent) {
+        response.destroy();
+        return;
+      }
       // Surfacing the dead-drop error code as an HTTP status keeps the failure
       // legible to a browser without leaking transport detail into the body.
       response.writeHead(statusForError(deadDropError), { 'content-type': 'text/plain' });
@@ -116,6 +176,100 @@ export async function connect(options: ConnectOptions): Promise<ConnectHandle> {
     port,
     close: () => closeServer(server),
   };
+}
+
+interface StreamSession {
+  /** Resolves when the body has been written whole; rejects if the stream fails. */
+  finished: Promise<void>;
+  /** Tears down a subscription for a reply that turned out not to be a stream. */
+  cancel(): void;
+}
+
+/**
+ * Listens for the parts of one streamed body and writes them to the client.
+ *
+ * Ordering is the reader's job, not the transport's: parts are accepted in
+ * whatever order they arrive and released as each gap closes. Everything here
+ * is about ending: a stream can finish, fail, stall, or lose the client it was
+ * being written to, and all four have to release the subscription and the timer.
+ */
+function receiveStream(options: {
+  workspace: Workspace;
+  streamId: string;
+  response: ServerResponse;
+  clock: Clock;
+  gapTimeoutMs: number;
+  logger: Logger;
+}): StreamSession {
+  const { workspace, streamId, response, clock, gapTimeoutMs, logger } = options;
+  const reader = new HttpStreamReader(clock.now(), { gapTimeoutMs });
+
+  let settle: { resolve: () => void; reject: (error: unknown) => void } | undefined;
+  const finished = new Promise<void>((resolve, reject) => {
+    settle = { resolve, reject };
+  });
+  // Nothing awaits `finished` unless the reply turns out to be a stream head,
+  // and an unobserved rejection would take the process down.
+  finished.catch(() => undefined);
+
+  let closed = false;
+  // Collected rather than held in named bindings, so that everything acquired
+  // is released by one path however the stream ends.
+  const teardown: Array<() => void> = [];
+
+  const stop = (): void => {
+    if (closed) return;
+    closed = true;
+    for (const release of teardown.splice(0)) release();
+    reader.discard();
+  };
+
+  const fail = (error: unknown): void => {
+    stop();
+    settle?.reject(error);
+  };
+
+  teardown.push(
+    workspace.subscribe(httpStreamChannel(streamId), (payload) => {
+      if (closed) return;
+      try {
+        const { ready, done } = reader.accept(decodeHttpStreamPart(payload), clock.now());
+        for (const chunk of ready) response.write(Buffer.from(chunk));
+        if (done) {
+          stop();
+          response.end();
+          settle?.resolve();
+        }
+      } catch (error) {
+        logger.warn('streamed response failed', { streamId, error: String(error) });
+        fail(error);
+      }
+    }),
+  );
+
+  // A sender that stops sending would otherwise hold this response open for
+  // ever. The reader is driven rather than owning a timer, so the tick is here.
+  teardown.push(
+    clock.setInterval(Math.max(1, Math.floor(gapTimeoutMs / 4)), () => {
+      if (closed) return;
+      try {
+        reader.checkTimeout(clock.now());
+      } catch (error) {
+        logger.warn('streamed response stalled', { streamId, error: String(error) });
+        fail(error);
+      }
+    }),
+  );
+
+  // The client hanging up is the ordinary end of an event stream. It is not a
+  // failure, and it must not leave the subscription behind.
+  response.on('close', () => {
+    if (closed) return;
+    stop();
+    settle?.resolve();
+  });
+
+  return { finished, cancel: stop };
 }
 
 /**
