@@ -655,9 +655,9 @@
     "semantic_hash": "17f2be37ada4440bdd407139b467b209"
   },
   "CHANGELOG.md": {
-    "mtime": 1787807643.8389933,
-    "ast_hash": "39b4b841119cd3a7768255cf0d047104",
-    "semantic_hash": "39b4b841119cd3a7768255cf0d047104"
+    "mtime": 1787892210.405158,
+    "ast_hash": "34e0614399a88afe7f984edfc22c4489",
+    "semantic_hash": "34e0614399a88afe7f984edfc22c4489"
   },
   "CLAUDE.md": {
     "mtime": 1786755038.5825655,
@@ -725,9 +725,9 @@
     "semantic_hash": "60a2b887216aad4e57d05fa89f9a5513"
   },
   "docs/configuration.md": {
-    "mtime": 1786851105.6882155,
-    "ast_hash": "27c8810d07d6783f3b7d304107a805f0",
-    "semantic_hash": "27c8810d07d6783f3b7d304107a805f0"
+    "mtime": 1787892231.8747816,
+    "ast_hash": "16fbf38c5b01cf58e84012166cee9c00",
+    "semantic_hash": "16fbf38c5b01cf58e84012166cee9c00"
   },
   "docs/guarantees.md": {
     "mtime": 1786408065.3633454,
@@ -858,5 +858,10 @@
     "mtime": 1787891015.2682986,
     "ast_hash": "5cf52d4fb74d214c7c010f33f635075d",
     "semantic_hash": "5cf52d4fb74d214c7c010f33f635075d"
+  },
+  "e2e/fast/12-streaming.sh": {
+    "mtime": 1787892168.4365325,
+    "ast_hash": "b588a0839481e7fc0648da1fc91d6704",
+    "semantic_hash": "b588a0839481e7fc0648da1fc91d6704"
   }
 }
