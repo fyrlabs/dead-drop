@@ -123,6 +123,8 @@ class GitStore implements StoreTransport {
   private ready: Promise<void> | undefined;
   private queue: PendingMutation[] = [];
   private flushing: Promise<void> | undefined;
+  /** Serialises every operation that can reset, read or mutate the working tree. */
+  private workTreeTail: Promise<void> = Promise.resolve();
   private lastFetchAt = 0;
   private lastSuccessAt: number | undefined;
   private closed = false;
@@ -220,8 +222,12 @@ class GitStore implements StoreTransport {
     if (options.ifAbsent) {
       // Check against the freshly fetched remote state, not just the local tree:
       // another peer may have created the key since our last fetch.
-      await this.sync(true);
-      if (await this.exists(key)) {
+      const exists = await this.withWorkTree(async () => {
+        this.checkOpen(options.signal);
+        await this.sync(true);
+        return this.exists(key);
+      });
+      if (exists) {
         throw new DeadDropError('TRANSPORT_ERROR', `object already exists: ${key}`, {
           details: { key },
           retryable: false,
@@ -237,44 +243,50 @@ class GitStore implements StoreTransport {
     assertValidKey(key);
     this.checkOpen(options.signal);
     await this.ensureClone();
-    await this.sync(false);
-    try {
-      const data = await readFile(this.pathFor(key));
-      this.lastSuccessAt = this.context.now();
-      return new Uint8Array(data);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-      throw this.wrap(error, `failed to read ${key}`);
-    }
+    return this.withWorkTree(async () => {
+      this.checkOpen(options.signal);
+      await this.sync(false);
+      try {
+        const data = await readFile(this.pathFor(key));
+        this.lastSuccessAt = this.context.now();
+        return new Uint8Array(data);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+        throw this.wrap(error, `failed to read ${key}`);
+      }
+    });
   }
 
   async list(prefix: string, options: ListOptions = {}): Promise<ListResult> {
     assertValidPrefix(prefix);
     this.checkOpen(options.signal);
     await this.ensureClone();
-    await this.sync(false);
+    return this.withWorkTree(async () => {
+      this.checkOpen(options.signal);
+      await this.sync(false);
 
-    const base = prefix === '' ? this.dataDir : join(this.dataDir, ...prefix.split('/'));
-    let entries: ObjectEntry[];
-    try {
-      entries = await this.walk(base, prefix);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { entries: [] };
-      throw this.wrap(error, `failed to list ${prefix}`);
-    }
-    entries.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+      const base = prefix === '' ? this.dataDir : join(this.dataDir, ...prefix.split('/'));
+      let entries: ObjectEntry[];
+      try {
+        entries = await this.walk(base, prefix);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { entries: [] };
+        throw this.wrap(error, `failed to list ${prefix}`);
+      }
+      entries.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 
-    const after = options.startAfter ?? options.cursor;
-    const start = after ? entries.findIndex((entry) => entry.key > after) : 0;
-    const from = start < 0 ? entries.length : start;
-    const limit = options.limit ?? entries.length;
-    const page = entries.slice(from, from + limit);
-    this.lastSuccessAt = this.context.now();
-    const result: ListResult = { entries: page };
-    if (from + page.length < entries.length && page.length > 0) {
-      result.cursor = page[page.length - 1]!.key;
-    }
-    return result;
+      const after = options.startAfter ?? options.cursor;
+      const start = after ? entries.findIndex((entry) => entry.key > after) : 0;
+      const from = start < 0 ? entries.length : start;
+      const limit = options.limit ?? entries.length;
+      const page = entries.slice(from, from + limit);
+      this.lastSuccessAt = this.context.now();
+      const result: ListResult = { entries: page };
+      if (from + page.length < entries.length && page.length > 0) {
+        result.cursor = page[page.length - 1]!.key;
+      }
+      return result;
+    });
   }
 
   async delete(key: string, options: { signal?: AbortSignal } = {}): Promise<void> {
@@ -319,6 +331,7 @@ class GitStore implements StoreTransport {
     // Let queued writes finish; dropping them would silently lose messages the
     // caller has already been told are durable.
     await this.flushing?.catch(() => undefined);
+    await this.workTreeTail.catch(() => undefined);
     await this.lock?.release().catch(() => undefined);
     this.lock = undefined;
   }
@@ -449,7 +462,7 @@ class GitStore implements StoreTransport {
     const batch = this.queue.splice(0);
     if (batch.length === 0) return;
     try {
-      await this.applyBatch(batch);
+      await this.withWorkTree(() => this.applyBatch(batch));
     } catch (error) {
       for (const mutation of batch) mutation.reject(error);
       return;
@@ -461,7 +474,22 @@ class GitStore implements StoreTransport {
     // on a housekeeping push. It runs here rather than on a timer because this
     // is inside the flush lock, which is what keeps it from interleaving with
     // `applyBatch`'s own commit-and-push in this process.
-    await this.maybeCompact().catch(() => undefined);
+    await this.withWorkTree(() => this.maybeCompact()).catch(() => undefined);
+  }
+
+  /**
+   * Runs one operation after every earlier working-tree operation has settled.
+   * A read fetches and resets before inspecting files, so it belongs in the
+   * same queue as commit-and-push: otherwise its reset can discard the commit
+   * in the small window before that commit is pushed.
+   */
+  private withWorkTree<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.workTreeTail.then(operation, operation);
+    this.workTreeTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   /**

@@ -8,9 +8,10 @@
  */
 
 import { execFile } from 'node:child_process';
-import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -35,6 +36,21 @@ async function bareRemote(): Promise<string> {
   const dir = await temp('deaddrop-git-remote-');
   await execFileAsync('git', ['init', '--bare', '--quiet', '--initial-branch=main', dir]);
   return dir;
+}
+
+async function waitForFile(path: string, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    if (
+      await access(path).then(
+        () => true,
+        () => false,
+      )
+    )
+      return;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${path}`);
+    await delay(10);
+  }
 }
 
 function context(overrides: Partial<TransportContext> = {}): TransportContext {
@@ -281,6 +297,70 @@ describe('git transport specifics', () => {
       const observer = await store(remote);
       const read = await observer.get('inbox/peer-b/must-survive.ddf');
       expect(read && Buffer.from(read).toString()).toBe('must survive');
+    },
+    90_000,
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'does not let a poll reset the working tree between commit and push',
+    async () => {
+      const remote = await bareRemote();
+      const workDir = await temp('deaddrop-git-serial-');
+      const controlDir = await temp('deaddrop-git-serial-control-');
+      const armed = join(controlDir, 'pause-push');
+      const entered = join(controlDir, 'push-entered');
+      const release = join(controlDir, 'release-push');
+      const warnings: string[] = [];
+      const ctx = context({
+        logger: {
+          debug() {},
+          info() {},
+          warn(message) {
+            warnings.push(message);
+          },
+          error() {},
+        },
+      });
+
+      // Hold one push after its commit exists. A concurrent list used to fetch
+      // and reset that commit away before the push process inspected HEAD.
+      const shim = join(await temp('deaddrop-git-serial-shim-'), 'git-shim.sh');
+      await writeFile(
+        shim,
+        '#!/bin/sh\n' +
+          'for arg in "$@"; do\n' +
+          `  if [ "$arg" = "push" ] && [ -f "${armed}" ]; then\n` +
+          `    rm -f "${armed}"\n` +
+          `    printf '' > "${entered}"\n` +
+          `    while [ ! -f "${release}" ]; do sleep 0.01; done\n` +
+          '    break\n' +
+          '  fi\n' +
+          'done\n' +
+          'exec git "$@"\n',
+        { mode: 0o755 },
+      );
+
+      const transport = await store(remote, { workDir, gitPath: shim }, ctx);
+      await transport.put('inbox/peer-b/warm.ddf', bytes('warm up'));
+      await writeFile(armed, '');
+
+      const put = transport.put('inbox/peer-b/must-survive.ddf', bytes('must survive'));
+      await waitForFile(entered);
+      let listSettled = false;
+      const list = transport.list('inbox/peer-b').finally(() => {
+        listSettled = true;
+      });
+
+      try {
+        await delay(100);
+        expect(listSettled).toBe(false);
+      } finally {
+        await writeFile(release, '');
+      }
+
+      const [, listed] = await Promise.all([put, list]);
+      expect(listed.entries.map((entry) => entry.key)).toContain('inbox/peer-b/must-survive.ddf');
+      expect(warnings).not.toContain('a push was discarded before it left this clone, replaying');
     },
     90_000,
   );

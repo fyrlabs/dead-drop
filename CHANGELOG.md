@@ -6,6 +6,10 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ## [Unreleased]
 
+### Fixed
+
+- Git-backed reads no longer reset the working tree between a concurrent write's commit and push. That race was recovered safely but logged `a push was discarded before it left this clone, replaying`; working-tree operations are now serialised so the commit is pushed once without the warning.
+
 ## [0.16.0]
 
 ### Added
