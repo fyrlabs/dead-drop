@@ -8,6 +8,7 @@ Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is 
 
 ### Fixed
 
+- `concurrency` now works for slow handlers. It used to only run messages together when one poll found them together, so a long handler held up every message that arrived after it, whatever the setting. Now a new message starts as soon as a slot is free. At the default of `1` nothing changes.
 - Git-backed reads no longer reset the working tree between a concurrent write's commit and push. That race was recovered safely but logged `a push was discarded before it left this clone, replaying`; working-tree operations are now serialised so the commit is pushed once without the warning.
 
 ## [0.16.0]

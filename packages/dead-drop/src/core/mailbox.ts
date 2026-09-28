@@ -163,6 +163,10 @@ export class MailboxEngine {
   private pollIntervalMs: number;
   private loop: Promise<void> | undefined;
   private wake: (() => void) | undefined;
+  // One entry per message whose handler holds a slot, keyed by transport and
+  // store key. A key in here is listed again by every poll until its handler
+  // acknowledges it, so dispatch has to skip it rather than start it twice.
+  private readonly active = new Map<string, Promise<boolean>>();
   private inflight = 0;
   private lastReapAt = 0;
   private awaitingReplies = 0;
@@ -320,6 +324,8 @@ export class MailboxEngine {
     }
     await this.loop?.catch(() => undefined);
     this.loop = undefined;
+    // The loop no longer waits on handlers, so stopping has to.
+    await Promise.allSettled([...this.active.values()]);
     await this.dedupe.flush(true);
   }
 
@@ -336,30 +342,83 @@ export class MailboxEngine {
     };
   }
 
-  /** Runs one poll cycle. Exposed so tests do not have to wait on a timer. */
+  /**
+   * Runs one poll cycle and waits for every handler it started. Exposed so
+   * tests do not have to wait on a timer. Returns how many messages were
+   * delivered.
+   */
   async pollOnce(): Promise<number> {
+    const started = await this.poll(/* waitForSlot */ true);
+    const results = await Promise.all(started);
+    return results.filter(Boolean).length;
+  }
+
+  /**
+   * Lists every source and hands each ready message to a free slot, returning
+   * the handlers it started without waiting for them.
+   *
+   * With `waitForSlot` false (the background loop) a full pool ends dispatch
+   * for this cycle; whatever is left is listed again once a handler finishes
+   * and nudges the loop. That is what lets a message that arrives while a slow
+   * handler runs start straight away instead of waiting for the whole batch.
+   */
+  private async poll(waitForSlot: boolean): Promise<Array<Promise<boolean>>> {
     if (!this.handler) {
       // Silently acknowledging messages with nowhere to deliver them would look
       // like successful delivery and lose the data.
       throw new DeadDropError('INTERNAL', 'mailbox has no message handler; call setHandler first');
     }
-    let delivered = 0;
+    const started: Array<Promise<boolean>> = [];
     for (const entry of this.manager.stores()) {
-      delivered += await this.pollInbox(entry);
+      await this.pollInbox(entry, waitForSlot, started);
       for (const channel of this.topics) {
-        delivered += await this.pollTopic(entry, channel);
+        await this.pollTopic(entry, channel, waitForSlot, started);
       }
     }
     await this.reapTopics();
     await this.dedupe.flush();
-    return delivered;
+    return started;
+  }
+
+  /**
+   * Starts `consume` for one key if a slot is free, or once one frees up when
+   * `waitForSlot` is set. Returns false when the pool is full and the caller
+   * should stop dispatching.
+   */
+  private async dispatch(
+    entry: ManagedTransport,
+    key: string,
+    acknowledge: boolean,
+    waitForSlot: boolean,
+    started: Array<Promise<boolean>>,
+  ): Promise<boolean> {
+    while (this.active.size >= this.concurrency) {
+      if (!waitForSlot) return false;
+      await Promise.race(this.active.values());
+    }
+    const slot = `${entry.name}:${key}`;
+    const task = this.consume(entry, entry.transport as StoreTransport, key, acknowledge)
+      .catch((error: unknown) => {
+        this.logger.warn('message consumption failed', { key, error: String(error) });
+        return false;
+      })
+      .finally(() => {
+        this.active.delete(slot);
+        // A freed slot is a reason to look again: the next message may already
+        // be waiting in the listing this cycle had to leave behind.
+        if (this.running) this.nudge();
+      });
+    this.active.set(slot, task);
+    started.push(task);
+    return true;
   }
 
   private async run(): Promise<void> {
     while (this.running) {
       let delivered = 0;
       try {
-        delivered = await this.pollOnce();
+        // Started, not finished: a message being handled is traffic too.
+        delivered = (await this.poll(/* waitForSlot */ false)).length;
       } catch (error) {
         const deadDropError = DeadDropError.from(error);
         if (deadDropError.code !== 'CANCELLED') {
@@ -447,30 +506,37 @@ export class MailboxEngine {
     }
   }
 
-  private async pollInbox(entry: ManagedTransport): Promise<number> {
-    const store = entry.transport as StoreTransport;
+  private async pollInbox(
+    entry: ManagedTransport,
+    waitForSlot: boolean,
+    started: Array<Promise<boolean>>,
+  ): Promise<void> {
     const prefix = inboxPrefix(this.workspace, this.peerId);
-    const listed = await this.safeList(entry, prefix, { limit: this.batchSize });
-    if (listed.length === 0) return 0;
+    // Keys still being handled come back in the listing until they are
+    // acknowledged, so they must not eat the batch meant for new messages.
+    const listed = await this.safeList(entry, prefix, {
+      limit: this.batchSize + this.active.size,
+    });
+    if (listed.length === 0) return;
 
     const now = this.clock.now();
     const ready = listed.filter((key) => {
+      if (this.active.has(`${entry.name}:${key}`)) return false;
       const state = this.delivery.get(key);
       return !state || state.nextAttemptAt <= now;
     });
 
-    let delivered = 0;
-    for (const batch of chunks(ready, this.concurrency)) {
-      const results = await Promise.all(
-        batch.map((key) => this.consume(entry, store, key, /* acknowledge */ true)),
-      );
-      delivered += results.filter(Boolean).length;
+    for (const key of ready.slice(0, this.batchSize)) {
+      if (!(await this.dispatch(entry, key, /* acknowledge */ true, waitForSlot, started))) return;
     }
-    return delivered;
   }
 
-  private async pollTopic(entry: ManagedTransport, channel: string): Promise<number> {
-    const store = entry.transport as StoreTransport;
+  private async pollTopic(
+    entry: ManagedTransport,
+    channel: string,
+    waitForSlot: boolean,
+    started: Array<Promise<boolean>>,
+  ): Promise<void> {
     const prefix = topicPrefix(this.workspace, channel);
     const cursorKey = `${entry.name}:${channel}`;
     const startAfter = this.topicCursors.get(cursorKey);
@@ -478,17 +544,15 @@ export class MailboxEngine {
     if (startAfter) options.startAfter = startAfter;
 
     const listed = await this.safeList(entry, prefix, options);
-    if (listed.length === 0) return 0;
-
-    let delivered = 0;
     for (const key of listed) {
       // Broadcast messages belong to every subscriber, so they are never
       // deleted on consumption; the cursor is what stops redelivery here and
-      // retention reaping is what eventually removes them.
-      if (await this.consume(entry, store, key, /* acknowledge */ false)) delivered += 1;
+      // retention reaping is what eventually removes them. It only moves past
+      // a key once that key has a slot, so a full pool leaves the rest for the
+      // next cycle.
+      if (!(await this.dispatch(entry, key, /* acknowledge */ false, waitForSlot, started))) return;
       this.topicCursors.set(cursorKey, key);
     }
-    return delivered;
   }
 
   private async safeList(
@@ -761,8 +825,4 @@ export class MailboxEngine {
     const smallest = Math.min(...limits);
     return Math.max(1024, smallest - CHUNK_HEADER_ALLOWANCE_BYTES);
   }
-}
-
-function* chunks<T>(items: readonly T[], size: number): Generator<T[]> {
-  for (let i = 0; i < items.length; i += size) yield items.slice(i, i + size);
 }

@@ -133,11 +133,11 @@ Stale presence beacons are reaped on the same schedule but far more aggressively
 
 ### `concurrency`
 
-A poll can find several messages waiting. At the default of `1` they are handled one at a time, in the order they were sent, and a handler that takes ten seconds keeps every message behind it waiting. Raising `concurrency` lets that batch run together.
+A poll can find several messages waiting. At the default of `1` they are handled one at a time, in the order they were sent, and a handler that takes ten seconds keeps every message behind it waiting. Raising `concurrency` lets up to that many handlers run at once. The limit is a pool, not a batch: polling carries on while handlers run, and a message that arrives later starts as soon as a slot is free rather than waiting for everything already running to finish. Inbox messages and subscribed events share the same slots.
 
 **The trade is ordering, and it is the reason the default is 1.** Concurrent handlers finish in whatever order they finish, so a peer can see two of its requests answered out of the order it sent them. dead-drop has only ever promised best-effort ordering per recipient ([docs/guarantees.md](guarantees.md)), so nothing is broken by this, but a handler written against the serial behaviour can notice the difference. Requests from different peers were never ordered relative to each other in the first place.
 
-Raise it when handlers spend their time waiting -- on a database, an HTTP call, a disk -- which is the usual case. Leave it at 1 when handlers must not interleave, for example when they mutate one shared file. It does not make a single message faster, and a batch now holds up to `concurrency` payloads in memory at once rather than one, so pair a large value with a modest `maxMessageBytes`.
+Raise it when handlers spend their time waiting -- on a database, an HTTP call, a disk -- which is the usual case. Leave it at 1 when handlers must not interleave, for example when they mutate one shared file. It does not make a single message faster, and up to `concurrency` payloads now sit in memory at once rather than one, so pair a large value with a modest `maxMessageBytes`. Stopping a workspace waits for every running handler to finish.
 
 ## Transports
 

@@ -624,6 +624,79 @@ describe('MailboxEngine concurrency', () => {
     expect(new Set(entered).size).toBe(3);
     expect([...objects.keys()].filter((key) => key.includes('/inbox/'))).toHaveLength(0);
   });
+
+  /**
+   * Starts the background loop with message A already waiting and a handler
+   * that holds A until released, then drops B into the inbox after A started.
+   * B arriving on a later poll than A is the case that matters: over git or
+   * GitHub two requests almost never share a listing.
+   */
+  async function slowFirstMessage(concurrency: number) {
+    const objects = await inbox(1);
+    const entered: string[] = [];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const context = await fixture({
+      peerId: 'peer-b',
+      objects,
+      mailbox: { concurrency },
+      handler: async (message) => {
+        entered.push(message.id);
+        if (entered.length === 1) await held;
+      },
+    });
+    await context.start();
+    await settle();
+    expect(entered).toHaveLength(1);
+
+    const sender = await fixture({ peerId: 'peer-a', objects });
+    await sender.mailbox.send(envelope({ to: 'peer-b' }));
+    await sender.stop();
+    // Several poll intervals, so the loop lists A again while it is held.
+    for (let index = 0; index < 5; index += 1) {
+      await context.clock.advance(20_000);
+      await settle();
+    }
+    return { context, entered, release };
+  }
+
+  it('starts a message from a later poll while an earlier handler is still running', async () => {
+    const { context, entered, release } = await slowFirstMessage(2);
+    // Before the pool, B waited for A whatever `concurrency` said, because the
+    // poll loop itself awaited the batch A was in.
+    expect(entered).toHaveLength(2);
+    // A is listed by every poll until acknowledged; it must not start twice.
+    expect(new Set(entered).size).toBe(2);
+    release();
+    await context.stop();
+    expect(context.mailbox.stats().inflight).toBe(0);
+  });
+
+  it('still handles one message at a time at concurrency 1', async () => {
+    const { context, entered, release } = await slowFirstMessage(1);
+    expect(entered).toHaveLength(1);
+    release();
+    await settle();
+    await context.clock.advance(20_000);
+    await settle();
+    expect(entered).toHaveLength(2);
+    await context.stop();
+  });
+
+  it('waits for running handlers when stopped', async () => {
+    const { context, entered, release } = await slowFirstMessage(2);
+    let stopped = false;
+    const stopping = context.stop().then(() => {
+      stopped = true;
+    });
+    await settle();
+    expect(stopped).toBe(false);
+    release();
+    await stopping;
+    expect(entered).toHaveLength(2);
+  });
 });
 
 describe('mailbox keys', () => {
