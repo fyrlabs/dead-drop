@@ -180,16 +180,16 @@
     "semantic_hash": "39c12cd61b521db2fae220584ae0ec5f"
   },
   "package.json": {
-    "mtime": 1788133569.5779564,
-    "seen": 1790491900.283746,
-    "ast_hash": "db8485fb4660d929f5f4ca17ac192c7a",
-    "semantic_hash": "db8485fb4660d929f5f4ca17ac192c7a"
+    "mtime": 1790572624.0330951,
+    "seen": 1790572867.4539158,
+    "ast_hash": "09cf30efc8d408743e51a028df971d9c",
+    "semantic_hash": "09cf30efc8d408743e51a028df971d9c"
   },
   "packages/dead-drop/package.json": {
-    "mtime": 1788133569.5781891,
-    "seen": 1790491900.283747,
-    "ast_hash": "6b580fb8cefd2588667307dd1bfe87b0",
-    "semantic_hash": "6b580fb8cefd2588667307dd1bfe87b0"
+    "mtime": 1790572624.0338678,
+    "seen": 1790572867.453919,
+    "ast_hash": "1f7ea7e43611cb73346e7664c9a1ad59",
+    "semantic_hash": "1f7ea7e43611cb73346e7664c9a1ad59"
   },
   "packages/dead-drop/src/cli/bin.ts": {
     "mtime": 1786408065.370514,
@@ -780,10 +780,10 @@
     "semantic_hash": "17f2be37ada4440bdd407139b467b209"
   },
   "CHANGELOG.md": {
-    "mtime": 1790563354.7051535,
-    "seen": 1790564134.7687948,
-    "ast_hash": "eb22131820d02cb03497640244901269",
-    "semantic_hash": "eb22131820d02cb03497640244901269"
+    "mtime": 1790572624.240957,
+    "seen": 1790572867.455662,
+    "ast_hash": "c0f60800976266eab3ba14b1eba9ebab",
+    "semantic_hash": "c0f60800976266eab3ba14b1eba9ebab"
   },
   "CLAUDE.md": {
     "mtime": 1786755038.5825655,
