@@ -8,6 +8,12 @@ import {
   generateWorkspaceSecret,
   type Envelope,
 } from '#dead-drop/protocol/index.js';
+import {
+  createStreamId,
+  decodeHttpStreamPart,
+  encodeHttpStreamPart,
+  httpStreamChannel,
+} from '#dead-drop/protocol/stream.js';
 
 import type { TestClock } from '#dead-drop/core/clock.js';
 import {
@@ -356,6 +362,48 @@ describe('MailboxEngine receive', () => {
     expect(context.received).toHaveLength(1);
     expect(Buffer.from(context.received[0]!.payload).equals(Buffer.from(payload))).toBe(true);
     expect([...objects.keys()].filter((key) => key.includes('/inbox/'))).toHaveLength(0);
+  });
+
+  it('reassembles stream parts larger than the transport payload limit', async () => {
+    // The exposure sends whatever the upstream body hands it as one part, with
+    // no size cap of its own, so a part can exceed the store limit. Several
+    // back to back means chunk groups from different parts share one listing.
+    const objects = new Map<string, Uint8Array>();
+    const context = await fixture({
+      peerId: 'peer-b',
+      objects,
+      store: { maxPayloadBytes: 8192 },
+    });
+    const sender = await fixture({ peerId: 'peer-a', objects, store: { maxPayloadBytes: 8192 } });
+    const channel = httpStreamChannel(createStreamId());
+    const bodies = [0, 1, 2].map((seq) => {
+      const body = new Uint8Array(30_000);
+      for (let i = 0; i < body.length; i++) body[i] = (i * 7 + seq) & 0xff;
+      return body;
+    });
+
+    for (const [seq, body] of bodies.entries()) {
+      await sender.mailbox.send(
+        envelope({
+          to: 'peer-b',
+          channel,
+          payload: encodeHttpStreamPart({ kind: 'chunk', seq, body }),
+        }),
+      );
+    }
+    await sender.stop();
+    expect(objects.size).toBeGreaterThan(bodies.length);
+
+    await context.mailbox.pollOnce();
+    const parts = context.received
+      .map((received) => decodeHttpStreamPart(received.payload))
+      .sort((a, b) => a.seq - b.seq);
+    expect(parts.map((part) => part.seq)).toEqual([0, 1, 2]);
+    for (const [seq, part] of parts.entries()) {
+      expect(part.kind).toBe('chunk');
+      if (part.kind === 'chunk')
+        expect(Buffer.from(part.body).equals(Buffer.from(bodies[seq]!))).toBe(true);
+    }
   });
 });
 
