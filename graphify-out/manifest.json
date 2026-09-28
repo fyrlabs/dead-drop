@@ -234,10 +234,10 @@
     "semantic_hash": "12e633ac35c3ea6e983c1092fee3d51a"
   },
   "packages/dead-drop/src/core/mailbox.ts": {
-    "mtime": 1787803501.7223823,
-    "seen": 1790491900.2837498,
-    "ast_hash": "1828d479f9bbfcff82ecd1d89df53314",
-    "semantic_hash": "1828d479f9bbfcff82ecd1d89df53314"
+    "mtime": 1790563313.9342787,
+    "seen": 1790564134.767029,
+    "ast_hash": "1a8c2298597615e64520a95d1fc9ecc9",
+    "semantic_hash": "1a8c2298597615e64520a95d1fc9ecc9"
   },
   "packages/dead-drop/src/core/observability/logger.ts": {
     "mtime": 1786408065.372152,
@@ -426,10 +426,10 @@
     "semantic_hash": "15bbb957de87c8b85fff64c5530f3f93"
   },
   "packages/dead-drop/src/transports/git/index.ts": {
-    "mtime": 1786827320.3977087,
-    "seen": 1790491900.283766,
-    "ast_hash": "078fd36e6a5ca4c41ad874c342ceed77",
-    "semantic_hash": "078fd36e6a5ca4c41ad874c342ceed77"
+    "mtime": 1790545883.1540768,
+    "seen": 1790564134.767817,
+    "ast_hash": "fdc2325546b96393db2c6e866e3f5d14",
+    "semantic_hash": "fdc2325546b96393db2c6e866e3f5d14"
   },
   "packages/dead-drop/src/transports/git/workdir-lock.ts": {
     "mtime": 1786408065.37757,
@@ -498,10 +498,10 @@
     "semantic_hash": "60b980c1bbcb1ef5c9e0260cf684826b"
   },
   "packages/dead-drop/test/core/mailbox.test.ts": {
-    "mtime": 1787803494.5514984,
-    "seen": 1790491900.2837708,
-    "ast_hash": "945f448de133688b400d20f750bc9e84",
-    "semantic_hash": "945f448de133688b400d20f750bc9e84"
+    "mtime": 1790563990.242249,
+    "seen": 1790564134.768021,
+    "ast_hash": "71586af56990256e6150a6abf617017c",
+    "semantic_hash": "71586af56990256e6150a6abf617017c"
   },
   "packages/dead-drop/test/core/observability/observability.test.ts": {
     "mtime": 1786408065.3797998,
@@ -618,10 +618,10 @@
     "semantic_hash": "e2de7e00937ac743d6456c1df3ffe946"
   },
   "packages/dead-drop/test/transports/git/index.test.ts": {
-    "mtime": 1786852706.7714522,
-    "seen": 1790491900.2839081,
-    "ast_hash": "6410e68b59cb5d60169f35cc9f35f441",
-    "semantic_hash": "6410e68b59cb5d60169f35cc9f35f441"
+    "mtime": 1790546031.4916413,
+    "seen": 1790564134.768469,
+    "ast_hash": "44c222466e7d4c085129e5c4504eae83",
+    "semantic_hash": "44c222466e7d4c085129e5c4504eae83"
   },
   "packages/dead-drop/test/transports/git/workdir-lock.test.ts": {
     "mtime": 1786408065.3824298,
@@ -780,10 +780,10 @@
     "semantic_hash": "17f2be37ada4440bdd407139b467b209"
   },
   "CHANGELOG.md": {
-    "mtime": 1788133562.4319224,
-    "seen": 1790491900.283919,
-    "ast_hash": "335118b5b5b89204b600f662580f6c7f",
-    "semantic_hash": "335118b5b5b89204b600f662580f6c7f"
+    "mtime": 1790563354.7051535,
+    "seen": 1790564134.7687948,
+    "ast_hash": "eb22131820d02cb03497640244901269",
+    "semantic_hash": "eb22131820d02cb03497640244901269"
   },
   "CLAUDE.md": {
     "mtime": 1786755038.5825655,
@@ -851,9 +851,10 @@
     "semantic_hash": "60a2b887216aad4e57d05fa89f9a5513"
   },
   "docs/configuration.md": {
-    "mtime": 1787892231.8747816,
-    "ast_hash": "16fbf38c5b01cf58e84012166cee9c00",
-    "semantic_hash": "16fbf38c5b01cf58e84012166cee9c00"
+    "mtime": 1790563354.6307063,
+    "seen": 1790564134.768796,
+    "ast_hash": "10e73b51809b4c63acc62451c58a6d80",
+    "semantic_hash": "10e73b51809b4c63acc62451c58a6d80"
   },
   "docs/guarantees.md": {
     "mtime": 1786408065.3633454,
@@ -1005,5 +1006,11 @@
     "seen": 1790491900.2837398,
     "ast_hash": "b588a0839481e7fc0648da1fc91d6704",
     "semantic_hash": "b588a0839481e7fc0648da1fc91d6704"
+  },
+  "docs/proposals/0001-application-extensions.md": {
+    "mtime": 1790532076.1432574,
+    "seen": 1790564134.768797,
+    "ast_hash": "4d40b82df896b5f0b3cb2a65d35d80c3",
+    "semantic_hash": "4d40b82df896b5f0b3cb2a65d35d80c3"
   }
 }
