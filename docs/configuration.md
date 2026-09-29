@@ -53,7 +53,7 @@ A Unix socket path cannot exceed 104 bytes. When `<dataDir>/deaddrop.sock` would
 | `healthIntervalMs` | number | no | `30000` | How often every transport is probed for health. Must be positive. See below. |
 | `presenceIntervalMs` | number | no | `30000` | How often this peer republishes its presence beacon. Must be positive. See below. |
 | `inboxOrphanMs` | number | no | `604800000` | How long mail for an absent peer survives before any peer may delete it. `0` turns reaping off. See below. |
-| `concurrency` | number | no | `1` | How many inbound messages this workspace handles at once. Must be a whole number of at least 1. See below. |
+| `concurrency` | number | no | `1` | How many inbound requests and events this workspace handles at once. Must be a whole number of at least 1. See below. |
 | `enrollment` | object | no | | `requireApproval` (default `false`), a boolean. See below. |
 
 ### `peerId`
@@ -133,11 +133,15 @@ Stale presence beacons are reaped on the same schedule but far more aggressively
 
 ### `concurrency`
 
-A poll can find several messages waiting. At the default of `1` they are handled one at a time, in the order they were sent, and a handler that takes ten seconds keeps every message behind it waiting. Raising `concurrency` lets up to that many handlers run at once. The limit is a pool, not a batch: polling carries on while handlers run, and a message that arrives later starts as soon as a slot is free rather than waiting for everything already running to finish. Inbox messages and subscribed events share the same slots.
+A poll can find several messages waiting. At the default of `1` they are handled one at a time, in the order they were sent, and a handler that takes ten seconds keeps every message behind it waiting. Raising `concurrency` lets up to that many handlers run at once. The limit is a pool, not a batch: polling carries on while handlers run, and a message that arrives later starts as soon as a slot is free rather than waiting for everything already running to finish. Requests and subscribed events share the workspace lane, whose limit is `concurrency`.
+
+Responses never wait for a handler. A handler that calls another peer works at any `concurrency`, including `1`, because the reply is delivered while the handler is still running.
+
+A channel or service can have a lane of its own, so its slow calls cannot hold up anything else: `workspace.handle(channel, handler, { concurrency: 4 })`, or `workspace.service(name, methods, { concurrency: 4 })` for all methods of one service together. Lane limits are independent of the workspace `concurrency`. A message whose lane is full stays in the inbox, unread, until the lane has room; `stats()` shows each lane's `running`, `queued` and `parked` counts.
 
 **The trade is ordering, and it is the reason the default is 1.** Concurrent handlers finish in whatever order they finish, so a peer can see two of its requests answered out of the order it sent them. dead-drop has only ever promised best-effort ordering per recipient ([docs/guarantees.md](guarantees.md)), so nothing is broken by this, but a handler written against the serial behaviour can notice the difference. Requests from different peers were never ordered relative to each other in the first place.
 
-Raise it when handlers spend their time waiting -- on a database, an HTTP call, a disk -- which is the usual case. Leave it at 1 when handlers must not interleave, for example when they mutate one shared file. It does not make a single message faster, and up to `concurrency` payloads now sit in memory at once rather than one, so pair a large value with a modest `maxMessageBytes`. Stopping a workspace waits for every running handler to finish.
+Raise it when handlers spend their time waiting -- on a database, an HTTP call, a disk -- which is the usual case. Leave it at 1 when handlers must not interleave, for example when they mutate one shared file. It does not make a single message faster, and up to twice a lane's limit in payloads sit in memory (running plus queued), so pair a large value with a modest `maxMessageBytes`. Stopping a workspace waits for every running handler to finish; messages still queued behind them are left in the inbox and delivered after the next start.
 
 ## Transports
 

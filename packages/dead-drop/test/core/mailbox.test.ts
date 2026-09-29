@@ -747,6 +747,191 @@ describe('MailboxEngine concurrency', () => {
   });
 });
 
+describe('MailboxEngine lanes', () => {
+  async function settle(): Promise<void> {
+    for (let index = 0; index < 20; index += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  }
+
+  async function inbox(messages: Array<Partial<Envelope>>): Promise<Map<string, Uint8Array>> {
+    const objects = new Map<string, Uint8Array>();
+    const sender = await fixture({ peerId: 'peer-a', objects });
+    for (const message of messages)
+      await sender.mailbox.send(envelope({ to: 'peer-b', ...message }));
+    await sender.stop();
+    return objects;
+  }
+
+  function gate() {
+    let open!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    return { closed, open };
+  }
+
+  const request = (channel = 'work'): Partial<Envelope> => ({ kind: 'request', channel });
+
+  it('delivers a response while the only handler slot is busy', async () => {
+    const objects = await inbox([request()]);
+    const { closed, open } = gate();
+    const seen: string[] = [];
+    const context = await fixture({
+      peerId: 'peer-b',
+      objects,
+      handler: async (message) => {
+        seen.push(message.kind);
+        if (message.kind === 'request') await closed;
+      },
+    });
+    await context.start();
+    await settle();
+    expect(seen).toEqual(['request']);
+
+    const sender = await fixture({ peerId: 'peer-a', objects });
+    await sender.mailbox.send(envelope({ to: 'peer-b', kind: 'response', correlationId: 'x' }));
+    await sender.stop();
+    await context.clock.advance(20_000);
+    await settle();
+    expect(seen).toEqual(['request', 'response']);
+
+    open();
+    await context.stop();
+  });
+
+  it('runs a channel with its own lane while the shared lane is busy', async () => {
+    const objects = await inbox([request('slow'), request('other'), request('slow')]);
+    const { closed, open } = gate();
+    const entered: string[] = [];
+    const context = await fixture({
+      peerId: 'peer-b',
+      objects,
+      mailbox: {
+        lane: (_kind, channel) => (channel === 'slow' ? { name: 'slow', limit: 1 } : undefined),
+      },
+      handler: async (message) => {
+        entered.push(message.channel);
+        if (message.channel === 'slow') await closed;
+      },
+    });
+    await context.start();
+    await settle();
+    await context.clock.advance(20_000);
+    await settle();
+    // The second slow message waits its turn; the other channel does not.
+    expect(entered.sort()).toEqual(['other', 'slow']);
+    expect(context.mailbox.stats().lanes.find((lane) => lane.name === 'slow')).toMatchObject({
+      limit: 1,
+      running: 1,
+    });
+
+    open();
+    await settle();
+    await context.clock.advance(20_000);
+    await settle();
+    expect(entered.filter((channel) => channel === 'slow')).toHaveLength(2);
+    await context.stop();
+  });
+
+  it('handles requests in send order in the default lane', async () => {
+    const objects = await inbox([request(), request(), request(), request()]);
+    const ids = [...objects.keys()].sort().map((key) => key.split('/').pop()!.replace('.ddf', ''));
+    const entered: string[] = [];
+    const context = await fixture({
+      peerId: 'peer-b',
+      objects,
+      handler: async (message) => {
+        entered.push(message.id);
+      },
+    });
+    await context.start();
+    for (let index = 0; index < 6; index += 1) {
+      await settle();
+      await context.clock.advance(20_000);
+    }
+    expect(entered).toEqual(ids);
+    await context.stop();
+  });
+
+  it('parks a message its lane has no room for instead of fetching it every poll', async () => {
+    const objects = await inbox([request(), request(), request()]);
+    const { closed, open } = gate();
+    const calls: string[] = [];
+    const entered: string[] = [];
+    const context = await fixture({
+      peerId: 'peer-b',
+      objects,
+      store: { calls },
+      handler: async (message) => {
+        entered.push(message.id);
+        await closed;
+      },
+    });
+    await context.start();
+    await settle();
+    // One running, one queued behind it, one turned away.
+    expect(context.mailbox.stats().lanes[0]).toMatchObject({ running: 1, queued: 1, parked: 1 });
+    const gets = calls.filter((call) => call === 'get').length;
+
+    for (let index = 0; index < 5; index += 1) {
+      await context.clock.advance(20_000);
+      await settle();
+    }
+    expect(calls.filter((call) => call === 'get')).toHaveLength(gets);
+
+    open();
+    for (let index = 0; index < 6; index += 1) {
+      await settle();
+      await context.clock.advance(20_000);
+    }
+    expect(entered).toHaveLength(3);
+    expect(new Set(entered).size).toBe(3);
+    await context.stop();
+  });
+
+  it('redelivers a queued message after a restart, without the dedupe store swallowing it', async () => {
+    const objects = await inbox([request(), request()]);
+    const dedupe = new DedupeStore({ clock: (await fixture()).clock });
+    const { closed, open } = gate();
+    const first: string[] = [];
+    const context = await fixture({
+      peerId: 'peer-b',
+      objects,
+      mailbox: { dedupe },
+      handler: async (message) => {
+        first.push(message.id);
+        await closed;
+      },
+    });
+    await context.start();
+    await settle();
+    expect(first).toHaveLength(1);
+
+    // Stopping drops the queued message and waits for the running handler.
+    const stopping = context.stop();
+    await settle();
+    open();
+    await stopping;
+    expect(first).toHaveLength(1);
+    expect([...objects.keys()].filter((key) => key.includes('/inbox/'))).toHaveLength(1);
+
+    const second: string[] = [];
+    const restarted = await fixture({
+      peerId: 'peer-b',
+      objects,
+      mailbox: { dedupe },
+      handler: async (message) => {
+        second.push(message.id);
+      },
+    });
+    expect(await restarted.mailbox.pollOnce()).toBe(1);
+    expect(second).toHaveLength(1);
+    expect(second[0]).not.toBe(first[0]);
+    await restarted.stop();
+  });
+});
+
 describe('mailbox keys', () => {
   it('builds and parses frame keys', () => {
     expect(inboxPrefix('demo', 'peer-b')).toBe('ws/demo/inbox/peer-b');

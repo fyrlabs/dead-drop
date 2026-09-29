@@ -264,6 +264,14 @@ function applyWorkspace(workspace) {
   store.pollInterval = `${workspace.mailbox.pollIntervalMs}ms`;
   store.mailboxNote =
     `concurrency ${workspace.mailbox.concurrency} · ` +
+    (workspace.mailbox.lanes.length
+      ? `lanes: ${workspace.mailbox.lanes
+          .map(
+            (lane) =>
+              `${lane.name} ${lane.running}/${lane.limit} (${lane.queued} queued, ${lane.parked} parked)`,
+          )
+          .join(', ')} · `
+      : '') +
     `${workspace.mailbox.pendingChunkGroups} partial message(s) · ` +
     `${workspace.mailbox.dedupeSize} ids remembered` +
     (workspace.exposures.length ? ` · exposures: ${workspace.exposures.join(', ')}` : '') +

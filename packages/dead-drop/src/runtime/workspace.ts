@@ -54,6 +54,7 @@ import {
   wrappedKeyPrefix,
   type Clock,
   type Logger,
+  type LaneSpec,
   type MailboxStats,
   type MetricsRegistry,
   type Tracer,
@@ -68,6 +69,16 @@ import { saveEra, type StoredEra } from './era-store.js';
 import { VERSION } from '../version.js';
 
 /** A handler for inbound requests on one channel. */
+export interface HandleOptions {
+  /**
+   * Requests this handler (or, for `service`, all of that service's methods
+   * together) may run at once, in a lane of their own. Without it the handler
+   * shares the workspace lane, whose limit is the workspace `concurrency`.
+   * One service's slow calls then cannot hold up any other channel.
+   */
+  concurrency?: number;
+}
+
 export type RequestHandler = (
   payload: Uint8Array,
   context: RequestContext,
@@ -364,6 +375,7 @@ export class Workspace {
   private readonly keypair: PeerIdentity;
   private readonly tracer: Tracer | undefined;
   private readonly requestHandlers = new Map<string, RequestHandler>();
+  private readonly requestLanes = new Map<string, LaneSpec>();
   private readonly eventHandlers = new Map<string, Set<EventHandler>>();
   private readonly pending = new Map<string, Pending>();
   private readonly controller = new AbortController();
@@ -456,6 +468,7 @@ export class Workspace {
       clock: this.clock,
       logger: this.logger,
       metrics: this.metrics,
+      lane: (kind, channel) => (kind === 'request' ? this.requestLanes.get(channel) : undefined),
       ...(this.tracer ? { tracer: this.tracer } : {}),
       ...(options.dedupePath
         ? { dedupe: new DedupeStore({ clock: this.clock, persistPath: options.dedupePath }) }
@@ -546,10 +559,24 @@ export class Workspace {
   // ------------------------------------------------------------- application
 
   /** Registers a handler for `channel`. One handler per channel; last wins. */
-  handle(channel: string, handler: RequestHandler): () => void {
+  handle(channel: string, handler: RequestHandler, options: HandleOptions = {}): () => void {
+    return this.register(
+      channel,
+      handler,
+      options.concurrency === undefined
+        ? undefined
+        : { name: `channel:${channel}`, limit: options.concurrency },
+    );
+  }
+
+  private register(channel: string, handler: RequestHandler, lane?: LaneSpec): () => void {
     this.requestHandlers.set(channel, handler);
+    if (lane) this.requestLanes.set(channel, lane);
+    else this.requestLanes.delete(channel);
     return () => {
-      if (this.requestHandlers.get(channel) === handler) this.requestHandlers.delete(channel);
+      if (this.requestHandlers.get(channel) !== handler) return;
+      this.requestHandlers.delete(channel);
+      this.requestLanes.delete(channel);
     };
   }
 
@@ -557,12 +584,21 @@ export class Workspace {
   service(
     name: string,
     methods: Record<string, (input: unknown, context: RequestContext) => unknown>,
+    options: HandleOptions = {},
   ): () => void {
+    const lane =
+      options.concurrency === undefined
+        ? undefined
+        : { name: `service:${name}`, limit: options.concurrency };
     const unregister = Object.entries(methods).map(([method, implementation]) =>
-      this.handle(`${name}.${method}`, async (payload, context) => {
-        const result = await implementation(decodeJson(payload), context);
-        return encodeJson(result ?? null);
-      }),
+      this.register(
+        `${name}.${method}`,
+        async (payload, context) => {
+          const result = await implementation(decodeJson(payload), context);
+          return encodeJson(result ?? null);
+        },
+        lane,
+      ),
     );
     return () => unregister.forEach((off) => off());
   }

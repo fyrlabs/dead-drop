@@ -4,6 +4,16 @@ Notable changes to dead-drop. The format follows [Keep a Changelog](https://keep
 
 Versions here track `@fyrlabs/dead-drop`. `@fyrlabs/dead-drop-transport-sdk` is the stable transport contract and versions independently; its changes are called out explicitly.
 
+## [Unreleased]
+
+### Added
+
+- `workspace.handle(channel, handler, { concurrency })` and `workspace.service(name, methods, { concurrency })` give a channel or service its own handler limit, so one slow service can no longer hold up the others. `stats()` and the dashboard show each lane.
+
+### Fixed
+
+- A request handler can now call another peer at the default `concurrency: 1`. Before, the reply needed the slot the handler was holding, so the call always timed out. Responses no longer wait for a handler slot.
+
 ## [0.16.1]
 
 ### Fixed

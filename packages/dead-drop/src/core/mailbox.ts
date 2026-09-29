@@ -53,7 +53,25 @@ import { DedupeStore } from './reliability/dedupe.js';
 import { backoffDelay, DEFAULT_RETRY_POLICY, type RetryPolicy } from './reliability/retry.js';
 import type { ManagedTransport, TransportManager } from './transport-manager.js';
 
+const DEFAULT_LANE = 'default';
+// Delivered straight from the receive slot; see `consume`.
+const INLINE_KINDS: ReadonlySet<Envelope['kind']> = new Set(['response', 'ack', 'control']);
+
 export type MessageHandler = (envelope: Envelope) => Promise<void>;
+
+/** A named limit on how many handlers of some group of messages run at once. */
+export interface LaneSpec {
+  name: string;
+  limit: number;
+}
+
+export interface LaneStats {
+  name: string;
+  limit: number;
+  running: number;
+  queued: number;
+  parked: number;
+}
 
 export interface MailboxOptions {
   workspace: string;
@@ -74,27 +92,38 @@ export interface MailboxOptions {
   /** Messages fetched per poll. Default 32. */
   batchSize?: number;
   /**
-   * Messages processed concurrently within one poll. Default 1.
+   * Request and event handlers running at once in the default lane, and the
+   * messages fetched and decoded at once. Default 1.
    *
-   * The trade is ordering. At 1 a batch is delivered in key order, which is id
-   * order, which is roughly send order. Above 1 the handlers of one batch run
-   * interleaved and finish in whatever order they finish, so a peer can see
-   * two messages answered out of the order they were sent. Invariant 4 only
-   * promises best-effort ordering per recipient, so this is allowed, but it is
-   * a real change for a handler that quietly relied on the stricter behaviour.
-   * That is why the default stays 1 and raising it is opt-in.
+   * Responses and acks never wait for a handler, so a handler may call another
+   * peer even at 1. Channels that declare their own lane (see `lane`) do not
+   * count against this limit.
+   *
+   * The trade is ordering. At 1 messages are handled in key order, which is id
+   * order, which is roughly send order. Above 1 handlers run interleaved and
+   * finish in whatever order they finish, so a peer can see two messages
+   * answered out of the order they were sent. Invariant 4 only promises
+   * best-effort ordering per recipient, so this is allowed, but it is a real
+   * change for a handler that quietly relied on the stricter behaviour. That
+   * is why the default stays 1 and raising it is opt-in.
    *
    * What it does *not* trade is correctness of the shared state `consume`
    * touches. `dedupe.claim` is a synchronous check-and-set and `delivery` is
-   * keyed by object key, which is unique within a batch, so no two parallel
-   * consumes read or write the same entry. Keep both properties if you change
-   * this: an `await` inserted between the dedupe check and its record would
-   * make duplicates deliverable twice.
+   * keyed by object key, which is unique among the keys in flight, so no two
+   * parallel consumes read or write the same entry. Keep both properties if
+   * you change this: an `await` inserted between the dedupe check and its
+   * record would make duplicates deliverable twice.
    *
-   * Cost to expect: a batch holds up to `concurrency` payloads in memory at
-   * once instead of one.
+   * Cost to expect: up to twice a lane's limit in payloads sit in memory, the
+   * running ones and the ones queued behind them.
    */
   concurrency?: number;
+  /**
+   * Picks the lane a request or event runs in. Returning undefined selects the
+   * default lane, whose limit is `concurrency`. Responses and acks never ask:
+   * they are delivered as soon as they are received.
+   */
+  lane?: (kind: Envelope['kind'], channel: string) => LaneSpec | undefined;
   /** Handler attempts before a message is dead-lettered. Default 5. */
   maxDeliveryAttempts?: number;
   /** Backoff between redeliveries. */
@@ -115,6 +144,18 @@ export interface SendOptions {
   only?: string[];
 }
 
+interface Lane {
+  name: string;
+  limit: number;
+  running: number;
+  queue: QueuedJob[];
+}
+
+interface QueuedJob {
+  start: () => void;
+  cancel: () => void;
+}
+
 interface DeliveryState {
   attempts: number;
   nextAttemptAt: number;
@@ -125,6 +166,7 @@ export interface MailboxStats {
   pollIntervalMs: number;
   /** Messages handled at once. Reported so a config value can be seen to have taken effect. */
   concurrency: number;
+  lanes: LaneStats[];
   inflight: number;
   retrying: number;
   pendingChunkGroups: number;
@@ -148,6 +190,7 @@ export class MailboxEngine {
   private readonly pollBackoffFactor: number;
   private readonly batchSize: number;
   private readonly concurrency: number;
+  private readonly laneFor: NonNullable<MailboxOptions['lane']>;
   private readonly maxDeliveryAttempts: number;
   private readonly redeliveryPolicy: RetryPolicy;
   private readonly topicRetentionMs: number;
@@ -163,10 +206,21 @@ export class MailboxEngine {
   private pollIntervalMs: number;
   private loop: Promise<void> | undefined;
   private wake: (() => void) | undefined;
-  // One entry per message whose handler holds a slot, keyed by transport and
-  // store key. A key in here is listed again by every poll until its handler
-  // acknowledges it, so dispatch has to skip it rather than start it twice.
-  private readonly active = new Map<string, Promise<boolean>>();
+  // Keys are `<transport>:<store key>` throughout. A key is listed again by
+  // every poll until its message is acknowledged, so each of the three maps
+  // below exists to make the poll skip a key it already has.
+  //
+  // `active`: being fetched and decoded. Resolves when the message is handed
+  // to a lane (or dropped), which is when its receive slot frees up.
+  private readonly active = new Map<string, Promise<void>>();
+  // Handed to a lane: queued behind a running handler, or running.
+  private readonly held = new Set<string>();
+  // Refused because its lane had no room. Not fetched again until a place in
+  // that lane opens; the value is the lane name.
+  private readonly parked = new Map<string, string>();
+  private readonly lanes = new Map<string, Lane>();
+  private readonly laneTasks = new Set<Promise<boolean>>();
+  private stopping = false;
   private inflight = 0;
   private lastReapAt = 0;
   private awaitingReplies = 0;
@@ -186,6 +240,7 @@ export class MailboxEngine {
     this.pollBackoffFactor = options.pollBackoffFactor ?? 1.6;
     this.batchSize = options.batchSize ?? 32;
     this.concurrency = Math.max(1, options.concurrency ?? 1);
+    this.laneFor = options.lane ?? (() => undefined);
     this.maxDeliveryAttempts = options.maxDeliveryAttempts ?? 5;
     this.redeliveryPolicy = {
       ...DEFAULT_RETRY_POLICY,
@@ -311,6 +366,7 @@ export class MailboxEngine {
     if (this.running) throw new DeadDropError('INTERNAL', 'mailbox already started');
     this.setHandler(handler);
     this.running = true;
+    this.stopping = false;
     await this.dedupe.load();
     await this.attachWatchers();
     this.loop = this.run();
@@ -324,8 +380,15 @@ export class MailboxEngine {
     }
     await this.loop?.catch(() => undefined);
     this.loop = undefined;
-    // The loop no longer waits on handlers, so stopping has to.
+    // Messages still being received finish, then whatever is queued behind a
+    // running handler is dropped unacknowledged (and its dedupe claim
+    // released) so it is redelivered after a restart. Running handlers finish.
+    this.stopping = true;
     await Promise.allSettled([...this.active.values()]);
+    for (const lane of this.lanes.values()) {
+      for (const job of lane.queue.splice(0)) job.cancel();
+    }
+    await Promise.allSettled([...this.laneTasks]);
     await this.dedupe.flush(true);
   }
 
@@ -334,6 +397,13 @@ export class MailboxEngine {
       running: this.running,
       pollIntervalMs: this.pollIntervalMs,
       concurrency: this.concurrency,
+      lanes: [...this.lanes.entries()].map(([name, lane]) => ({
+        name,
+        limit: lane.limit,
+        running: lane.running,
+        queued: lane.queue.length,
+        parked: [...this.parked.values()].filter((parkedLane) => parkedLane === name).length,
+      })),
       inflight: this.inflight,
       retrying: this.delivery.size,
       pendingChunkGroups: this.assembler.pendingGroups,
@@ -348,21 +418,22 @@ export class MailboxEngine {
    * delivered.
    */
   async pollOnce(): Promise<number> {
-    const started = await this.poll(/* waitForSlot */ true);
+    const started = await this.poll(/* bounded */ false);
     const results = await Promise.all(started);
     return results.filter(Boolean).length;
   }
 
   /**
-   * Lists every source and hands each ready message to a free slot, returning
-   * the handlers it started without waiting for them.
+   * Lists every source and hands each ready message to a receive slot,
+   * returning the handlers it started without waiting for them.
    *
-   * With `waitForSlot` false (the background loop) a full pool ends dispatch
-   * for this cycle; whatever is left is listed again once a handler finishes
-   * and nudges the loop. That is what lets a message that arrives while a slow
-   * handler runs start straight away instead of waiting for the whole batch.
+   * `bounded` (the background loop) turns away a message whose lane is full and
+   * leaves it in the inbox, parked until the lane has room, so a slow handler
+   * never stops the loop and later messages for other lanes still start. A
+   * manual `pollOnce` is not bounded: it queues everything it listed and
+   * returns once all of it has been handled.
    */
-  private async poll(waitForSlot: boolean): Promise<Array<Promise<boolean>>> {
+  private async poll(bounded: boolean): Promise<Array<Promise<boolean>>> {
     if (!this.handler) {
       // Silently acknowledging messages with nowhere to deliver them would look
       // like successful delivery and lose the data.
@@ -370,9 +441,9 @@ export class MailboxEngine {
     }
     const started: Array<Promise<boolean>> = [];
     for (const entry of this.manager.stores()) {
-      await this.pollInbox(entry, waitForSlot, started);
+      await this.pollInbox(entry, bounded, started);
       for (const channel of this.topics) {
-        await this.pollTopic(entry, channel, waitForSlot, started);
+        await this.pollTopic(entry, channel, bounded, started);
       }
     }
     await this.reapTopics();
@@ -381,36 +452,120 @@ export class MailboxEngine {
   }
 
   /**
-   * Starts `consume` for one key if a slot is free, or once one frees up when
-   * `waitForSlot` is set. Returns false when the pool is full and the caller
-   * should stop dispatching.
+   * Starts `consume` for one key once a receive slot is free. Receive slots are
+   * held only while a message is fetched and decoded, never while application
+   * code runs, so waiting for one is short. The promise pushed to `started`
+   * settles when the handler has finished, not when the slot frees.
    */
   private async dispatch(
     entry: ManagedTransport,
     key: string,
     acknowledge: boolean,
-    waitForSlot: boolean,
+    bounded: boolean,
     started: Array<Promise<boolean>>,
-  ): Promise<boolean> {
+  ): Promise<void> {
     while (this.active.size >= this.concurrency) {
-      if (!waitForSlot) return false;
       await Promise.race(this.active.values());
     }
     const slot = `${entry.name}:${key}`;
-    const task = this.consume(entry, entry.transport as StoreTransport, key, acknowledge)
+    let release!: () => void;
+    const received = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.active.set(slot, received);
+    void received.then(() => this.active.delete(slot));
+    const task = this.consume(
+      entry,
+      entry.transport as StoreTransport,
+      key,
+      acknowledge,
+      bounded,
+      release,
+    )
       .catch((error: unknown) => {
         this.logger.warn('message consumption failed', { key, error: String(error) });
         return false;
       })
       .finally(() => {
-        this.active.delete(slot);
-        // A freed slot is a reason to look again: the next message may already
-        // be waiting in the listing this cycle had to leave behind.
+        release();
+        // A finished handler frees a place in its lane: the next message may
+        // already be waiting in the listing this cycle had to leave behind.
         if (this.running) this.nudge();
       });
-    this.active.set(slot, task);
     started.push(task);
-    return true;
+  }
+
+  private laneOf(kind: Envelope['kind'], channel: string): Lane {
+    const spec = this.laneFor(kind, channel) ?? { name: DEFAULT_LANE, limit: this.concurrency };
+    let lane = this.lanes.get(spec.name);
+    if (!lane) {
+      lane = { name: spec.name, limit: spec.limit, running: 0, queue: [] };
+      this.lanes.set(spec.name, lane);
+    }
+    lane.limit = Math.max(1, spec.limit);
+    return lane;
+  }
+
+  /** A lane takes one queued message per running slot, so memory stays bounded. */
+  private hasRoom(lane: Lane): boolean {
+    return lane.queue.length < lane.limit;
+  }
+
+  /**
+   * Runs `job` in `lane` once a place is free, in arrival order. Resolves with
+   * the job's result, or false if the mailbox stops while it is still queued.
+   */
+  private submit(
+    lane: Lane,
+    slot: string,
+    job: () => Promise<boolean>,
+    onCancel: () => void,
+  ): Promise<boolean> {
+    this.held.add(slot);
+    return new Promise<boolean>((resolve) => {
+      const start = (): void => {
+        lane.running += 1;
+        const task: Promise<boolean> = job()
+          .catch((error: unknown) => {
+            this.logger.warn('message handler crashed', { slot, error: String(error) });
+            return false;
+          })
+          .finally(() => {
+            lane.running -= 1;
+            this.held.delete(slot);
+            this.laneTasks.delete(task);
+            this.drain(lane);
+          });
+        this.laneTasks.add(task);
+        void task.then(resolve);
+      };
+      const cancel = (): void => {
+        this.held.delete(slot);
+        onCancel();
+        resolve(false);
+      };
+      lane.queue.push({ start, cancel });
+      this.drain(lane);
+    });
+  }
+
+  private drain(lane: Lane): void {
+    let opened = 0;
+    while (!this.stopping && lane.running < lane.limit) {
+      const next = lane.queue.shift();
+      if (!next) break;
+      opened += 1;
+      next.start();
+    }
+    // A place in the queue opened for each message that moved up, so that many
+    // turned-away messages, oldest first, may be fetched again. Releasing all
+    // of them would refetch the whole backlog to park most of it once more.
+    for (const [slot, parkedLane] of this.parked) {
+      if (opened === 0) break;
+      if (parkedLane !== lane.name) continue;
+      this.parked.delete(slot);
+      opened -= 1;
+    }
   }
 
   private async run(): Promise<void> {
@@ -418,7 +573,7 @@ export class MailboxEngine {
       let delivered = 0;
       try {
         // Started, not finished: a message being handled is traffic too.
-        delivered = (await this.poll(/* waitForSlot */ false)).length;
+        delivered = (await this.poll(/* bounded */ true)).length;
       } catch (error) {
         const deadDropError = DeadDropError.from(error);
         if (deadDropError.code !== 'CANCELLED') {
@@ -508,33 +663,40 @@ export class MailboxEngine {
 
   private async pollInbox(
     entry: ManagedTransport,
-    waitForSlot: boolean,
+    bounded: boolean,
     started: Array<Promise<boolean>>,
   ): Promise<void> {
     const prefix = inboxPrefix(this.workspace, this.peerId);
     // Keys still being handled come back in the listing until they are
     // acknowledged, so they must not eat the batch meant for new messages.
     const listed = await this.safeList(entry, prefix, {
-      limit: this.batchSize + this.active.size,
+      limit: this.batchSize + this.active.size + this.held.size + this.parked.size,
     });
+    // A parked message removed behind our back (expired, reaped) never comes
+    // back in a listing; forget it or the listing limit grows without end.
+    const listedSlots = new Set(listed.map((key) => `${entry.name}:${key}`));
+    for (const slot of this.parked.keys()) {
+      if (slot.startsWith(`${entry.name}:`) && !listedSlots.has(slot)) this.parked.delete(slot);
+    }
     if (listed.length === 0) return;
 
     const now = this.clock.now();
     const ready = listed.filter((key) => {
-      if (this.active.has(`${entry.name}:${key}`)) return false;
+      const slot = `${entry.name}:${key}`;
+      if (this.active.has(slot) || this.held.has(slot) || this.parked.has(slot)) return false;
       const state = this.delivery.get(key);
       return !state || state.nextAttemptAt <= now;
     });
 
     for (const key of ready.slice(0, this.batchSize)) {
-      if (!(await this.dispatch(entry, key, /* acknowledge */ true, waitForSlot, started))) return;
+      await this.dispatch(entry, key, /* acknowledge */ true, bounded, started);
     }
   }
 
   private async pollTopic(
     entry: ManagedTransport,
     channel: string,
-    waitForSlot: boolean,
+    bounded: boolean,
     started: Array<Promise<boolean>>,
   ): Promise<void> {
     const prefix = topicPrefix(this.workspace, channel);
@@ -548,9 +710,10 @@ export class MailboxEngine {
       // Broadcast messages belong to every subscriber, so they are never
       // deleted on consumption; the cursor is what stops redelivery here and
       // retention reaping is what eventually removes them. It only moves past
-      // a key once that key has a slot, so a full pool leaves the rest for the
-      // next cycle.
-      if (!(await this.dispatch(entry, key, /* acknowledge */ false, waitForSlot, started))) return;
+      // a key once that key has a slot and its lane has room, so a full pool
+      // or lane leaves the rest for the next cycle.
+      if (bounded && !this.hasRoom(this.laneOf('event', channel))) return;
+      await this.dispatch(entry, key, /* acknowledge */ false, bounded, started);
       this.topicCursors.set(cursorKey, key);
     }
   }
@@ -589,9 +752,12 @@ export class MailboxEngine {
     store: StoreTransport,
     key: string,
     acknowledge: boolean,
+    bounded: boolean,
+    handOff: () => void,
   ): Promise<boolean> {
     const handler = this.handler;
     if (!handler) return false;
+    const slot = `${entry.name}:${key}`;
     this.inflight += 1;
     try {
       const raw = await store.get(key).catch((error: unknown) => {
@@ -634,6 +800,21 @@ export class MailboxEngine {
         return false;
       }
 
+      // Responses and acks are delivered from the receive slot: they only
+      // resolve a waiting caller, and a handler that is itself waiting on one
+      // must never be what keeps it out. Everything else runs in a lane.
+      const inline = INLINE_KINDS.has(envelope.kind);
+      const lane = inline ? undefined : this.laneOf(envelope.kind, envelope.channel);
+      // Checked before the chunk is assembled or the message claimed, because
+      // both are irreversible: an assembled group's other chunks are already
+      // acknowledged. `bounded` is false for a manual `pollOnce` and for
+      // topics, whose cursor has already moved past the key. Nothing awaits
+      // between this check and `submit`.
+      if (lane && bounded && acknowledge && !this.hasRoom(lane)) {
+        this.parked.set(slot, lane.name);
+        return false;
+      }
+
       const assembled = this.assembleOrHold(envelope, key, store, acknowledge);
       if (!assembled) return false;
 
@@ -644,35 +825,48 @@ export class MailboxEngine {
         return false;
       }
 
-      // A response joins the trace of the request it answers, so one trace id
-      // covers the whole round trip as this peer saw it.
-      const span = this.tracer?.startSpan('mailbox.deliver', {
-        traceId: assembled.correlationId ?? assembled.id,
-        attributes: {
-          channel: assembled.channel,
-          kind: assembled.kind,
-          transport: entry.name,
-          messageId: assembled.id,
-        },
-      });
-      try {
-        await handler(assembled);
-        span?.end('ok');
-      } catch (error) {
-        // The dedupe claim has to be released, otherwise the redelivery we are
-        // about to schedule would be swallowed as a duplicate.
-        this.dedupe.delete(dedupeKey(assembled));
-        span?.setAttribute('error', String((error as Error).message));
-        span?.end('error');
-        await this.handleDeliveryFailure(store, key, assembled, error, acknowledge);
-        return false;
-      }
+      const deliver = async (): Promise<boolean> => {
+        // A response joins the trace of the request it answers, so one trace id
+        // covers the whole round trip as this peer saw it.
+        const span = this.tracer?.startSpan('mailbox.deliver', {
+          traceId: assembled.correlationId ?? assembled.id,
+          attributes: {
+            channel: assembled.channel,
+            kind: assembled.kind,
+            transport: entry.name,
+            messageId: assembled.id,
+          },
+        });
+        try {
+          await handler(assembled);
+          span?.end('ok');
+        } catch (error) {
+          // The dedupe claim has to be released, otherwise the redelivery we are
+          // about to schedule would be swallowed as a duplicate.
+          this.dedupe.delete(dedupeKey(assembled));
+          span?.setAttribute('error', String((error as Error).message));
+          span?.end('error');
+          await this.handleDeliveryFailure(store, key, assembled, error, acknowledge);
+          return false;
+        }
 
-      this.metrics.messagesReceived.inc({ kind: assembled.kind, channel: assembled.channel });
-      this.delivery.delete(key);
-      if (acknowledge) await this.remove(store, key);
-      return true;
+        this.metrics.messagesReceived.inc({ kind: assembled.kind, channel: assembled.channel });
+        this.delivery.delete(key);
+        if (acknowledge) await this.remove(store, key);
+        return true;
+      };
+
+      if (!lane) return await deliver();
+      // The key stays listed until `deliver` acknowledges it, so `held` (set by
+      // `submit`, synchronously) is what keeps the poll from starting it again.
+      // Free the receive slot only after that, so the key is never in neither.
+      const result = this.submit(lane, slot, deliver, () =>
+        this.dedupe.delete(dedupeKey(assembled)),
+      );
+      handOff();
+      return await result;
     } finally {
+      handOff();
       this.inflight -= 1;
     }
   }

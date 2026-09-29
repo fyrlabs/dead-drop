@@ -60,6 +60,13 @@ export interface RuntimeStatus {
       running: boolean;
       pollIntervalMs: number;
       concurrency: number;
+      lanes: Array<{
+        name: string;
+        limit: number;
+        running: number;
+        queued: number;
+        parked: number;
+      }>;
       inflight: number;
       retrying: number;
       pendingChunkGroups: number;
