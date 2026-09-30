@@ -854,6 +854,30 @@ describe('MailboxEngine lanes', () => {
     await context.stop();
   });
 
+  it('keeps draining a backlog of slow handlers one finish at a time', async () => {
+    const objects = await inbox(Array.from({ length: 10 }, () => request()));
+    const gates: Array<() => void> = [];
+    const entered: string[] = [];
+    const context = await fixture({
+      peerId: 'peer-b',
+      objects,
+      handler: async (message) => {
+        entered.push(message.id);
+        await new Promise<void>((resolve) => gates.push(resolve));
+      },
+    });
+    await context.start();
+    for (let round = 0; round < 40 && entered.length < 10; round += 1) {
+      await settle();
+      await context.clock.advance(20_000);
+      await settle();
+      gates.splice(0).forEach((finish) => finish());
+    }
+    await settle();
+    expect(entered).toHaveLength(10);
+    await context.stop();
+  });
+
   it('parks a message its lane has no room for instead of fetching it every poll', async () => {
     const objects = await inbox([request(), request(), request()]);
     const { closed, open } = gate();
