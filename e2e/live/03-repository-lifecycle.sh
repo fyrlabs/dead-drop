@@ -29,7 +29,15 @@
 #     carries a special case for `ls-remote` exiting 2 against a repository with
 #     no branches. That path only ever runs on somebody's first day.
 #
-# THIS SCENARIO CREATES A REPOSITORY AND CANNOT DELETE IT. The `gh` token used
+# Set E2E_LIFECYCLE_REPO=<owner/repo> to reuse an existing repository instead.
+# That keeps the "not there" verdict (against a name that is never created), the
+# join and the served request, but it cannot cover `gh repo create` or the
+# bootstrap from a repository with no commits: a repository that already has a
+# default branch cannot be put back to empty, because GitHub refuses to delete a
+# default branch. Reuse a repository other scenarios already write to, so its
+# `deaddrop-data` branch is not the only place foreign keys can come from.
+#
+# Without it, THIS SCENARIO CREATES A REPOSITORY AND CANNOT DELETE IT. The `gh` token used
 # here has no `delete_repo` scope, on purpose, so every run leaves one more
 # private repository behind. They are all named `dead-drop-e2e-<timestamp>`;
 # the last line of the run tells you how to remove them.
@@ -42,14 +50,20 @@ echo "served-from-a-repository-that-did-not-exist" > "$LIFE_STATIC/index.txt"
 # The repository this scenario invents. Owned by whoever owns the repository the
 # run was pointed at, so the tier still names exactly one account.
 NEW_REPO="${REPO%%/*}/dead-drop-e2e-$(date +%Y%m%d-%H%M%S)"
+MISSING_REPO="$NEW_REPO"
+REUSE=""
+if [ -n "${E2E_LIFECYCLE_REPO:-}" ]; then
+  REUSE=1
+  NEW_REPO="$E2E_LIFECYCLE_REPO"
+fi
 
 # Defined here and not borrowed from 01-github, which defines an identical-looking
 # `gh_transport` against `$REPO`. Scenarios are sourced into one shell, so
 # borrowing survives a whole-tier run and dies under `--only` with an unbound
 # variable, and the run still exits 0 having asserted nothing.
-life_transport() { # $1 = work dir, $2 = createIfMissing
+life_transport() { # $1 = work dir, $2 = createIfMissing, $3 = repository (default $NEW_REPO)
   printf '{ "use": "github", "config": { "repo": "%s", "workDir": "%s", "createIfMissing": %s, "rateLimitIntervalMs": 5000 } }' \
-    "$NEW_REPO" "$1" "$2"
+    "${3:-$NEW_REPO}" "$1" "$2"
 }
 LIFE_POLLING='"polling": { "minIntervalMs": 3000, "maxIntervalMs": 15000 }'
 
@@ -76,7 +90,7 @@ life_usable() { # $1 = peer dir
 missing_message_names_the_fix() {
   note "the transport says: $missing_message"
   case "$missing_message" in
-    *"$NEW_REPO"*createIfMissing*) return 0 ;;
+    *"$MISSING_REPO"*createIfMissing*) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -113,10 +127,15 @@ life_serves_content() {
 
 scenario "a repository that is not there"
 
-note "this scenario invents $NEW_REPO, which does not exist yet"
+if [ -n "$REUSE" ]; then
+  note "reusing $NEW_REPO: no repository is created, so the create and empty-bootstrap assertions are skipped"
+  note "the missing-repository check uses $MISSING_REPO, which is never created"
+else
+  note "this scenario invents $NEW_REPO, which does not exist yet"
+fi
 
 UP_ATTEMPTS=60
-write_config "$LIFE/refuser" "refuser" "$(life_transport "$LIFE/refuser/work" false)" "" "$LIFE_POLLING"
+write_config "$LIFE/refuser" "refuser" "$(life_transport "$LIFE/refuser/work" false "$MISSING_REPO")" "" "$LIFE_POLLING"
 REFUSER_PID=$(start_peer "$LIFE/refuser" "$LIFE/refuser.log")
 
 # A runtime that will not start is a runtime nobody can ask what is wrong, and a
@@ -178,11 +197,15 @@ can "serve a request through a repository that had no commits at all until now" 
   life_serves_content
 ON_FAIL=""
 
-can "show that it really did start from nothing: the orphan branch is the only branch on it" \
-  only_the_orphan_branch
+if [ -z "$REUSE" ]; then
+  can "show that it really did start from nothing: the orphan branch is the only branch on it" \
+    only_the_orphan_branch
+fi
 
 stop_peer "$CREATOR_PID"
 stop_peer "$READER_PID"
 
-note "$NEW_REPO was created by this run and is still there"
-note "remove it with: gh auth refresh -h github.com -s delete_repo && gh repo delete $NEW_REPO --yes"
+if [ -z "$REUSE" ]; then
+  note "$NEW_REPO was created by this run and is still there"
+  note "remove it with: gh auth refresh -h github.com -s delete_repo && gh repo delete $NEW_REPO --yes"
+fi

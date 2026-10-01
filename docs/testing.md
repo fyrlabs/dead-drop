@@ -86,6 +86,8 @@ This is the tier that found the `git push` exit-code bug: nothing local reproduc
 
 **`03-repository-lifecycle.sh` creates a repository and cannot delete it.** The `gh` token wants no `delete_repo` scope, so every live run leaves one more private `dead-drop-e2e-<timestamp>` repository on the account. The run prints the name and the command to remove it.
 
+Set `E2E_LIFECYCLE_REPO=<owner/repo>` to reuse an existing repository instead. The scenario then creates nothing and skips the two assertions that need a repository with no commits (the create path and the orphan-branch bootstrap), because a repository with a default branch cannot be put back to empty. Run without it before a release that touches `GitHubStore.resolve` or the git transport's `initialise`.
+
 **Do not put the live tier in CI.** It needs credentials and writes to a real repository.
 
 ### One thing a same-machine run must do
