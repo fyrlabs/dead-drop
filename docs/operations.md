@@ -135,6 +135,8 @@ Raise `presenceIntervalMs` at the same time. Every peer publishes a beacon on th
 
 None of this touches the two costs that are not settings: the request body still crosses the transport twice, and a browser's first page load is several serialised round trips.
 
+A streamed response that the caller abandons stops on the same polled path. Measured against a local bare repository with `freshnessMs: 500` and `batchWindowMs: 50`, the sender stopped pumping a median 771 ms after the caller hung up (737 to 1321 ms over five runs). At the default `freshnessMs` of 5000 the cancel waits behind the same gate, so expect about five seconds. That figure is inferred, not measured.
+
 ## Metrics
 
 `ddrop metrics` emits Prometheus text. The ones worth alerting on:

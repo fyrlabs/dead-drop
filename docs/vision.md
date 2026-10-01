@@ -22,15 +22,13 @@ dead-drop turns that shared thing into a transport.
 
 ## What exists today
 
-Four transports: filesystem, git, github and memory. Encryption, chunking, compression, retries, circuit breaking, failover, deduplication, health-based routing, structured logs, Prometheus metrics and tracing. Proxy mode and static exposures. A plugin contract stable enough for third parties to build against.
+Four transports: filesystem, git, github and memory. Encryption, chunking, compression, retries, circuit breaking, failover, deduplication, health-based routing, structured logs, Prometheus metrics and tracing. Proxy mode and static exposures. Opt-in streaming of proxied response bodies, so server-sent events and large downloads need not fit in memory (a buffered response is still capped at 32 MiB). A plugin contract stable enough for third parties to build against.
 
 ## Where it goes next
 
 **More transports, as separate packages.** S3-compatible storage, OneDrive and SharePoint are the obvious gaps. GitLab, Bitbucket and Azure DevOps already work through the git transport by remote url; they earn dedicated packages only if their APIs offer something git does not.
 
 **A token path for GitHub.** Today authentication is delegated entirely to `gh`. A REST path behind the existing `GhClient` seam would remove that dependency for environments where installing `gh` is the hard part.
-
-**Streaming.** A response is buffered whole today and capped at 32 MiB. Large payloads should stream.
 
 **A plugin ecosystem.** The measure of success is a transport written by someone who has never read this repository's internals, passing the conformance suite on the first try.
 
