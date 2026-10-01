@@ -125,11 +125,19 @@ untrack() {
 
 # SIGTERM alone leaves runtimes behind when the kill lands while one is still
 # starting up, so always follow with SIGKILL before removing anything.
+#
+# TRACKED_PIDS is not enough on its own: `start_peer` runs inside `$(...)`, so
+# its `track` lands in a subshell and the parent never sees the pid. A run that
+# aborts before a scenario's own `stop_peer` would delete the work dir under a
+# live runtime and leave it behind for good. Every runtime this run started has
+# `$WORK` in its command line, so sweep for that too.
 kill_tracked() {
   local pid
   for pid in $TRACKED_PIDS; do kill "$pid" 2>/dev/null; done
+  pkill -f "$WORK/" 2>/dev/null
   sleep 2
   for pid in $TRACKED_PIDS; do kill -9 "$pid" 2>/dev/null; done
+  pkill -9 -f "$WORK/" 2>/dev/null
   TRACKED_PIDS=""
 }
 
