@@ -33,8 +33,8 @@ echo "rotated-over-github" > "$STATIC/index.txt"
 # somebody runs this one alone with `--only`, which is exactly how it will be
 # run while it is being changed.
 rot_transport() { # $1 = work dir
-  printf '{ "use": "github", "config": { "repo": "%s", "workDir": "%s", "createIfMissing": false, "rateLimitIntervalMs": 5000 } }' \
-    "$REPO" "$1"
+  printf '{ "use": "github", "config": { "repo": "%s", "workDir": "%s", "branch": "%s", "createIfMissing": false, "rateLimitIntervalMs": 5000 } }' \
+    "$REPO" "$1" "$E2E_BRANCH"
 }
 ROT_POLLING='"polling": { "minIntervalMs": 3000, "maxIntervalMs": 15000 }'
 

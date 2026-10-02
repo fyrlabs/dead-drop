@@ -19,8 +19,8 @@ echo "hello-over-github" > "$STATIC/index.txt"
 # Polling is slowed right down compared to the fast tier: every poll is a fetch
 # against a real remote, and hammering it teaches nothing that one poll does not.
 gh_transport() { # $1 = work dir
-  printf '{ "use": "github", "config": { "repo": "%s", "workDir": "%s", "createIfMissing": false, "rateLimitIntervalMs": 5000 } }' \
-    "$REPO" "$1"
+  printf '{ "use": "github", "config": { "repo": "%s", "workDir": "%s", "branch": "%s", "createIfMissing": false, "rateLimitIntervalMs": 5000 } }' \
+    "$REPO" "$1" "$E2E_BRANCH"
 }
 POLLING='"polling": { "minIntervalMs": 3000, "maxIntervalMs": 15000 }'
 
@@ -280,7 +280,7 @@ scenario "a data branch that re-orphans itself on a real host"
 # The threshold is low on purpose: the default is 500 and a whole live run makes
 # roughly 195 commits, so at the default this would never fire.
 
-CBRANCH="deaddrop-compact-e2e"
+CBRANCH="$E2E_BRANCH-compact"
 compact_transport() { # $1 = work dir
   printf '{ "use": "github", "config": { "repo": "%s", "workDir": "%s", "branch": "%s", "createIfMissing": false, "rateLimitIntervalMs": 5000, "compactAfterCommits": 4 } }' \
     "$REPO" "$1" "$CBRANCH"
@@ -370,8 +370,8 @@ cannot "leave anything but objects on the branch it rewrote" \
 stop_peer "$CCONNECT_PID"
 stop_peer "$C_PID"
 stop_peer "$D_PID"
-note "$REPO also keeps its $CBRANCH branch, which this scenario force-pushes"
+note "$CBRANCH is force-pushed by this scenario and deleted when the run ends"
 
 RL_END=$(gh api rate_limit --jq '.resources.core.remaining' 2>/dev/null)
 note "core rate limit at end: $RL_END of $RL_LIMIT, $(( RL_START - RL_END )) spent over the whole run"
-note "$REPO keeps its deaddrop-data branch; the repository is yours to delete"
+note "$E2E_BRANCH is deleted when the run ends; the repository is yours"

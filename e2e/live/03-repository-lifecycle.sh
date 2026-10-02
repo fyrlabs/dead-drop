@@ -52,9 +52,13 @@ echo "served-from-a-repository-that-did-not-exist" > "$LIFE_STATIC/index.txt"
 NEW_REPO="${REPO%%/*}/dead-drop-e2e-$(date +%Y%m%d-%H%M%S)"
 MISSING_REPO="$NEW_REPO"
 REUSE=""
+# A repository this run creates has no branches, so the transport's own default
+# is the interesting case there. A reused one gets this run's branch instead.
+LIFE_BRANCH="deaddrop-data"
 if [ -n "${E2E_LIFECYCLE_REPO:-}" ]; then
   REUSE=1
   NEW_REPO="$E2E_LIFECYCLE_REPO"
+  LIFE_BRANCH="$E2E_BRANCH"
 fi
 
 # Defined here and not borrowed from 01-github, which defines an identical-looking
@@ -62,8 +66,8 @@ fi
 # borrowing survives a whole-tier run and dies under `--only` with an unbound
 # variable, and the run still exits 0 having asserted nothing.
 life_transport() { # $1 = work dir, $2 = createIfMissing, $3 = repository (default $NEW_REPO)
-  printf '{ "use": "github", "config": { "repo": "%s", "workDir": "%s", "createIfMissing": %s, "rateLimitIntervalMs": 5000 } }' \
-    "${3:-$NEW_REPO}" "$1" "$2"
+  printf '{ "use": "github", "config": { "repo": "%s", "workDir": "%s", "branch": "%s", "createIfMissing": %s, "rateLimitIntervalMs": 5000 } }' \
+    "${3:-$NEW_REPO}" "$1" "$LIFE_BRANCH" "$2"
 }
 LIFE_POLLING='"polling": { "minIntervalMs": 3000, "maxIntervalMs": 15000 }'
 
@@ -205,7 +209,9 @@ fi
 stop_peer "$CREATOR_PID"
 stop_peer "$READER_PID"
 
-if [ -z "$REUSE" ]; then
+if [ -n "$REUSE" ]; then
+  gh api -X DELETE "repos/$NEW_REPO/git/refs/heads/$LIFE_BRANCH" >/dev/null 2>&1
+else
   note "$NEW_REPO was created by this run and is still there"
   note "remove it with: gh auth refresh -h github.com -s delete_repo && gh repo delete $NEW_REPO --yes"
 fi

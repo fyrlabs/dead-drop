@@ -22,8 +22,9 @@
 #   e2e/run.sh fast --only broadcast run scenarios whose file name matches
 #   e2e/run.sh --list                show the scenarios in each tier
 #
-# The live tier writes a `deaddrop-data` branch to the repository you name and
-# leaves it there. Use a private throwaway:
+# The live tier writes to a branch of its own (`e2e-<timestamp>-<pid>`) in the
+# repository you name and deletes it when the run ends; set E2E_KEEP_BRANCH=1 to
+# keep it for inspecting a failure. Use a private throwaway:
 #
 #   gh repo create <owner>/dead-drop-trial --private
 
@@ -103,7 +104,13 @@ else
   [ -f "$REPO_ROOT/packages/dead-drop/dist/cli/bin.js" ] \
     || { echo "e2e: dist is missing; run 'npm run build' first" >&2; exit 1; }
 fi
-export DDROP WORK REPO REPO_ROOT
+# The live tier writes to its own branch of the repository, never to a branch a
+# previous run or a stray runtime may still be writing. `cleanup` deletes it.
+E2E_BRANCH=""
+if [ "$TIER" = live ] || [ "$TIER" = all ]; then
+  E2E_BRANCH="e2e-$(date +%Y%m%d-%H%M%S)-$$"
+fi
+export DDROP WORK REPO REPO_ROOT E2E_BRANCH
 
 echo "tier:     $TIER${REPO:+  repository: $REPO}"
 echo "work dir: $WORK"

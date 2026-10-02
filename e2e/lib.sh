@@ -143,6 +143,15 @@ kill_tracked() {
 
 cleanup() {
   kill_tracked
+  # Deleting a non-default branch needs no `delete_repo` scope. Runtimes are
+  # dead by now, so nothing can recreate it. `E2E_KEEP_BRANCH=1` keeps it for
+  # inspecting a failed run.
+  if [ -n "${E2E_BRANCH:-}" ] && [ -n "${REPO:-}" ] && [ -z "${E2E_KEEP_BRANCH:-}" ]; then
+    local b
+    for b in "$E2E_BRANCH" "$E2E_BRANCH-compact"; do
+      gh api -X DELETE "repos/$REPO/git/refs/heads/$b" >/dev/null 2>&1
+    done
+  fi
   # A git-backed runtime may still be committing into its clone when the kill
   # lands, so a single rm loses the race and reports "Directory not empty".
   local attempt

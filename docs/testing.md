@@ -69,7 +69,7 @@ No network, no credentials, safe for CI, and it runs before every release. Under
 
 ### The live tier
 
-Real credentials, a real repository, about fifteen minutes. It writes a `deaddrop-data` branch to the repository you name and leaves it there, so point it at a private throwaway:
+Real credentials, a real repository, about fifteen minutes. It writes to a branch of its own, `e2e-<timestamp>-<pid>`, in the repository you name and deletes that branch when the run ends (`E2E_KEEP_BRANCH=1` keeps it for inspecting a failure), so point it at a private throwaway:
 
 ```bash
 gh repo create <owner>/dead-drop-trial --private
